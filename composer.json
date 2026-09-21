@@ -1,0 +1,95 @@
+{
+	"name": "qbitflow/qbitflow-php",
+	"description": "Official PHP SDK for QBitFlow - Next Generation Crypto Payment Processing",
+	"keywords": [
+		"qbitflow",
+		"cryptocurrency",
+		"crypto",
+		"payment",
+		"payment-processing",
+		"bitcoin",
+		"solana",
+		"ethereum",
+		"blockchain",
+		"subscription",
+		"recurring-billing",
+		"payment-gateway",
+		"api-client",
+		"laravel",
+		"php",
+		"sdk"
+	],
+	"homepage": "https://qbitflow.app",
+	"license": "MPL-2.0",
+	"authors": [
+		{
+			"name": "QBitFlow",
+			"email": "support@qbitflow.app",
+			"homepage": "https://qbitflow.app"
+		}
+	],
+	"support": {
+		"issues": "https://github.com/qbitflow/qbitflow-php-sdk/issues",
+		"source": "https://github.com/qbitflow/qbitflow-php-sdk",
+		"docs": "https://qbitflow.app/docs"
+	},
+	"require": {
+		"php": "^8.2",
+		"ext-json": "*",
+		"psr/http-client": "^1.0",
+		"psr/http-client-implementation": "^1.0",
+		"psr/http-factory": "^1.0",
+		"psr/http-factory-implementation": "^1.0",
+		"psr/http-message": "^1.1 || ^2.0"
+	},
+	"require-dev": {
+		"guzzlehttp/guzzle": "^7.8",
+		"illuminate/config": "^10.0 || ^11.0 || ^12.0",
+		"illuminate/console": "^10.0 || ^11.0 || ^12.0",
+		"illuminate/events": "^10.0 || ^11.0 || ^12.0",
+		"illuminate/http": "^10.0 || ^11.0 || ^12.0",
+		"illuminate/routing": "^10.0 || ^11.0 || ^12.0",
+		"illuminate/support": "^10.0 || ^11.0 || ^12.0",
+		"nyholm/psr7": "^1.8",
+		"php-http/discovery": "^1.19",
+		"phpunit/phpunit": "^10.5 || ^11.0",
+		"vlucas/phpdotenv": "^5.6"
+	},
+	"suggest": {
+		"guzzlehttp/guzzle": "The simplest way to satisfy the PSR-18 and PSR-17 requirements. Already present in every Laravel application.",
+		"nyholm/psr7": "A lightweight PSR-17 factory, if you use a PSR-18 client that does not ship one.",
+		"illuminate/support": "Enables the Laravel service provider, facade, Artisan commands and webhook middleware."
+	},
+	"autoload": {
+		"psr-4": {
+			"QBitFlow\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"QBitFlow\\Tests\\": "tests/"
+		}
+	},
+	"extra": {
+		"laravel": {
+			"providers": [
+				"QBitFlow\\Laravel\\QBitFlowServiceProvider"
+			],
+			"aliases": {
+				"QBitFlow": "QBitFlow\\Laravel\\Facades\\QBitFlow"
+			}
+		}
+	},
+	"config": {
+		"sort-packages": true,
+		"allow-plugins": {
+			"php-http/discovery": true
+		}
+	},
+	"scripts": {
+		"test": "phpunit",
+		"test:coverage": "phpunit --coverage-text"
+	},
+	"minimum-stability": "stable",
+	"prefer-stable": true
+}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         executionOrder="random"
+         failOnRisky="true"
+         failOnWarning="true"
+         beStrictAboutOutputDuringTests="true"
+         displayDetailsOnTestsThatTriggerWarnings="true"
+         displayDetailsOnTestsThatTriggerErrors="true">
+	<!--
+		The unit suite asserts against Config's DEFAULT_BASE_URL. Config::baseUrl() honours
+		QBITFLOW_BASE_URL, so a developer with that variable exported (for integration work)
+		would otherwise see every path assertion fail. Force it empty so the suite is
+		hermetic and independent of the ambient environment.
+	-->
+	<php>
+		<env name="QBITFLOW_BASE_URL" value="" force="true"/>
+		<env name="QBITFLOW_API_KEY" value="" force="true"/>
+	</php>
+	<testsuites>
+		<testsuite name="QBitFlow SDK">
+			<directory>tests</directory>
+		</testsuite>
+	</testsuites>
+	<source>
+		<include>
+			<directory>src</directory>
+		</include>
+	</source>
+</phpunit>
