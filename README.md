@@ -1,6 +1,5 @@
 # QBitFlow PHP SDK
 
-[![CI](https://github.com/qbitflow/qbitflow-php-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/qbitflow/qbitflow-php-sdk/actions/workflows/ci.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 Official PHP SDK for [QBitFlow](https://qbitflow.app) — non-custodial cryptocurrency payment
