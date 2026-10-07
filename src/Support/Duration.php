@@ -26,15 +26,20 @@ final class Duration extends Dto implements Stringable
 	public readonly DurationUnit $unit;
 
 	/**
-	 * @param int                $value Number of units. Must be greater than zero.
+	 * @param int                 $value Number of units, 0 to 4294967295 (a Go `uint32`). A
+	 *                                   billing frequency must be at least 1; a trial period
+	 *                                   may be 0. Both are checked when the session is created.
 	 * @param DurationUnit|string $unit  Unit of time.
 	 *
-	 * @throws ValidationException If the value is not positive or the unit is unknown.
+	 * @throws ValidationException If the value is out of range or the unit is unknown.
 	 */
 	public function __construct(int $value, DurationUnit|string $unit)
 	{
-		if ($value <= 0) {
-			throw new ValidationException('Duration value must be positive');
+		if ($value < 0 || $value > Validate::UINT32_MAX) {
+			throw new ValidationException(sprintf(
+				'Duration value must be between 0 and %d',
+				Validate::UINT32_MAX,
+			));
 		}
 
 		if (is_string($unit)) {
@@ -91,19 +96,26 @@ final class Duration extends Dto implements Stringable
 	}
 
 	/**
-	 * Build a Duration from an API payload or a plain array such as
-	 * `['value' => 1, 'unit' => 'months']`.
+	 * Build a Duration from a plain array such as `['value' => 1, 'unit' => 'months']`.
 	 *
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @throws ValidationException If `value` is not an integer in range, or `unit` is missing or unknown.
 	 */
 	public static function fromArray(array $data): self
 	{
+		$value = $data['value'] ?? null;
 		$unit = $data['unit'] ?? null;
 
-		return new self(
-			Cast::int($data, 'value'),
-			is_string($unit) ? $unit : DurationUnit::SECONDS->value,
-		);
+		if (! is_int($value)) {
+			throw new ValidationException('Duration value must be an integer');
+		}
+
+		if (! is_string($unit) && ! $unit instanceof DurationUnit) {
+			throw new ValidationException('Duration unit is required');
+		}
+
+		return new self($value, $unit);
 	}
 
 	/**

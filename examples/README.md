@@ -2,8 +2,8 @@
 
 | File | What it shows |
 | ---- | ------------- |
-| [`client.php`](client.php) | A tour of the SDK outside any framework: products, customers, a payment session, a subscription, currency lookups, pagination, `onBehalfOf`, and an accounting export. |
-| [`webhook-server.php`](webhook-server.php) | A webhook endpoint in plain PHP — signature verification, the dashboard test probe, and both webhook shapes. |
+| [`client.php`](client.php) | A tour of the SDK outside any framework: products, customers, a payment session, a subscription, currency lookups, a transaction-status check, pagination, client- and service-level `onBehalfOf`, and an accounting export. It deletes what it creates. |
+| [`webhook-server.php`](webhook-server.php) | A webhook endpoint in plain PHP — local or API signature verification, the dashboard test probe, and both typed webhook shapes. |
 | [`laravel/routes.php`](laravel/routes.php) | Registering the webhook routes. |
 | [`laravel/CheckoutController.php`](laravel/CheckoutController.php) | Turning an order into a checkout link, including the marketplace `onBehalfOf` variant. |
 | [`laravel/WebhookListeners.php`](laravel/WebhookListeners.php) | Queued listeners for the three webhook events. |
@@ -19,10 +19,13 @@ composer install
 QBITFLOW_API_KEY=your-test-key php examples/client.php
 ```
 
-For the webhook server, serve it and expose it with a tunnel so QBitFlow can reach it:
+For the webhook server, serve it and expose it with a tunnel so QBitFlow can reach it. With
+your webhook secret it verifies signatures locally and needs no API key; with only the API
+key it asks QBitFlow to verify each delivery:
 
 ```bash
-QBITFLOW_API_KEY=your-test-key php -S 127.0.0.1:8001 examples/webhook-server.php
+QBITFLOW_WEBHOOK_SECRET=whsec_... php -S 127.0.0.1:8001 examples/webhook-server.php
+# or: QBITFLOW_API_KEY=your-test-key php -S 127.0.0.1:8001 examples/webhook-server.php
 ngrok http 8001
 ```
 

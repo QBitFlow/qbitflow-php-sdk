@@ -21,15 +21,13 @@ final class TxAmountsFull extends Dto
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::nested($data, 'usd', TxAmountsUSD::fromArray(...))
-				?? new TxAmountsUSD(0.0, 0.0),
-			Cast::nested($data, 'minUnits', TxAmountsMinUnits::fromArray(...))
-				?? new TxAmountsMinUnits('0', '0', '0', '0'),
+			Cast::object($data, 'usd', TxAmountsUSD::fromArray(...)),
+			Cast::object($data, 'minUnits', TxAmountsMinUnits::fromArray(...)),
 		);
 	}
 }

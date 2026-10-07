@@ -10,12 +10,13 @@ use QBitFlow\Support\Cast;
 use QBitFlow\Support\Dto;
 
 /**
- * One billing-cycle record of a subscription.
+ * One billing-cycle record of a subscription. Also the `data` of a `billing` subscription
+ * webhook.
  */
 final class SubscriptionHistory extends Dto
 {
 	public function __construct(
-		/** Unique identifier for this billing record. */
+		/** Unique identifier for this billing record, `sub-hist@`-prefixed. */
 		public readonly string $uuid,
 		/** When the billing occurred. */
 		public readonly DateTimeImmutable $createdAt,
@@ -29,33 +30,33 @@ final class SubscriptionHistory extends Dto
 		public readonly string $description,
 		/** Amount charged, in USD. */
 		public readonly float $amount,
+		/** Amount in the smallest units of the payment currency, as a decimal string. */
+		public readonly string $amountMinUnits,
 		/** Currency ID. */
 		public readonly int $currencyId,
+		/** The currency charged. */
+		public readonly Currency $currency,
 		/** Whether this was a test-mode transaction. */
 		public readonly bool $test,
-		/** UUID of the parent subscription. */
+		/** Product the subscription bills for. */
+		public readonly int $productId,
+		/** UUID of the parent subscription, `sub@`-prefixed. */
 		public readonly string $subscriptionUUID,
 		/** Blockchain transaction hash. */
 		public readonly string $transactionHash,
-		/** UUID of the billed customer. */
-		public readonly string $customerUUID,
-		/** Amount in the smallest units of the payment currency. */
-		public readonly ?string $amountMinUnits = null,
-		/** Full currency details. */
-		public readonly ?Currency $currency = null,
-		/** Product ID, when the subscription came from a stored product. */
-		public readonly ?int $productId = null,
-		/** Owning organization ID. Authenticated reads only. */
-		public readonly ?int $organizationId = null,
-		/** Owning user ID. Authenticated reads only. */
-		public readonly ?int $userId = null,
-		/** Fee breakdown and on-chain details. Authenticated reads only. */
-		public readonly ?PaymentMetadata $metadata = null,
+		/** Owning organization ID. */
+		public readonly int $organizationId,
+		/** Owning user ID; `0` for an organization-level subscription. */
+		public readonly int $userId,
+		/** Fee breakdown and on-chain details. */
+		public readonly PaymentMetadata $metadata,
+		/** UUID of the billed customer; null when no customer was attached. */
+		public readonly ?string $customerUUID = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
@@ -67,17 +68,17 @@ final class SubscriptionHistory extends Dto
 			Cast::string($data, 'name'),
 			Cast::string($data, 'description'),
 			Cast::float($data, 'amount'),
+			Cast::string($data, 'amountMinUnits'),
 			Cast::int($data, 'currencyId'),
+			Cast::object($data, 'currency', Currency::fromArray(...)),
 			Cast::bool($data, 'test'),
+			Cast::int($data, 'productId'),
 			Cast::string($data, 'subscriptionUUID'),
 			Cast::string($data, 'transactionHash'),
-			Cast::string($data, 'customerUUID'),
-			Cast::nullableString($data, 'amountMinUnits'),
-			Cast::nested($data, 'currency', Currency::fromArray(...)),
-			Cast::nullableInt($data, 'productId'),
-			Cast::nullableInt($data, 'organizationId'),
-			Cast::nullableInt($data, 'userId'),
-			Cast::nested($data, 'metadata', PaymentMetadata::fromArray(...)),
+			Cast::int($data, 'organizationId'),
+			Cast::int($data, 'userId'),
+			Cast::object($data, 'metadata', PaymentMetadata::fromArray(...)),
+			Cast::nullableString($data, 'customerUUID'),
 		);
 	}
 }

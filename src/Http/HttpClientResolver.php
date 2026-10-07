@@ -55,13 +55,22 @@ final class HttpClientResolver
 				'connect_timeout' => $timeout,
 				// Non-2xx responses are classified by the transport, not thrown by Guzzle.
 				'http_errors' => false,
+				// The API never redirects. Following one would replay the X-API-Key header
+				// to whatever host the redirect names; surfacing the 3xx instead lets the
+				// transport report a misconfigured base URL.
+				'allow_redirects' => false,
 			]);
 		}
 
 		if (class_exists(\Symfony\Component\HttpClient\Psr18Client::class)) {
 			return class_exists(\Symfony\Component\HttpClient\HttpClient::class)
 				? new \Symfony\Component\HttpClient\Psr18Client(
-					\Symfony\Component\HttpClient\HttpClient::create(['timeout' => $timeout]),
+					// `timeout` is Symfony's idle timeout; `max_duration` bounds the whole request.
+					\Symfony\Component\HttpClient\HttpClient::create([
+						'timeout' => $timeout,
+						'max_duration' => $timeout,
+						'max_redirects' => 0,
+					]),
 				)
 				: new \Symfony\Component\HttpClient\Psr18Client();
 		}

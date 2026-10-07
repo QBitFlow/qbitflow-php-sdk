@@ -17,23 +17,23 @@ final class TxAmountsUSD extends Dto
 		public readonly float $platform,
 		/** Amount received by the merchant. */
 		public readonly float $merchant,
-		/** Organization fee share, absent when there is no organization fee. */
-		public readonly ?float $organization = null,
-		/** Referral fee share, absent when there is no referral fee. */
-		public readonly ?float $referral = null,
+		/** Organization fee share; `0.0` when there is no organization fee. */
+		public readonly float $organization = 0.0,
+		/** Referral fee share; `0.0` when there is no referral fee. */
+		public readonly float $referral = 0.0,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
 			Cast::float($data, 'platform'),
 			Cast::float($data, 'merchant'),
-			Cast::nullableFloat($data, 'organization'),
-			Cast::nullableFloat($data, 'referral'),
+			Cast::float($data, 'organization'),
+			Cast::float($data, 'referral'),
 		);
 	}
 }

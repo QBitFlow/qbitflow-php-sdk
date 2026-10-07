@@ -27,15 +27,15 @@ final class TxAmountsMinUnits extends Dto
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::string($data, 'platform', '0'),
-			Cast::string($data, 'organization', '0'),
-			Cast::string($data, 'referral', '0'),
-			Cast::string($data, 'merchant', '0'),
+			Cast::string($data, 'platform'),
+			Cast::string($data, 'organization'),
+			Cast::string($data, 'referral'),
+			Cast::string($data, 'merchant'),
 		);
 	}
 }

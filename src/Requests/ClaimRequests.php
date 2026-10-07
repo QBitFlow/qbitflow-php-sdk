@@ -7,7 +7,6 @@ namespace QBitFlow\Requests;
 use QBitFlow\Dto\ClaimFunds;
 use QBitFlow\Dto\ClaimRequestResponse;
 use QBitFlow\Dto\SuccessResponse;
-use QBitFlow\Support\Cast;
 
 /**
  * Account claims and the fund transfers that follow them.
@@ -33,8 +32,10 @@ final class ClaimRequests extends Request
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return ClaimRequestResponse::fromArray(
-			$this->transport->post(self::BASE_ROUTE . '/request', ['userId' => $userId]),
+		return $this->transport->post(
+			self::BASE_ROUTE . '/request',
+			['userId' => $userId],
+			self::one(ClaimRequestResponse::fromArray(...)),
 		);
 	}
 
@@ -47,37 +48,38 @@ final class ClaimRequests extends Request
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return ClaimRequestResponse::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/request/' . $userId),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/request/' . $userId,
+			map: self::one(ClaimRequestResponse::fromArray(...)),
 		);
 	}
 
 	/**
-	 * Get every active claim-fund entry: what your organization currently owes users who
-	 * have claimed their accounts.
+	 * Get every active claim-fund entry: what your organization currently owes the users
+	 * it provisioned, per user.
 	 *
 	 * @return list<ClaimFunds>
 	 */
 	public function getFunds(): array
 	{
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/funds'),
-			ClaimFunds::fromArray(...),
-		);
+		return $this->transport->get(self::BASE_ROUTE . '/funds', map: self::list(ClaimFunds::fromArray(...)));
 	}
 
 	/**
 	 * Compute a user's claim funds now instead of waiting for the hourly job.
 	 *
 	 * Test mode only, and requires an admin or owner key. Lets you exercise the whole
-	 * claim flow end to end without waiting.
+	 * claim flow end to end without waiting. Although the route is a GET, it creates a
+	 * claim-fund entry, so it is never retried.
 	 */
 	public function triggerTestClaimFunds(int $userId): SuccessResponse
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return SuccessResponse::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/funds/test-trigger/' . $userId),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/funds/test-trigger/' . $userId,
+			retry: false,
+			map: self::one(SuccessResponse::fromArray(...)),
 		);
 	}
 }

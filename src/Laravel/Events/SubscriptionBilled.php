@@ -16,13 +16,15 @@ final class SubscriptionBilled
 	public function __construct(
 		/** The billing record for this cycle. */
 		public readonly SubscriptionHistory $billing,
-		/** Your own reference for the subscription, when you set one at creation. */
-		public readonly ?string $subscriptionReference = null,
+		/** UUID of the subscription that was billed. */
+		public readonly string $subscriptionUUID,
+		/** Your own reference for the subscription; `''` when you set none. */
+		public readonly string $subscriptionReference = '',
 	) {
 	}
 
-	/** Your own reference for the subscription, when you set one at creation. */
-	public function reference(): ?string
+	/** Your own reference for the subscription; `''` when you set none. */
+	public function reference(): string
 	{
 		return $this->subscriptionReference;
 	}

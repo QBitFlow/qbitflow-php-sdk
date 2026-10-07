@@ -11,18 +11,22 @@
          displayDetailsOnTestsThatTriggerWarnings="true"
          displayDetailsOnTestsThatTriggerErrors="true">
 	<!--
-		The unit suite asserts against Config's DEFAULT_BASE_URL. Config::baseUrl() honours
-		QBITFLOW_BASE_URL, so a developer with that variable exported (for integration work)
-		would otherwise see every path assertion fail. Force it empty so the suite is
-		hermetic and independent of the ambient environment.
+		The Unit suite is hermetic: every client is built against a mock PSR-18 transport
+		with an explicit base URL, so it runs the same with or without QBITFLOW_* exported.
+
+		The Integration suite talks to a real API. It skips itself when QBITFLOW_API_KEY is not
+		set, and FAILS when the key is set without QBITFLOW_BASE_URL: it never falls back to a
+		default server. Load both from sdk2/.local.env:
+
+		  set -a; . ../.local.env; set +a   (then run phpunit with the Integration testsuite selected)
 	-->
-	<php>
-		<env name="QBITFLOW_BASE_URL" value="" force="true"/>
-		<env name="QBITFLOW_API_KEY" value="" force="true"/>
-	</php>
 	<testsuites>
-		<testsuite name="QBitFlow SDK">
-			<directory>tests</directory>
+		<testsuite name="Unit">
+			<directory>tests/Unit</directory>
+			<directory>tests/Laravel</directory>
+		</testsuite>
+		<testsuite name="Integration">
+			<directory>tests/Integration</directory>
 		</testsuite>
 	</testsuites>
 	<source>

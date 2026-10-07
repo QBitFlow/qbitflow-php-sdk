@@ -62,17 +62,22 @@ final class InstallCommand extends Command
 
 			$contents = (string) file_get_contents($path);
 
-			if (str_contains($contents, 'QBITFLOW_API_KEY')) {
-				$this->line("QBITFLOW_API_KEY already present in <comment>{$file}</comment>.");
+			$missing = array_values(array_filter(
+				['QBITFLOW_API_KEY', 'QBITFLOW_WEBHOOK_SECRET'],
+				static fn (string $key): bool => preg_match('/^' . $key . '=/m', $contents) !== 1,
+			));
+
+			if ($missing === []) {
+				$this->line("QBITFLOW_API_KEY and QBITFLOW_WEBHOOK_SECRET already present in <comment>{$file}</comment>.");
 
 				continue;
 			}
 
-			$block = PHP_EOL . 'QBITFLOW_API_KEY=' . PHP_EOL;
+			$block = PHP_EOL . implode('', array_map(static fn (string $key): string => $key . '=' . PHP_EOL, $missing));
 
 			file_put_contents($path, rtrim($contents, PHP_EOL) . PHP_EOL . $block);
 
-			$this->info("Added QBITFLOW_API_KEY to {$file}");
+			$this->info('Added ' . implode(' and ', $missing) . " to {$file}");
 		}
 	}
 
@@ -85,6 +90,8 @@ final class InstallCommand extends Command
 		$this->line('  1. Put your API key in <comment>.env</comment>:');
 		$this->line('     <fg=gray>QBITFLOW_API_KEY=your-api-key</>');
 		$this->line('     A test key keeps everything on testnets, separate from live data.');
+		$this->line('     Optionally add <fg=gray>QBITFLOW_WEBHOOK_SECRET</> (dashboard → Settings → Webhooks)');
+		$this->line('     to verify webhook signatures locally, without an API round-trip.');
 		$this->newLine();
 
 		$this->line('  2. Check it works:');

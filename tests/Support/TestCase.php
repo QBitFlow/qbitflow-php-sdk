@@ -6,6 +6,7 @@ namespace QBitFlow\Tests\Support;
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase as BaseTestCase;
+use QBitFlow\Config;
 use QBitFlow\Http\Transport;
 use QBitFlow\QBitFlow;
 
@@ -39,8 +40,11 @@ abstract class TestCase extends BaseTestCase
 	{
 		$factory = new Psr17Factory();
 
+		// The base URL is passed explicitly so the suite stays hermetic when a developer has
+		// QBITFLOW_BASE_URL exported for integration work.
 		return new QBitFlow(
 			$apiKey,
+			baseUrl: Config::DEFAULT_BASE_URL,
 			maxRetries: $maxRetries,
 			httpClient: $this->http,
 			requestFactory: $factory,
@@ -55,7 +59,7 @@ abstract class TestCase extends BaseTestCase
 
 		return new Transport(
 			$apiKey,
-			'https://api.qbitflow.app/v1',
+			Config::DEFAULT_BASE_URL,
 			30.0,
 			$maxRetries,
 			[],

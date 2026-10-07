@@ -21,12 +21,12 @@ final class NetworkFees extends Dto
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::string($data, 'amount', '0'),
+			Cast::string($data, 'amount'),
 			Cast::int($data, 'unitsConsumed'),
 		);
 	}

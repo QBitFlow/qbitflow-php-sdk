@@ -21,8 +21,9 @@ class RateLimitException extends QBitFlowException
 		?array $response = null,
 		private readonly ?int $retryAfter = null,
 		?Throwable $previous = null,
+		array $fields = [],
 	) {
-		parent::__construct($message, $statusCode, $response, $previous);
+		parent::__construct($message, $statusCode, $response, $previous, $fields);
 	}
 
 	/** Seconds to wait before retrying, as advertised by the `Retry-After` header. */

@@ -8,7 +8,6 @@ use QBitFlow\Dto\CreateProductDto;
 use QBitFlow\Dto\Product;
 use QBitFlow\Dto\SuccessResponse;
 use QBitFlow\Dto\UpdateProductDto;
-use QBitFlow\Support\Cast;
 
 /**
  * Create and manage the products customers buy or subscribe to.
@@ -35,7 +34,7 @@ final class ProductRequests extends Request
 	{
 		$dto = is_array($product) ? CreateProductDto::fromArray($product) : $product;
 
-		return Product::fromArray($this->transport->post(self::BASE_ROUTE . '/', $dto->toArray()));
+		return $this->transport->post(self::BASE_ROUTE . '/', $dto->toArray(), self::one(Product::fromArray(...)));
 	}
 
 	/**
@@ -45,7 +44,7 @@ final class ProductRequests extends Request
 	{
 		$this->requirePositive($productId, 'Product ID');
 
-		return Product::fromArray($this->transport->get(self::BASE_ROUTE . '/id/' . $productId));
+		return $this->transport->get(self::BASE_ROUTE . '/id/' . $productId, map: self::one(Product::fromArray(...)));
 	}
 
 	/**
@@ -55,7 +54,7 @@ final class ProductRequests extends Request
 	 */
 	public function getAll(): array
 	{
-		return Cast::listOf($this->transport->get(self::BASE_ROUTE . '/'), Product::fromArray(...));
+		return $this->transport->get(self::BASE_ROUTE . '/', map: self::list(Product::fromArray(...)));
 	}
 
 	/**
@@ -65,13 +64,14 @@ final class ProductRequests extends Request
 	{
 		$this->requireNonEmpty($reference, 'Product reference');
 
-		return Product::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/reference/' . $this->encode($reference)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/reference/' . $this->encode($reference),
+			map: self::one(Product::fromArray(...)),
 		);
 	}
 
 	/**
-	 * Update a product. All three fields replace the current values.
+	 * Update a product. Only the fields you set are sent; the others keep their value.
 	 *
 	 * @param UpdateProductDto|array<string,mixed> $product
 	 */
@@ -81,8 +81,10 @@ final class ProductRequests extends Request
 
 		$dto = is_array($product) ? UpdateProductDto::fromArray($product) : $product;
 
-		return Product::fromArray(
-			$this->transport->put(self::BASE_ROUTE . '/' . $productId, $dto->toArray()),
+		return $this->transport->put(
+			self::BASE_ROUTE . '/' . $productId,
+			$dto->toArray(),
+			self::one(Product::fromArray(...)),
 		);
 	}
 
@@ -93,6 +95,6 @@ final class ProductRequests extends Request
 	{
 		$this->requirePositive($productId, 'Product ID');
 
-		return SuccessResponse::fromArray($this->transport->delete(self::BASE_ROUTE . '/' . $productId));
+		return $this->transport->delete(self::BASE_ROUTE . '/' . $productId, self::one(SuccessResponse::fromArray(...)));
 	}
 }

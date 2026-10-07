@@ -26,14 +26,29 @@ class QBitFlowException extends RuntimeException
 	 * @param string             $message    Human-readable error message.
 	 * @param int|null           $statusCode HTTP status code, when the error came from a response.
 	 * @param array<string,mixed>|null $response Decoded response body, when available.
+	 * @param list<FieldError>   $fields     Per-field validation failures, when the API reported them.
 	 */
 	public function __construct(
 		string $message,
 		private readonly ?int $statusCode = null,
 		private readonly ?array $response = null,
 		?Throwable $previous = null,
+		private readonly array $fields = [],
 	) {
 		parent::__construct($message, $statusCode ?? 0, $previous);
+	}
+
+	/**
+	 * Per-field validation failures, when the API reported them; empty otherwise.
+	 *
+	 * Prefer this over parsing the message when you need to map failures back onto form
+	 * fields. The message lists every failure too, but as prose.
+	 *
+	 * @return list<FieldError>
+	 */
+	public function getFields(): array
+	{
+		return $this->fields;
 	}
 
 	/** HTTP status code that produced this error, or null for local/network failures. */

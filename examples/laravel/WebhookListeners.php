@@ -28,6 +28,7 @@ use QBitFlow\Enums\TransactionStatusValue;
 use QBitFlow\Laravel\Events\SubscriptionBilled;
 use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
 use QBitFlow\Laravel\Events\TransactionWebhookReceived;
+use QBitFlow\Support\Enums;
 
 /**
  * A checkout was completed: a payment was paid, or a subscription was started.
@@ -36,11 +37,11 @@ final class MarkOrderPaid implements ShouldQueue
 {
     public function handle(TransactionWebhookReceived $event): void
     {
-        if ($event->payload->status->status !== TransactionStatusValue::COMPLETED) {
+        if ($event->payload->status?->status !== TransactionStatusValue::COMPLETED) {
             return;
         }
 
-        // reference() is the order ID you set when creating the session.
+        // reference() is the order ID you set when creating the session ('' when none).
         $order = Order::find($event->reference());
 
         if ($order === null) {
@@ -66,9 +67,10 @@ final class RecordRenewal implements ShouldQueue
     public function handle(SubscriptionBilled $event): void
     {
         Renewal::create([
-            'subscription_uuid' => $event->billing->subscriptionUUID,
-            'order_id' => $event->reference(),
+            'subscription_uuid' => $event->subscriptionUUID,        // from the webhook envelope
+            'order_id' => $event->reference() ?: null,              // '' when you set no reference
             'amount_usd' => $event->billing->amount,
+            'currency' => $event->billing->currency->symbol,
             'tx_hash' => $event->billing->transactionHash,
             'billed_at' => $event->billing->createdAt,
         ]);
@@ -82,9 +84,13 @@ final class ReactToStatusChange implements ShouldQueue
 {
     public function handle(SubscriptionStatusChanged $event): void
     {
-        $subscription = Subscription::firstWhere('uuid', $event->transition->subscriptionUUID);
+        // The subscription identity is on the event (it comes from the webhook envelope);
+        // the transition itself only holds the two statuses and the timestamp.
+        $subscription = Subscription::firstWhere('uuid', $event->subscriptionUUID);
 
-        $subscription?->update(['status' => $event->transition->currentStatus->value]);
+        // A status this SDK does not know yet arrives as a raw string rather than an enum
+        // member; Enums::value() renders either, and the match below simply falls through.
+        $subscription?->update(['status' => Enums::value($event->transition->currentStatus)]);
 
         match ($event->transition->currentStatus) {
             // The next billing may fail — ask the subscriber to top up their allowance.

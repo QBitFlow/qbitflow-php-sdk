@@ -22,12 +22,12 @@ final class BlockData extends Dto
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::string($data, 'number', '0'),
+			Cast::string($data, 'number'),
 			Cast::int($data, 'timestamp'),
 		);
 	}

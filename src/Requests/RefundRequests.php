@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace QBitFlow\Requests;
 
 use QBitFlow\Dto\RefundEntry;
-use QBitFlow\Support\Cast;
 use QBitFlow\Support\CursorData;
 
 /**
@@ -22,9 +21,10 @@ final class RefundRequests extends Request
 	{
 		$this->requireNonEmpty($transactionUUID, 'Transaction UUID');
 
-		return RefundEntry::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/by-transaction/' . $this->encode($transactionUUID),
-		));
+			map: self::one(RefundEntry::fromArray(...)),
+		);
 	}
 
 	/**
@@ -34,10 +34,7 @@ final class RefundRequests extends Request
 	 */
 	public function getAll(): array
 	{
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/all'),
-			RefundEntry::fromArray(...),
-		);
+		return $this->transport->get(self::BASE_ROUTE . '/all', map: self::list(RefundEntry::fromArray(...)));
 	}
 
 	/**
@@ -47,12 +44,10 @@ final class RefundRequests extends Request
 	 */
 	public function getAllInactive(?int $limit = null, ?string $cursor = null): CursorData
 	{
-		return CursorData::fromArray(
-			$this->transport->get(
-				self::BASE_ROUTE . '/all/inactive',
-				CursorData::queryParams($limit, $cursor),
-			),
-			RefundEntry::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/all/inactive',
+			CursorData::queryParams($limit, $cursor),
+			map: self::page(RefundEntry::fromArray(...)),
 		);
 	}
 }

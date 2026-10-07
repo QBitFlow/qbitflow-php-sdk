@@ -13,24 +13,24 @@ use QBitFlow\Support\Dto;
 final class OrganizationFee extends Dto
 {
 	public function __construct(
+		/** Fee in basis points (100 bps = 1%). */
+		public readonly int $feeBps,
 		/** ID of the organization receiving the fee. */
 		public readonly int $organizationId,
 		/** On-chain address receiving the fee. */
 		public readonly string $organization,
-		/** Fee in basis points (100 bps = 1%). */
-		public readonly int $feeBps,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
+			Cast::int($data, 'feeBps'),
 			Cast::int($data, 'organizationId'),
 			Cast::string($data, 'organization'),
-			Cast::int($data, 'feeBps'),
 		);
 	}
 }

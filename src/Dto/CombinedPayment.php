@@ -19,8 +19,11 @@ use QBitFlow\Support\Dto;
 final class CombinedPayment extends Dto
 {
 	public function __construct(
-		/** Where this entry originated. */
-		public readonly CombinedPaymentSource $source,
+		/**
+		 * Where this entry originated. A `CombinedPaymentSource` member, or the raw string
+		 * for a source this SDK does not know — see {@see \QBitFlow\Support\Enums}.
+		 */
+		public readonly CombinedPaymentSource|string $source,
 		/** Unique identifier for the entry. */
 		public readonly string $uuid,
 		/** When the payment was created. */
@@ -35,38 +38,37 @@ final class CombinedPayment extends Dto
 		public readonly string $description,
 		/** Amount paid, in USD. */
 		public readonly float $amount,
+		/** Amount in the smallest units of the payment currency, as a decimal string. */
+		public readonly string $amountMinUnits,
 		/** Currency ID. */
 		public readonly int $currencyId,
+		/** The currency used for payment. */
+		public readonly Currency $currency,
 		/** Blockchain transaction hash. */
 		public readonly string $transactionHash,
-		/** UUID of the paying customer. */
+		/**
+		 * UUID of the paying customer. The zero UUID
+		 * (`00000000-0000-0000-0000-000000000000`) when no customer was attached.
+		 */
 		public readonly string $customerUUID,
 		/** Whether this is a test-mode payment. */
 		public readonly bool $test,
-		/** Amount in the smallest units of the payment currency. */
-		public readonly ?string $amountMinUnits = null,
-		/** Full currency details. */
-		public readonly ?Currency $currency = null,
-		/** Product ID, when the payment came from a stored product. */
+		/** Product ID; null when the payment did not come from a stored product. */
 		public readonly ?int $productId = null,
-		/** Parent subscription UUID, present only on subscription-history entries. */
+		/** Parent subscription UUID; set only on subscription-history entries. */
 		public readonly ?string $subscriptionUUID = null,
-		/** Owning organization ID. Authenticated reads only. */
-		public readonly ?int $organizationId = null,
-		/** Owning user ID. Authenticated reads only. */
-		public readonly ?int $userId = null,
-		/** Fee breakdown and on-chain details. Authenticated reads only. */
+		/** Fee breakdown and on-chain details; null when not recorded. */
 		public readonly ?PaymentMetadata $metadata = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::enum($data, 'source', CombinedPaymentSource::class, CombinedPaymentSource::PAYMENT),
+			Cast::enum($data, 'source', CombinedPaymentSource::class),
 			Cast::string($data, 'uuid'),
 			Cast::date($data, 'createdAt'),
 			Cast::string($data, 'from'),
@@ -74,17 +76,15 @@ final class CombinedPayment extends Dto
 			Cast::string($data, 'name'),
 			Cast::string($data, 'description'),
 			Cast::float($data, 'amount'),
+			Cast::string($data, 'amountMinUnits'),
 			Cast::int($data, 'currencyId'),
+			Cast::object($data, 'currency', Currency::fromArray(...)),
 			Cast::string($data, 'transactionHash'),
 			Cast::string($data, 'customerUUID'),
 			Cast::bool($data, 'test'),
-			Cast::nullableString($data, 'amountMinUnits'),
-			Cast::nested($data, 'currency', Currency::fromArray(...)),
 			Cast::nullableInt($data, 'productId'),
 			Cast::nullableString($data, 'subscriptionUUID'),
-			Cast::nullableInt($data, 'organizationId'),
-			Cast::nullableInt($data, 'userId'),
-			Cast::nested($data, 'metadata', PaymentMetadata::fromArray(...)),
+			Cast::nullableObject($data, 'metadata', PaymentMetadata::fromArray(...)),
 		);
 	}
 

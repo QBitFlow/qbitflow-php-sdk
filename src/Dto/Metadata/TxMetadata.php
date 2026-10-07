@@ -18,24 +18,22 @@ final class TxMetadata extends Dto
 		/** Block the transaction was included in. */
 		public readonly BlockData $blockData,
 		/**
-		 * Native-currency USD price at transaction time. Used for accounting on refunds,
-		 * and when the merchant pays the network fees.
+		 * Native-currency USD price at transaction time; `0.0` when not recorded. Set for
+		 * accounting on refunds, and when the merchant pays the network fees.
 		 */
-		public readonly ?float $mainCurrencyPriceUSD = null,
+		public readonly float $mainCurrencyPriceUSD = 0.0,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::nested($data, 'networkFees', NetworkFees::fromArray(...))
-				?? new NetworkFees('0', 0),
-			Cast::nested($data, 'blockData', BlockData::fromArray(...))
-				?? new BlockData('0', 0),
-			Cast::nullableFloat($data, 'mainCurrencyPriceUSD'),
+			Cast::object($data, 'networkFees', NetworkFees::fromArray(...)),
+			Cast::object($data, 'blockData', BlockData::fromArray(...)),
+			Cast::float($data, 'mainCurrencyPriceUSD'),
 		);
 	}
 }

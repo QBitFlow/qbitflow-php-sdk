@@ -86,7 +86,21 @@ final class InstallCommandTest extends TestCase
 
 			$this->assertStringContainsString('APP_NAME=Example', $contents, 'Existing content survives.');
 			$this->assertStringContainsString('QBITFLOW_API_KEY=', $contents);
+			$this->assertStringContainsString('QBITFLOW_WEBHOOK_SECRET=', $contents);
 		}
+	}
+
+	#[Test]
+	public function it_adds_only_the_placeholders_that_are_missing(): void
+	{
+		file_put_contents($this->base . '/.env', "APP_NAME=Example\nQBITFLOW_API_KEY=sk_live_existing\n");
+
+		$this->runInstall();
+
+		$contents = (string) file_get_contents($this->base . '/.env');
+
+		$this->assertSame(1, substr_count($contents, 'QBITFLOW_API_KEY'));
+		$this->assertSame(1, substr_count($contents, 'QBITFLOW_WEBHOOK_SECRET='));
 	}
 
 	#[Test]

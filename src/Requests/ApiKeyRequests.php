@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace QBitFlow\Requests;
 
 use QBitFlow\Dto\ApiKey;
-use QBitFlow\Support\Cast;
 
 /**
  * Read access to the API keys in your organization.
@@ -19,13 +18,14 @@ final class ApiKeyRequests extends Request
 	private const BASE_ROUTE = '/api-key';
 
 	/**
-	 * Get the API keys belonging to the current user.
+	 * Get the API keys visible to the current key: a user-level key sees only its user's
+	 * keys; an admin, owner or organization-level key sees every key in the organization.
 	 *
 	 * @return list<ApiKey>
 	 */
 	public function getAll(): array
 	{
-		return Cast::listOf($this->transport->get(self::BASE_ROUTE . '/'), ApiKey::fromArray(...));
+		return $this->transport->get(self::BASE_ROUTE . '/', map: self::list(ApiKey::fromArray(...)));
 	}
 
 	/**
@@ -37,9 +37,6 @@ final class ApiKeyRequests extends Request
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/user/' . $userId),
-			ApiKey::fromArray(...),
-		);
+		return $this->transport->get(self::BASE_ROUTE . '/user/' . $userId, map: self::list(ApiKey::fromArray(...)));
 	}
 }

@@ -6,12 +6,15 @@ namespace QBitFlow\Dto;
 
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Support\Dto;
+use QBitFlow\Support\Validate;
 
 /**
  * Payload for updating a product.
  *
- * Every field is optional and the update is partial: omitted fields are left untouched,
- * since `null` values are never serialized. An empty payload is a valid no-op.
+ * Every field is optional and the update is partial: `null` fields are left off the
+ * request and keep their current value. An empty payload is a valid no-op. A field you do
+ * set is validated like on create — an empty name or description is rejected, as the API
+ * rejects it.
  *
  * `reference` is deliberately absent — it is an immutable identifier and the API ignores
  * it on update.
@@ -22,36 +25,39 @@ use QBitFlow\Support\Dto;
  */
 final class UpdateProductDto extends Dto
 {
+	/**
+	 * @throws ValidationException When a provided field breaks the API's rules
+	 */
 	public function __construct(
-		/** Product name. Optional, 2–100 characters. */
+		/** Product name. 2–100 characters, no markup. */
 		public readonly ?string $name = null,
-		/** Product description. Optional, 2–500 characters. */
+		/** Product description. 2–500 characters, no markup. */
 		public readonly ?string $description = null,
-		/** Price in USD. Optional, must be greater than 0 when supplied. */
+		/** Price in USD. Must be greater than 0 when supplied. */
 		public readonly ?float $price = null,
 	) {
-		if ($price !== null && $price <= 0) {
-			throw new ValidationException('Price must be greater than 0');
-		}
-
-		if ($name !== null && (mb_strlen($name) < 2 || mb_strlen($name) > 100)) {
-			throw new ValidationException('Product name must be between 2 and 100 characters');
-		}
-
-		if ($description !== null && (mb_strlen($description) < 2 || mb_strlen($description) > 500)) {
-			throw new ValidationException('Product description must be between 2 and 500 characters');
-		}
+		Validate::productText('name', $name, 2, 100);
+		Validate::productText('description', $description, 2, 500);
+		Validate::price('price', $price);
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @throws ValidationException
 	 */
 	public static function fromArray(array $data): self
 	{
+		$price = $data['price'] ?? null;
+
+		if ($price !== null && ! is_int($price) && ! is_float($price)) {
+			throw new ValidationException('price must be a number');
+		}
+
 		return new self(
 			isset($data['name']) ? (string) $data['name'] : null,
 			isset($data['description']) ? (string) $data['description'] : null,
-			isset($data['price']) ? (float) $data['price'] : null,
+			$price === null ? null : (float) $price,
 		);
 	}
 }

@@ -52,6 +52,17 @@ abstract class Dto implements JsonSerializable
 	}
 
 	/**
+	 * Normalise an optional string argument: `''` means "not provided", like `null`.
+	 *
+	 * The API's `omitempty` treats an empty value as absent, and callers routinely pass
+	 * `getenv('X') ?: ''`; folding both onto null keeps the field off the wire entirely.
+	 */
+	protected static function optional(?string $value): ?string
+	{
+		return $value === '' ? null : $value;
+	}
+
+	/**
 	 * Recursively convert a value into a JSON-encodable scalar, list or map.
 	 */
 	private static function normalize(mixed $value): mixed

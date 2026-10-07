@@ -6,12 +6,14 @@ namespace QBitFlow\Dto;
 
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Support\Dto;
+use QBitFlow\Support\Validate;
 
 /**
  * Payload for updating a user.
  *
  * Every field is optional and the update is partial: omitted fields are left untouched,
- * since `null` values are never serialized. An empty payload is a valid no-op.
+ * since `null` values are never serialized. An empty string also means "not provided".
+ * An empty payload is a valid no-op.
  *
  * The password is deliberately absent. Changing a password is a JWT-only, self-service
  * operation on the API — it cannot be done with an API key, which is the only credential
@@ -25,37 +27,49 @@ use QBitFlow\Support\Dto;
  */
 final class UpdateUserDto extends Dto
 {
+	/** First name. 2–100 characters, letters/digits/spaces/`- _ ' .` only. */
+	public readonly ?string $name;
+
+	/** Last name. Same rules as `name`. */
+	public readonly ?string $lastName;
+
+	/** Email address. Must stay unique within the organization. */
+	public readonly ?string $email;
+
+	/**
+	 * Organization fee in basis points, 0–5000 (0%–50%).
+	 *
+	 * Requires admin authority — an admin/owner key, or an organization-level key
+	 * acting via `onBehalfOf()`. A non-admin caller that sends this field is rejected
+	 * with 403. Leave it null to omit it entirely.
+	 */
+	public readonly ?int $organizationFeeBps;
+
+	/**
+	 * @throws ValidationException When a provided field breaks the API's rules
+	 */
 	public function __construct(
-		/** First name. Optional, 2–100 characters. */
-		public readonly ?string $name = null,
-		/** Last name. Optional, 2–100 characters. */
-		public readonly ?string $lastName = null,
-		/** Email address. Optional, unique within the organization. */
-		public readonly ?string $email = null,
-		/**
-		 * Organization fee in basis points, 0–5000 (0%–50%).
-		 *
-		 * Requires admin authority — an admin/owner key, or an organization-level key
-		 * acting via `onBehalfOf()`. A non-admin caller that sends this field is rejected
-		 * with 403. Leave it null to omit it entirely.
-		 */
-		public readonly ?int $organizationFeeBps = null,
+		?string $name = null,
+		?string $lastName = null,
+		?string $email = null,
+		?int $organizationFeeBps = null,
 	) {
-		if ($name !== null && (mb_strlen($name) < 2 || mb_strlen($name) > 100)) {
-			throw new ValidationException('Name must be between 2 and 100 characters');
-		}
+		$this->name = self::optional($name);
+		$this->lastName = self::optional($lastName);
+		$this->email = self::optional($email);
+		$this->organizationFeeBps = $organizationFeeBps;
 
-		if ($lastName !== null && (mb_strlen($lastName) < 2 || mb_strlen($lastName) > 100)) {
-			throw new ValidationException('Last name must be between 2 and 100 characters');
-		}
+		Validate::alphanumSpace('name', $this->name, 2, 100);
+		Validate::alphanumSpace('lastName', $this->lastName, 2, 100);
+		Validate::email('email', $this->email);
 
-		if ($organizationFeeBps !== null && ($organizationFeeBps < 0 || $organizationFeeBps > 5000)) {
-			throw new ValidationException('organizationFeeBps must be between 0 and 5000');
+		if ($organizationFeeBps !== null) {
+			Validate::intRange('organizationFeeBps', $organizationFeeBps, 0, 5000);
 		}
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{

@@ -14,27 +14,27 @@ use QBitFlow\Support\Dto;
 final class ReferralFee extends Dto
 {
 	public function __construct(
+		/** Fee in basis points (100 bps = 1%). */
+		public readonly int $feeBps,
 		/** ID of the referral. */
 		public readonly int $referralId,
 		/** On-chain address of the referrer receiving the fee. */
 		public readonly string $referrer,
-		/** Fee in basis points (100 bps = 1%). */
-		public readonly int $feeBps,
 		/** Point after which the referral fee no longer applies. */
-		public readonly ?DateTimeImmutable $deadline = null,
+		public readonly DateTimeImmutable $deadline,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
+			Cast::int($data, 'feeBps'),
 			Cast::int($data, 'referralId'),
 			Cast::string($data, 'referrer'),
-			Cast::int($data, 'feeBps'),
-			Cast::nullableDate($data, 'deadline'),
+			Cast::date($data, 'deadline'),
 		);
 	}
 }

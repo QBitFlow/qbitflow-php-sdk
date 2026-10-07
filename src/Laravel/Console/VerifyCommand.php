@@ -11,6 +11,7 @@ use QBitFlow\Exceptions\QBitFlowException;
 use QBitFlow\Exceptions\UnauthorizedException;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\QBitFlow;
+use QBitFlow\Support\Enums;
 
 /**
  * Answers "is my QBitFlow setup actually working?" in one command.
@@ -61,7 +62,7 @@ final class VerifyCommand extends Command
 			['User', trim($user->name . ' ' . $user->lastName)],
 			['Email', $user->email],
 			['User ID', (string) $user->id],
-			['Role', $user->role->value],
+			['Role', Enums::value($user->role)],
 			['Organization ID', (string) $user->organizationId],
 			['Organization fee', sprintf('%d bps (%.2f%%)', $user->organizationFeeBps, $user->organizationFeeBps / 100)],
 		]);

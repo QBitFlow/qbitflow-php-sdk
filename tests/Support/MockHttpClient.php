@@ -53,6 +53,14 @@ final class MockHttpClient implements ClientInterface
 		return $this;
 	}
 
+	/** Queue a refusal to send the request at all (PSR-18 RequestExceptionInterface). */
+	public function pushRequestFailure(string $message = 'Malformed request'): self
+	{
+		$this->queue[] = new MockRequestException($message);
+
+		return $this;
+	}
+
 	public function sendRequest(RequestInterface $request): ResponseInterface
 	{
 		$this->requests[] = $request;

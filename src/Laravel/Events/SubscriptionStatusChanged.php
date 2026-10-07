@@ -18,12 +18,16 @@ final class SubscriptionStatusChanged
 	public function __construct(
 		/** The status transition that occurred. */
 		public readonly SubscriptionStatusTransition $transition,
+		/** UUID of the subscription that changed status. */
+		public readonly string $subscriptionUUID,
+		/** Your own reference for the subscription; `''` when you set none. */
+		public readonly string $subscriptionReference = '',
 	) {
 	}
 
-	/** Your own reference for the subscription, when you set one at creation. */
-	public function reference(): ?string
+	/** Your own reference for the subscription; `''` when you set none. */
+	public function reference(): string
 	{
-		return $this->transition->subscriptionReference;
+		return $this->subscriptionReference;
 	}
 }

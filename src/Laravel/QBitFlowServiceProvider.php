@@ -24,7 +24,7 @@ use QBitFlow\QBitFlow;
  *
  * Registered automatically through package discovery. It binds the client as a
  * singleton, publishes the config file, registers the `qbitflow.webhook` middleware
- * alias, and adds the webhook route macros.
+ * alias (wired to the configured webhook secret), and adds the webhook route macros.
  */
 final class QBitFlowServiceProvider extends ServiceProvider
 {
@@ -46,7 +46,7 @@ final class QBitFlowServiceProvider extends ServiceProvider
 
 			return new QBitFlow(
 				$apiKey,
-				$config->get('qbitflow.base_url') ? (string) $config->get('qbitflow.base_url') : null,
+				is_string($config->get('qbitflow.base_url')) ? $config->get('qbitflow.base_url') : null,
 				$config->get('qbitflow.timeout') !== null ? (float) $config->get('qbitflow.timeout') : null,
 				$config->get('qbitflow.max_retries') !== null ? (int) $config->get('qbitflow.max_retries') : null,
 				// Honour a PSR-18 client bound in the container, so an application can add
@@ -65,6 +65,21 @@ final class QBitFlowServiceProvider extends ServiceProvider
 		});
 
 		$this->app->alias(QBitFlow::class, 'qbitflow');
+
+		// The middleware verifies locally when a webhook secret is configured and falls
+		// back to the API otherwise; hand it the secret from config.
+		$this->app->bind(VerifyQBitFlowWebhook::class, function ($app): VerifyQBitFlowWebhook {
+			/** @var ConfigRepository $config */
+			$config = $app['config'];
+			$secret = $config->get('qbitflow.webhook_secret');
+
+			// Resolved lazily: with a webhook secret the client (and so the API key) is
+			// never needed.
+			return new VerifyQBitFlowWebhook(
+				static fn (): QBitFlow => $app->make(QBitFlow::class),
+				is_string($secret) && $secret !== '' ? $secret : null,
+			);
+		});
 	}
 
 	public function boot(): void
@@ -84,14 +99,6 @@ final class QBitFlowServiceProvider extends ServiceProvider
 
 		$this->registerMiddlewareAlias();
 		$this->registerRouteMacros();
-	}
-
-	/**
-	 * @return list<string>
-	 */
-	public function provides(): array
-	{
-		return [QBitFlow::class, 'qbitflow'];
 	}
 
 	private function configPath(): string

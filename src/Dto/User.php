@@ -29,23 +29,28 @@ final class User extends Dto
 		public readonly DateTimeImmutable $updatedAt,
 		/** Organization the user belongs to. */
 		public readonly int $organizationId,
-		/** Role within the organization. */
-		public readonly UserRole $role,
+		/**
+		 * Role within the organization (`handle` < `user` < `admin` < `owner`). A `UserRole`
+		 * member, or the raw string for a role this SDK does not know — see
+		 * {@see \QBitFlow\Support\Enums}.
+		 */
+		public readonly UserRole|string $role,
 		/** Organization fee applied to this user's transactions, in basis points (100 = 1%). */
 		public readonly int $organizationFeeBps,
-		/** Set once an invited user has claimed their account. */
+		/** Set once an invited user has claimed their account; null until then. */
 		public readonly ?DateTimeImmutable $claimedAt = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
-		// The API has shipped both `updatedAt` and `updateAt` for this field.
-		$updatedAt = Cast::nullableDate($data, 'updatedAt')
-			?? Cast::date($data, 'updateAt');
+		// Early API builds spelled this field `updateAt`; read it when `updatedAt` is absent.
+		$updatedAtKey = array_key_exists('updatedAt', $data) || ! array_key_exists('updateAt', $data)
+			? 'updatedAt'
+			: 'updateAt';
 
 		return new self(
 			Cast::int($data, 'id'),
@@ -53,9 +58,9 @@ final class User extends Dto
 			Cast::string($data, 'lastName'),
 			Cast::string($data, 'email'),
 			Cast::date($data, 'createdAt'),
-			$updatedAt,
+			Cast::date($data, $updatedAtKey),
 			Cast::int($data, 'organizationId'),
-			Cast::enum($data, 'role', UserRole::class, UserRole::USER),
+			Cast::enum($data, 'role', UserRole::class),
 			Cast::int($data, 'organizationFeeBps'),
 			Cast::nullableDate($data, 'claimedAt'),
 		);

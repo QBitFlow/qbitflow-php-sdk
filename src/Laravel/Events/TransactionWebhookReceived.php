@@ -28,11 +28,11 @@ final class TransactionWebhookReceived
 	}
 
 	/**
-	 * Your own reference for the transaction, when you set one on the session.
+	 * Your own reference for the transaction; `''` when you set none on the session.
 	 *
 	 * This is usually the fastest way back to your own order or invoice.
 	 */
-	public function reference(): ?string
+	public function reference(): string
 	{
 		return $this->payload->session->reference;
 	}

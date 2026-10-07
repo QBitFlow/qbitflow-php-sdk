@@ -20,38 +20,43 @@ final class SubscriptionSession extends SessionCheckout
 	 */
 	public function __construct(
 		string $uuid,
+		TransactionType|string $txType,
 		string $productName,
 		string $description,
 		float $price,
 		string $organizationName,
+		int $organizationId,
+		int $feeBps,
 		bool $test,
 		array $availableCurrencies = [],
-		?string $reference = null,
-		?int $productId = null,
-		?string $productReference = null,
-		?string $successUrl = null,
-		?string $cancelUrl = null,
-		?TransactionType $txType = null,
-		?int $organizationId = null,
-		?int $feeBps = null,
-		?int $organizationFeeBps = null,
-		?int $userId = null,
-		?string $userName = null,
+		string $reference = '',
+		int $productId = 0,
+		string $productReference = '',
+		string $successUrl = '',
+		string $cancelUrl = '',
+		int $organizationFeeBps = 0,
+		int $userId = 0,
+		string $userName = '',
 		?string $customerUUID = null,
-		?string $customerReference = null,
+		string $customerReference = '',
 		/** Billing frequency, in seconds. For example 2592000 for 30 days. */
 		public readonly int $frequency = 0,
-		/** Trial period in seconds; null or 0 when there is no trial. */
-		public readonly ?int $trialPeriod = null,
-		/** Minimum number of billing periods the subscriber must complete. */
-		public readonly ?int $minPeriods = null,
+		/** Trial period in seconds; `0` when there is no trial. */
+		public readonly int $trialPeriod = 0,
+		/** Minimum number of billing periods the subscriber must complete; `0` when none. */
+		public readonly int $minPeriods = 0,
+		/** Whether this checkout upgrades an existing trial subscription. */
+		public readonly bool $upgradingFromTrial = false,
 	) {
 		parent::__construct(
 			$uuid,
+			$txType,
 			$productName,
 			$description,
 			$price,
 			$organizationName,
+			$organizationId,
+			$feeBps,
 			$test,
 			$availableCurrencies,
 			$reference,
@@ -59,9 +64,6 @@ final class SubscriptionSession extends SessionCheckout
 			$productReference,
 			$successUrl,
 			$cancelUrl,
-			$txType,
-			$organizationId,
-			$feeBps,
 			$organizationFeeBps,
 			$userId,
 			$userName,
@@ -71,21 +73,22 @@ final class SubscriptionSession extends SessionCheckout
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
 			...self::baseArguments($data),
 			frequency: Cast::int($data, 'frequency'),
-			trialPeriod: Cast::nullableInt($data, 'trialPeriod'),
-			minPeriods: Cast::nullableInt($data, 'minPeriods'),
+			trialPeriod: Cast::int($data, 'trialPeriod'),
+			minPeriods: Cast::int($data, 'minPeriods'),
+			upgradingFromTrial: Cast::bool($data, 'upgradingFromTrial'),
 		);
 	}
 
 	/** Whether the session includes a trial period. */
 	public function hasTrial(): bool
 	{
-		return $this->trialPeriod !== null && $this->trialPeriod > 0;
+		return $this->trialPeriod > 0;
 	}
 }

@@ -15,27 +15,30 @@ use QBitFlow\Support\Dto;
 final class TransactionStatus extends Dto
 {
 	public function __construct(
-		/** Current status. */
-		public readonly TransactionStatusValue $status,
-		/** Blockchain transaction hash, empty until one exists. */
+		/**
+		 * Current status. A `TransactionStatusValue` member when this SDK knows the value,
+		 * or the raw string for a status the API added later — see {@see \QBitFlow\Support\Enums}.
+		 */
+		public readonly TransactionStatusValue|string $status,
+		/** Blockchain transaction hash; `''` until the transaction is broadcast. */
 		public readonly string $txHash = '',
-		/** Status message or error description. */
-		public readonly ?string $message = null,
+		/** Status message or error description; `''` when there is none. */
+		public readonly string $message = '',
 		/** Finalized payment metadata, present once a successful transaction has settled. */
 		public readonly ?PaymentMetadata $settlementDetails = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
-			Cast::enum($data, 'status', TransactionStatusValue::class, TransactionStatusValue::CREATED),
+			Cast::enum($data, 'status', TransactionStatusValue::class),
 			Cast::string($data, 'txHash'),
-			Cast::nullableString($data, 'message'),
-			Cast::nested($data, 'settlementDetails', PaymentMetadata::fromArray(...)),
+			Cast::string($data, 'message'),
+			Cast::nullableObject($data, 'settlementDetails', PaymentMetadata::fromArray(...)),
 		);
 	}
 
