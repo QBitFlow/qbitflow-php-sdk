@@ -15,6 +15,7 @@ use QBitFlow\Laravel\Events\SubscriptionBilled;
 use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
 use QBitFlow\Laravel\Events\TransactionWebhookReceived;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
+use QBitFlow\Support\Enums;
 
 final class WebhookControllerTest extends TestCase
 {
@@ -54,6 +55,25 @@ final class WebhookControllerTest extends TestCase
 		return new WebhookController($this->events);
 	}
 
+	/** @return array<string,mixed> */
+	private static function billingData(): array
+	{
+		return [
+			'uuid' => 'sub-hist@h1',
+			'subscriptionUUID' => 'sub@01a0',
+			'from' => '0xa',
+			'to' => '0xb',
+			'name' => 'Premium',
+			'description' => 'Monthly',
+			'amount' => 29.99,
+			'currencyId' => 1,
+			'transactionHash' => '0xhash',
+			'customerUUID' => 'c1',
+			'test' => false,
+			'createdAt' => '2026-03-01T12:00:00Z',
+		];
+	}
+
 	#[Test]
 	public function it_dispatches_a_transaction_event_for_a_completed_payment(): void
 	{
@@ -62,7 +82,7 @@ final class WebhookControllerTest extends TestCase
 			'txType' => 'payment',
 			'managementPageLink' => 'https://qbitflow.app/manage/s1',
 			'status' => ['status' => 'completed', 'txHash' => '0xabc'],
-			'session' => ['uuid' => 's1', 'reference' => 'order-1234', 'price' => 29.99],
+			'session' => ['uuid' => 's1', 'txType' => 'payment', 'reference' => 'order-1234', 'price' => 29.99],
 		]));
 
 		$this->assertSame(200, $response->getStatusCode());
@@ -73,7 +93,8 @@ final class WebhookControllerTest extends TestCase
 		$this->assertSame('order-1234', $event->reference());
 		$this->assertFalse($event->isSubscription());
 		$this->assertSame(TransactionType::ONE_TIME_PAYMENT, $event->payload->txType);
-		$this->assertSame(TransactionStatusValue::COMPLETED, $event->payload->status->status);
+		$this->assertSame(TransactionStatusValue::COMPLETED, $event->payload->status?->status);
+		$this->assertSame('https://qbitflow.app/manage/s1', $event->payload->managementPageLink);
 	}
 
 	#[Test]
@@ -82,23 +103,25 @@ final class WebhookControllerTest extends TestCase
 		$this->controller()->transaction($this->request([
 			'uuid' => 's2',
 			'txType' => 'createSubscription',
-			'session' => ['uuid' => 's2', 'frequency' => 2592000],
+			'session' => ['uuid' => 's2', 'txType' => 'createSubscription', 'frequency' => 2592000],
 		]));
 
 		$event = $this->dispatched[0];
 		$this->assertInstanceOf(TransactionWebhookReceived::class, $event);
 		$this->assertTrue($event->isSubscription());
+		$this->assertNull($event->payload->status, 'No status in this delivery.');
 	}
 
 	#[Test]
 	public function it_dispatches_a_status_change_event(): void
 	{
+		// The real envelope carries the subscription identity at the TOP level only;
+		// `data` holds just the transition.
 		$response = $this->controller()->subscription($this->request([
-			'type' => 'status_transition',
+			'subscriptionUUID' => 'sub@01a0',
 			'subscriptionReference' => 'sub-1234',
+			'type' => 'status_transition',
 			'data' => [
-				'subscriptionUUID' => 'sub1',
-				'subscriptionReference' => 'sub-1234',
 				'previousStatus' => 'active',
 				'currentStatus' => 'past_due',
 				'updatedAt' => '2026-03-01T12:00:00Z',
@@ -111,6 +134,7 @@ final class WebhookControllerTest extends TestCase
 		$this->assertInstanceOf(SubscriptionStatusChanged::class, $event);
 		$this->assertSame(SubscriptionStatus::ACTIVE, $event->transition->previousStatus);
 		$this->assertSame(SubscriptionStatus::PAST_DUE, $event->transition->currentStatus);
+		$this->assertSame('sub@01a0', $event->subscriptionUUID);
 		$this->assertSame('sub-1234', $event->reference());
 		$this->assertSame('2026-03-01', $event->transition->updatedAt->format('Y-m-d'));
 	}
@@ -119,29 +143,61 @@ final class WebhookControllerTest extends TestCase
 	public function it_dispatches_a_billing_event(): void
 	{
 		$this->controller()->subscription($this->request([
-			'type' => 'billing',
+			'subscriptionUUID' => 'sub@01a0',
 			'subscriptionReference' => 'sub-1234',
-			'data' => [
-				'uuid' => 'hist1',
-				'subscriptionUUID' => 'sub1',
-				'from' => '0xa',
-				'to' => '0xb',
-				'name' => 'Premium',
-				'description' => 'Monthly',
-				'amount' => 29.99,
-				'currencyId' => 1,
-				'transactionHash' => '0xhash',
-				'customerUUID' => 'c1',
-				'test' => false,
-				'createdAt' => '2026-03-01T12:00:00Z',
-			],
+			'type' => 'billing',
+			'data' => self::billingData(),
 		]));
 
 		$event = $this->dispatched[0];
 		$this->assertInstanceOf(SubscriptionBilled::class, $event);
-		$this->assertSame('hist1', $event->billing->uuid);
+		$this->assertSame('sub-hist@h1', $event->billing->uuid);
 		$this->assertSame(29.99, $event->billing->amount);
+		$this->assertSame('sub@01a0', $event->subscriptionUUID);
 		$this->assertSame('sub-1234', $event->reference());
+	}
+
+	#[Test]
+	public function a_status_this_sdk_does_not_know_is_delivered_as_a_string_not_a_500(): void
+	{
+		// A 500 here would make QBitFlow retry the delivery forever. The unknown value is
+		// preserved on the event so the listener can still act on it.
+		$response = $this->controller()->subscription($this->request([
+			'subscriptionUUID' => 'sub@01a0',
+			'type' => 'status_transition',
+			'data' => [
+				'previousStatus' => 'active',
+				'currentStatus' => 'paused',
+				'updatedAt' => '2026-03-01T12:00:00Z',
+			],
+		]));
+
+		$this->assertSame(200, $response->getStatusCode());
+
+		$event = $this->dispatched[0];
+		$this->assertInstanceOf(SubscriptionStatusChanged::class, $event);
+		$this->assertSame('paused', $event->transition->currentStatus);
+		$this->assertSame('paused', Enums::value($event->transition->currentStatus));
+		$this->assertSame('', $event->reference(), 'No reference on the envelope.');
+	}
+
+	#[Test]
+	public function an_unknown_transaction_type_is_delivered_as_a_string_not_a_500(): void
+	{
+		$response = $this->controller()->transaction($this->request([
+			'uuid' => 's9',
+			'txType' => 'somethingNew',
+			'status' => ['status' => 'brand_new_state'],
+			'session' => ['uuid' => 's9'],
+		]));
+
+		$this->assertSame(200, $response->getStatusCode());
+
+		$event = $this->dispatched[0];
+		$this->assertInstanceOf(TransactionWebhookReceived::class, $event);
+		$this->assertSame('somethingNew', $event->payload->txType);
+		$this->assertSame('brand_new_state', $event->payload->status?->status);
+		$this->assertFalse($event->isSubscription());
 	}
 
 	#[Test]

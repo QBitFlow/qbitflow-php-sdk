@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace QBitFlow\Dto;
 
+use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Support\Dto;
+use QBitFlow\Support\Validate;
 
 /**
- * Payload for updating a customer. Every field is optional — omitted fields are
- * left untouched, since `null` values are never serialized.
+ * Payload for updating a customer. Every field is optional and the update is partial:
+ * omitted fields are left untouched, since `null` values are never serialized. An empty
+ * string also means "not provided" and leaves the field unchanged.
  *
  * `reference` is deliberately absent — a customer reference is immutable and the API
  * ignores it on update.
@@ -22,17 +25,42 @@ use QBitFlow\Support\Dto;
  */
 final class UpdateCustomerDto extends Dto
 {
+	/** First name. 2–100 characters, letters/digits/spaces/`- _ ' .` only. */
+	public readonly ?string $name;
+
+	/** Last name. Same rules as `name`. */
+	public readonly ?string $lastName;
+
+	/** Email address. Must stay unique per (organization, user). */
+	public readonly ?string $email;
+
+	public readonly ?string $phoneNumber;
+
+	public readonly ?string $address;
+
+	/**
+	 * @throws ValidationException When a provided field breaks the API's rules
+	 */
 	public function __construct(
-		public readonly ?string $name = null,
-		public readonly ?string $lastName = null,
-		public readonly ?string $email = null,
-		public readonly ?string $phoneNumber = null,
-		public readonly ?string $address = null,
+		?string $name = null,
+		?string $lastName = null,
+		?string $email = null,
+		?string $phoneNumber = null,
+		?string $address = null,
 	) {
+		$this->name = self::optional($name);
+		$this->lastName = self::optional($lastName);
+		$this->email = self::optional($email);
+		$this->phoneNumber = self::optional($phoneNumber);
+		$this->address = self::optional($address);
+
+		Validate::alphanumSpace('name', $this->name, 2, 100);
+		Validate::alphanumSpace('lastName', $this->lastName, 2, 100);
+		Validate::email('email', $this->email);
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{

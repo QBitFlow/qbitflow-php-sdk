@@ -7,12 +7,10 @@ namespace QBitFlow\Requests;
 use QBitFlow\Dto\Session\CreateSubscriptionSessionDto;
 use QBitFlow\Dto\Session\LinkResponse;
 use QBitFlow\Dto\Session\SessionCheckout;
-use QBitFlow\Dto\Session\StatusLinkResponse;
 use QBitFlow\Dto\Subscription;
 use QBitFlow\Dto\SubscriptionHistory;
 use QBitFlow\Dto\SuccessResponse;
 use QBitFlow\Http\Transport;
-use QBitFlow\Support\Cast;
 
 /**
  * Recurring on-chain subscriptions.
@@ -33,15 +31,14 @@ final class SubscriptionRequests extends Request
 	/**
 	 * Create a subscription session and get back the link to send your customer.
 	 *
-	 * A subscription always bills against an existing product, so supply either
-	 * `productId` or `productReference`.
+	 * Identify the product the same way as for a one-time payment: by `productId`, by
+	 * `productReference`, or inline with `productName` + `description` + `price`.
 	 *
 	 * ```php
 	 * $subscription = $client->subscriptions->createSession(new CreateSubscriptionSessionDto(
 	 *     frequency: Duration::months(1),
 	 *     productId: 1,
 	 *     trialPeriod: Duration::days(7),
-	 *     customerUUID: 'customer-uuid',
 	 * ));
 	 * ```
 	 *
@@ -70,8 +67,9 @@ final class SubscriptionRequests extends Request
 	{
 		$this->requireNonEmpty($subscriptionUUID, 'Subscription UUID');
 
-		return Subscription::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/' . $this->encode($subscriptionUUID)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/' . $this->encode($subscriptionUUID),
+			map: self::one(Subscription::fromArray(...)),
 		);
 	}
 
@@ -82,9 +80,10 @@ final class SubscriptionRequests extends Request
 	{
 		$this->requireNonEmpty($reference, 'Subscription reference');
 
-		return Subscription::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/reference/subscription/' . $this->encode($reference),
-		));
+			map: self::one(Subscription::fromArray(...)),
+		);
 	}
 
 	/**
@@ -96,9 +95,9 @@ final class SubscriptionRequests extends Request
 	{
 		$this->requireNonEmpty($subscriptionUUID, 'Subscription UUID');
 
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/history/' . $this->encode($subscriptionUUID)),
-			SubscriptionHistory::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/history/' . $this->encode($subscriptionUUID),
+			map: self::list(SubscriptionHistory::fromArray(...)),
 		);
 	}
 
@@ -107,28 +106,37 @@ final class SubscriptionRequests extends Request
 	 *
 	 * Normally a subscriber cancels by signing a message. This exists for cases where the
 	 * merchant must act alone — suspicious activity, or an admin-initiated cancellation.
+	 * It queues an on-chain cancellation; the subscription's status changes once that
+	 * settles. Although the route is a GET, it is an action and is never retried.
 	 */
 	public function forceCancel(string $subscriptionUUID): SuccessResponse
 	{
 		$this->requireNonEmpty($subscriptionUUID, 'Subscription UUID');
 
-		return SuccessResponse::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/processing/force-cancel/' . $this->encode($subscriptionUUID),
-		));
+			retry: false,
+			map: self::one(SuccessResponse::fromArray(...)),
+		);
 	}
 
 	/**
 	 * Run a billing cycle immediately. Test-mode subscriptions only.
 	 *
 	 * Live subscriptions bill automatically on schedule; this lets you exercise your
-	 * webhook handling without waiting for one.
+	 * webhook handling without waiting for one. The API enforces the schedule: a
+	 * subscription that is not yet due is refused with a 409
+	 * ({@see \QBitFlow\Exceptions\ConflictException}). Although the route is a GET, it is
+	 * an action and is never retried.
 	 */
-	public function executeTestBilling(string $subscriptionUUID): StatusLinkResponse
+	public function executeTestBilling(string $subscriptionUUID): SuccessResponse
 	{
 		$this->requireNonEmpty($subscriptionUUID, 'Subscription UUID');
 
-		return StatusLinkResponse::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/processing/execute-billing/' . $this->encode($subscriptionUUID),
-		));
+			retry: false,
+			map: self::one(SuccessResponse::fromArray(...)),
+		);
 	}
 }

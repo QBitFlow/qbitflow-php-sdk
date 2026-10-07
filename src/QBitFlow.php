@@ -41,10 +41,17 @@ use QBitFlow\Requests\WebhookRequests;
  * ```php
  * $payment = $client->oneTimePayments->createSession(new CreatePaymentSessionDto(
  *     productId: 1,
- *     customerUUID: 'customer-uuid',
+ *     successUrl: 'https://example.com/success',
  * ));
  *
  * return redirect($payment->link);
+ * ```
+ *
+ * Acting for one of your users (organization admin/owner keys):
+ *
+ * ```php
+ * $asUser = $client->onBehalfOf(123);   // every service on $asUser sends On-Behalf-Of: 123
+ * $asUser->products->getAll();
  * ```
  *
  * @see https://qbitflow.app/docs/api The REST API reference.
@@ -52,7 +59,7 @@ use QBitFlow\Requests\WebhookRequests;
 final class QBitFlow
 {
 	/** Version of this SDK. */
-	public const VERSION = '2.1.0';
+	public const VERSION = '2.5.0';
 
 	private readonly Transport $transport;
 
@@ -92,9 +99,6 @@ final class QBitFlow
 	/** Supported-currency lookups. */
 	public readonly CurrencyRequests $currencies;
 
-	// Pay-as-you-go subscriptions are disabled on the API and are not exposed here.
-	// They will return once the new PAYG infrastructure ships.
-
 	/**
 	 * @param string    $apiKey     Your QBitFlow API key, from the dashboard. A test key keeps
 	 *                              every action on testnets, with data fully separate from live.
@@ -102,11 +106,12 @@ final class QBitFlow
 	 *                              `QBITFLOW_BASE_URL` or the production endpoint.
 	 * @param float|null  $timeout  Request timeout in **seconds** (default 30). Note the
 	 *                              JavaScript SDK uses milliseconds here; PHP clients use seconds.
-	 * @param int|null    $maxRetries Retry attempts for server and network failures (default 3).
+	 * @param int|null    $maxRetries Retry attempts for GET requests that hit a server or
+	 *                              network failure (default 3; `0` disables retries).
 	 * @param ClientInterface|null $httpClient Your own PSR-18 client. When given, the SDK does not
 	 *                              apply `$timeout` — configure it on your client instead.
 	 *
-	 * @throws ValidationException If the API key is empty.
+	 * @throws ValidationException If the API key is empty or only whitespace, or `$maxRetries` is negative.
 	 */
 	public function __construct(
 		string $apiKey,
@@ -121,16 +126,25 @@ final class QBitFlow
 			throw new ValidationException('API key is required');
 		}
 
-		$this->transport = new Transport(
+		$baseUrl = $baseUrl === null ? '' : rtrim(trim($baseUrl), '/');
+
+		$this->init(new Transport(
 			$apiKey,
-			$baseUrl !== null ? rtrim($baseUrl, '/') : Config::baseUrl(),
+			$baseUrl !== '' ? $baseUrl : Config::baseUrl(),
 			$timeout ?? (float) Config::DEFAULT_TIMEOUT,
 			$maxRetries ?? Config::DEFAULT_MAX_RETRIES,
 			httpClient: $httpClient,
 			requestFactory: $requestFactory,
 			streamFactory: $streamFactory,
-		);
+		));
+	}
 
+	/**
+	 * Wire every service to one transport.
+	 */
+	private function init(Transport $transport): void
+	{
+		$this->transport = $transport;
 		$this->customers = new CustomerRequests($this->transport);
 		$this->products = new ProductRequests($this->transport);
 		$this->users = new UserRequests($this->transport);
@@ -157,7 +171,9 @@ final class QBitFlow
 	 *     timeout?: float|int|null,
 	 *     maxRetries?: int|null,
 	 *     httpClient?: ClientInterface|null,
-	 * } $config
+	 *     requestFactory?: RequestFactoryInterface|null,
+	 *     streamFactory?: StreamFactoryInterface|null,
+	 * } $config An empty `baseUrl` means "use the default".
 	 */
 	public static function fromArray(array $config): self
 	{
@@ -167,7 +183,47 @@ final class QBitFlow
 			isset($config['timeout']) ? (float) $config['timeout'] : null,
 			isset($config['maxRetries']) ? (int) $config['maxRetries'] : null,
 			$config['httpClient'] ?? null,
+			$config['requestFactory'] ?? null,
+			$config['streamFactory'] ?? null,
 		);
+	}
+
+	/**
+	 * A copy of this client whose every service acts on behalf of one of your users.
+	 *
+	 * Every request made through the returned client sends `On-Behalf-Of: <userId>`, so it
+	 * reads and writes that user's resources with that user's role. The copy shares this
+	 * client's configuration and HTTP client; this client is left untouched. Passing `0`
+	 * returns an organization-level copy (the header is omitted).
+	 *
+	 * ```php
+	 * $vendor = $client->onBehalfOf(123);
+	 *
+	 * $vendor->products->getAll();                  // user 123's products
+	 * $vendor->oneTimePayments->createSession(...); // credited to user 123
+	 * $client->products->getAll();                  // still organization level
+	 * ```
+	 *
+	 * Requires an organization-level admin or owner API key. A user outside your
+	 * organization gets a 404 ({@see \QBitFlow\Exceptions\NotFoundException}). Each service
+	 * also has its own `onBehalfOf()`.
+	 *
+	 * @param int $userId ID of the user to act as, or 0 for the organization itself.
+	 *
+	 * @throws ValidationException If the ID is negative.
+	 */
+	public function onBehalfOf(int $userId): static
+	{
+		if ($userId < 0) {
+			throw new ValidationException('User ID must be zero or positive');
+		}
+
+		$copy = (new \ReflectionClass(static::class))->newInstanceWithoutConstructor();
+		$copy->init($userId === 0
+			? $this->transport->withoutHeader(Transport::ON_BEHALF_OF)
+			: $this->transport->withHeader(Transport::ON_BEHALF_OF, (string) $userId));
+
+		return $copy;
 	}
 
 	public function getApiKey(): string

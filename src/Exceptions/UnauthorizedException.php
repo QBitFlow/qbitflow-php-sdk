@@ -14,7 +14,8 @@ class UnauthorizedException extends QBitFlowException
 		?int $statusCode = null,
 		?array $response = null,
 		?\Throwable $previous = null,
+		array $fields = [],
 	) {
-		parent::__construct($message, $statusCode, $response, $previous);
+		parent::__construct($message, $statusCode, $response, $previous, $fields);
 	}
 }

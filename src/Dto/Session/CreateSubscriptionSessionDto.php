@@ -6,26 +6,27 @@ namespace QBitFlow\Dto\Session;
 
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Support\Duration;
+use QBitFlow\Support\Validate;
 
 /**
  * Payload for creating a subscription session.
  *
- * Unlike a one-time payment, a subscription must reference an existing product: supply
- * either `productId` or `productReference`.
+ * The product is identified exactly as for a one-time payment: by `productId`, by
+ * `productReference`, or inline with `productName` + `description` + `price` (a "ghost"
+ * product created behind the scenes). `frequency` is required.
  *
  * ```php
  * $link = $client->subscriptions->createSession(new CreateSubscriptionSessionDto(
  *     frequency: Duration::months(1),
  *     productId: 1,
  *     trialPeriod: Duration::days(7),
- *     customerUUID: 'customer-uuid',
  * ));
  * ```
  */
 final class CreateSubscriptionSessionDto extends CreatePaymentSessionDto
 {
 	public function __construct(
-		/** Billing frequency. Required. */
+		/** Billing frequency. Required; its value must be at least 1. */
 		public readonly Duration $frequency,
 		?string $reference = null,
 		?int $productId = null,
@@ -37,9 +38,12 @@ final class CreateSubscriptionSessionDto extends CreatePaymentSessionDto
 		?string $cancelUrl = null,
 		?string $customerUUID = null,
 		?string $customerReference = null,
-		/** Trial period before the first billing. */
+		/** Trial period before the first billing. A value of 0 means no trial. */
 		public readonly ?Duration $trialPeriod = null,
-		/** Minimum number of billing periods the subscriber must complete. */
+		/**
+		 * Minimum number of billing periods the subscriber must complete, 0 to 4294967295.
+		 * `0` means no minimum and is left off the request.
+		 */
 		public readonly ?int $minPeriods = null,
 	) {
 		parent::__construct(
@@ -57,61 +61,66 @@ final class CreateSubscriptionSessionDto extends CreatePaymentSessionDto
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @throws ValidationException When `frequency` is missing or a value has the wrong type.
 	 */
 	public static function fromArray(array $data): static
 	{
-		$frequency = $data['frequency'] ?? null;
-
-		if ($frequency instanceof Duration) {
-			$resolved = $frequency;
-		} elseif (is_array($frequency)) {
-			$resolved = Duration::fromArray($frequency);
-		} else {
-			throw new ValidationException('Frequency is required');
-		}
-
-		$trial = $data['trialPeriod'] ?? null;
-
 		return new self(
-			frequency: $resolved,
-			reference: isset($data['reference']) ? (string) $data['reference'] : null,
-			productId: isset($data['productId']) ? (int) $data['productId'] : null,
-			productReference: isset($data['productReference']) ? (string) $data['productReference'] : null,
-			productName: isset($data['productName']) ? (string) $data['productName'] : null,
-			description: isset($data['description']) ? (string) $data['description'] : null,
-			price: isset($data['price']) ? (float) $data['price'] : null,
-			successUrl: isset($data['successUrl']) ? (string) $data['successUrl'] : null,
-			cancelUrl: isset($data['cancelUrl']) ? (string) $data['cancelUrl'] : null,
-			customerUUID: isset($data['customerUUID']) ? (string) $data['customerUUID'] : null,
-			customerReference: isset($data['customerReference']) ? (string) $data['customerReference'] : null,
-			trialPeriod: $trial instanceof Duration
-				? $trial
-				: (is_array($trial) ? Duration::fromArray($trial) : null),
-			minPeriods: isset($data['minPeriods']) ? (int) $data['minPeriods'] : null,
+			self::durationArg($data, 'frequency') ?? throw new ValidationException('Frequency is required'),
+			...self::sessionArguments($data),
+			trialPeriod: self::durationArg($data, 'trialPeriod'),
+			minPeriods: self::intArg($data, 'minPeriods'),
 		);
 	}
 
 	/**
-	 * Subscriptions always bill against a stored product, so an inline product is not
-	 * accepted here even though the parent payload allows one.
+	 * Subscriptions accept the same product forms as a one-time payment: a stored product
+	 * (`productId` / `productReference`) **or** an inline ghost product
+	 * (`productName` + `description` + `price`), validated by the parent, plus the
+	 * subscription-only rules on `frequency` and `minPeriods`.
 	 *
 	 * @throws ValidationException
 	 */
 	public function validate(): void
 	{
-		if ($this->productId === null && $this->productReference === null) {
-			throw new ValidationException(
-				'Either productId or productReference must be provided for a subscription',
-			);
+		parent::validate();
+
+		if ($this->frequency->value < 1) {
+			throw new ValidationException('Frequency value must be at least 1');
 		}
 
-		if ($this->productId !== null && $this->productId <= 0) {
-			throw new ValidationException('Product ID must be positive');
+		if ($this->minPeriods !== null) {
+			Validate::intRange('minPeriods', $this->minPeriods, 0, Validate::UINT32_MAX);
+		}
+	}
+
+	public function toArray(): array
+	{
+		$out = parent::toArray();
+
+		// `minPeriods` is `omitempty` on the API: 0 means "no minimum".
+		if (($out['minPeriods'] ?? null) === 0) {
+			unset($out['minPeriods']);
 		}
 
-		if ($this->minPeriods !== null && $this->minPeriods <= 0) {
-			throw new ValidationException('Minimum periods must be positive');
-		}
+		return $out;
+	}
+
+	/**
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @throws ValidationException
+	 */
+	private static function durationArg(array $data, string $key): ?Duration
+	{
+		$value = $data[$key] ?? null;
+
+		return match (true) {
+			$value === null, $value instanceof Duration => $value,
+			is_array($value) => Duration::fromArray($value),
+			default => throw new ValidationException("{$key} must be a Duration"),
+		};
 	}
 }

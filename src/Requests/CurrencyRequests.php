@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace QBitFlow\Requests;
 
 use QBitFlow\Dto\Currency;
-use QBitFlow\Support\Cast;
 
 /**
  * Look up the cryptocurrencies QBitFlow supports.
@@ -36,9 +35,10 @@ final class CurrencyRequests extends Request
 	 */
 	public function getAllAvailable(bool $test = false): array
 	{
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/all-available-currencies', ['test' => $test]),
-			Currency::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/all-available-currencies',
+			['test' => $test],
+			map: self::list(Currency::fromArray(...)),
 		);
 	}
 
@@ -51,9 +51,10 @@ final class CurrencyRequests extends Request
 	 */
 	public function getAllMain(bool $test = false): array
 	{
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/all-main-currencies', ['test' => $test]),
-			Currency::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/all-main-currencies',
+			['test' => $test],
+			map: self::list(Currency::fromArray(...)),
 		);
 	}
 }

@@ -7,7 +7,7 @@ namespace QBitFlow\Requests;
 use QBitFlow\Dto\AccountingEvent;
 use QBitFlow\Enums\ExportFormat;
 use QBitFlow\Exceptions\ValidationException;
-use QBitFlow\Support\Cast;
+use QBitFlow\Support\Validate;
 
 /**
  * Export payment data for bookkeeping.
@@ -24,12 +24,16 @@ final class AccountingRequests extends Request
 	 * {@see AccountingRequests::exportJson()} or {@see AccountingRequests::exportCsv()}
 	 * when you want a single, definite return type.
 	 *
+	 * Both dates are checked locally (`YYYY-MM-DD`, real calendar dates, `from` not after
+	 * `to`); the maximum length of the window is left to the API.
+	 *
 	 * @param string $from Start date, inclusive, as `YYYY-MM-DD`.
 	 * @param string $to   End date, inclusive, as `YYYY-MM-DD`.
 	 *
 	 * @return list<AccountingEvent>|string
 	 *
-	 * @throws ValidationException If either date is missing.
+	 * @throws ValidationException If a date is missing or malformed, `from` is after `to`, or
+	 *                             the format is unknown.
 	 */
 	public function export(string $from, string $to, ExportFormat|string $format): array|string
 	{
@@ -39,9 +43,7 @@ final class AccountingRequests extends Request
 			))
 			: $format;
 
-		if (trim($from) === '' || trim($to) === '') {
-			throw new ValidationException('from and to dates are required (YYYY-MM-DD)');
-		}
+		Validate::accountingWindow($from, $to);
 
 		$params = ['from' => $from, 'to' => $to, 'format' => $format->value];
 
@@ -49,9 +51,10 @@ final class AccountingRequests extends Request
 			return $this->transport->raw('GET', self::BASE_ROUTE . '/export', $params);
 		}
 
-		return Cast::listOf(
-			$this->transport->get(self::BASE_ROUTE . '/export', $params),
-			AccountingEvent::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/export',
+			$params,
+			map: self::list(AccountingEvent::fromArray(...)),
 		);
 	}
 

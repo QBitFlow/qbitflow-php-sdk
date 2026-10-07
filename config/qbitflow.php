@@ -46,9 +46,23 @@ return [
 	| Retries
 	|--------------------------------------------------------------------------
 	|
-	| How many times to retry a request that failed with a server (5xx) or
-	| network error. Client errors (4xx) are never retried.
+	| How many times to retry a GET request that failed with a server (5xx) or
+	| network error. POST, PUT and DELETE are never retried, nor are client
+	| errors (4xx). Set to 0 to disable retries.
 	|
 	*/
 	'max_retries' => env('QBITFLOW_MAX_RETRIES', 3),
+
+	/*
+	|--------------------------------------------------------------------------
+	| Webhook secret
+	|--------------------------------------------------------------------------
+	|
+	| Your webhook secret, from the dashboard under Settings → Webhooks. When set,
+	| the `qbitflow.webhook` middleware verifies signatures locally (no API call, and
+	| it keeps working when the API is unreachable). Leave it null to have the API
+	| verify each delivery instead.
+	|
+	*/
+	'webhook_secret' => env('QBITFLOW_WEBHOOK_SECRET'),
 ];

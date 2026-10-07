@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace QBitFlow\Webhooks;
 
 use QBitFlow\Exceptions\ValidationException;
-use stdClass;
 
 /**
  * Local webhook signature verification.
@@ -45,14 +44,18 @@ final class WebhookVerifier
 	 * logging layers) routinely re-serialize a body and reorder keys. Signing raw bytes
 	 * would make verification fail for a payload that is in fact untouched.
 	 *
-	 * Canonical means: object keys sorted lexicographically at every level, no
-	 * insignificant whitespace, non-ASCII and `/` left unescaped, and `<`, `>` and `&`
-	 * escaped as `<`, `>` and `&`.
+	 * Canonical means exactly what Go's `encoding/json` produces for the payload decoded
+	 * into `any` (the QBitFlow API is written in Go): object keys sorted by their UTF-8 bytes
+	 * at every level, no insignificant whitespace, `<`, `>`, `&`, U+2028 and U+2029 escaped
+	 * as `\u003c`, `\u003e`, `\u0026`, `\u2028`, `\u2029`, strings otherwise literal (decimal
+	 * amounts such as `"1000000000000000000"` stay strings), and every number rendered from
+	 * its float64 value under Go's formatting rules — independent of PHP's
+	 * `serialize_precision`. Every QBitFlow SDK produces the same bytes, and each SDK's test
+	 * suite pins the same Go-generated reference vectors.
 	 *
-	 * Those escaping rules come from Go: the QBitFlow API is written in Go and its
-	 * `encoding/json` escapes exactly those three characters by default while leaving
-	 * slashes and non-ASCII alone. PHP's defaults are the opposite on both counts, so this
-	 * method corrects for them — every QBitFlow SDK produces the same bytes.
+	 * Pass the raw body when you can. An already-decoded PHP array works too, but an empty
+	 * PHP array is ambiguous and renders as `[]` — decode with `json_decode($body, false)` to
+	 * keep an empty object `{}`.
 	 *
 	 * @param string|array<mixed>|object $payload Raw JSON, or an already-decoded value
 	 * @throws ValidationException When the payload is missing or not valid JSON
@@ -63,76 +66,7 @@ final class WebhookVerifier
 			throw new ValidationException('webhook payload is required');
 		}
 
-		if (is_string($payload)) {
-			// Decode WITHOUT assoc so JSON objects stay stdClass and JSON arrays stay
-			// arrays. With assoc=true both become PHP arrays and an empty object {} would
-			// re-encode as [], changing the bytes and breaking the signature.
-			$decoded = json_decode($payload, false);
-
-			if (json_last_error() !== JSON_ERROR_NONE) {
-				throw new ValidationException(
-					'webhook payload is not valid JSON: ' . json_last_error_msg()
-				);
-			}
-		} else {
-			$decoded = $payload;
-		}
-
-		$encoded = json_encode(
-			self::sortDeep($decoded),
-			JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-		);
-
-		if ($encoded === false) {
-			throw new ValidationException('webhook payload cannot be serialized');
-		}
-
-		// These three only ever appear inside string values in JSON, so a blind replace is
-		// safe. Done by hand rather than with JSON_HEX_TAG/JSON_HEX_AMP because those emit
-		// uppercase hex (<) while Go emits lowercase (<).
-		return str_replace(
-			['<', '>', '&'],
-			['\\u003c', '\\u003e', '\\u0026'],
-			$encoded
-		);
-	}
-
-	/**
-	 * Recursively sort object properties. Arrays keep their order — array order is
-	 * meaningful, so sorting one would change what the payload says.
-	 */
-	private static function sortDeep(mixed $value): mixed
-	{
-		if ($value instanceof stdClass) {
-			$properties = get_object_vars($value);
-			ksort($properties, SORT_STRING);
-
-			$sorted = new stdClass();
-			foreach ($properties as $key => $item) {
-				$sorted->{$key} = self::sortDeep($item);
-			}
-
-			return $sorted;
-		}
-
-		if (is_array($value)) {
-			// A list keeps its order; an associative array is an object in JSON terms and
-			// must be sorted like one.
-			if (array_is_list($value)) {
-				return array_map([self::class, 'sortDeep'], $value);
-			}
-
-			ksort($value, SORT_STRING);
-
-			$sorted = new stdClass();
-			foreach ($value as $key => $item) {
-				$sorted->{(string) $key} = self::sortDeep($item);
-			}
-
-			return $sorted;
-		}
-
-		return $value;
+		return CanonicalJson::canonicalize($payload);
 	}
 
 	/**
@@ -171,6 +105,11 @@ final class WebhookVerifier
 	/**
 	 * Verify a webhook locally, without calling the QBitFlow API.
 	 *
+	 * **Argument order:** `verify($secret, $timestamp, $signature, $payload)` — timestamp
+	 * *before* signature. (The API-backed `$client->webhooks->verify($payload, $signature,
+	 * $timestamp)` takes them the other way round; both are plain strings, so a swap fails
+	 * verification rather than erroring. Named arguments avoid the trap.)
+	 *
 	 * Performs the same three checks the server does:
 	 *
 	 * 1. The timestamp is within `$maxTimestampAgeSeconds` of now, which is what stops a
@@ -185,6 +124,7 @@ final class WebhookVerifier
 	 *
 	 * Returns normally when the webhook is authentic; throws otherwise.
 	 *
+	 * @param int $maxTimestampAgeSeconds Replay window; `0` or less means the default (300 s).
 	 * @param int|null $nowSeconds Override the clock. Test-only.
 	 * @param bool $skipTimestampCheck Disable the replay check. Leave this off in
 	 *     production: without it a captured webhook can be replayed forever.
@@ -195,7 +135,12 @@ final class WebhookVerifier
 	 * $body = file_get_contents('php://input');
 	 *
 	 * try {
-	 *     WebhookVerifier::verify(getenv('QBITFLOW_WEBHOOK_SECRET'), $headers['timestamp'], $headers['signature'], $body);
+	 *     WebhookVerifier::verify(
+	 *         secret: (string) getenv('QBITFLOW_WEBHOOK_SECRET'),
+	 *         timestamp: $headers['timestamp'],
+	 *         signature: $headers['signature'],
+	 *         payload: $body,
+	 *     );
 	 * } catch (ValidationException $e) {
 	 *     http_response_code(400);
 	 *     exit;
@@ -218,7 +163,11 @@ final class WebhookVerifier
 		}
 
 		if (! $skipTimestampCheck) {
-			self::verifyTimestamp($timestamp, $maxTimestampAgeSeconds, $nowSeconds);
+			self::verifyTimestamp(
+				$timestamp,
+				$maxTimestampAgeSeconds > 0 ? $maxTimestampAgeSeconds : self::DEFAULT_MAX_TIMESTAMP_AGE_SECONDS,
+				$nowSeconds,
+			);
 		}
 
 		$expected = self::computeSignature($secret, $timestamp, $payload);
@@ -232,8 +181,10 @@ final class WebhookVerifier
 	/**
 	 * Enforce the replay window.
 	 *
-	 * The comparison is absolute, so a webhook from a clock slightly ahead of ours is
-	 * treated the same as one slightly behind.
+	 * The timestamp is parsed like Go's `strconv.ParseInt`: ASCII digits with an optional
+	 * sign, no surrounding whitespace, within the int64 range. The comparison is absolute
+	 * (a webhook from a clock slightly ahead of ours is treated the same as one slightly
+	 * behind) and cannot overflow.
 	 */
 	private static function verifyTimestamp(
 		string $timestamp,
@@ -244,18 +195,48 @@ final class WebhookVerifier
 			throw new ValidationException('webhook timestamp is required');
 		}
 
-		if (preg_match('/^-?\d+$/', $timestamp) !== 1) {
+		$sent = self::parseInt64($timestamp);
+
+		if ($sent === null) {
 			throw new ValidationException('webhook timestamp is not a unix-seconds integer');
 		}
 
 		$now = $nowSeconds ?? time();
-		$age = abs($now - (int) $timestamp);
+
+		// Compared as floats: exact for any realistic clock, and immune to int overflow.
+		$age = abs((float) $now - (float) $sent);
 
 		if ($age > $maxAgeSeconds) {
-			throw new ValidationException(
-				"webhook timestamp expired: age {$age}s exceeds the maximum of {$maxAgeSeconds}s"
-			);
+			throw new ValidationException(sprintf(
+				'webhook timestamp expired: age %ss exceeds the maximum of %ds',
+				$age >= 1e15 ? sprintf('%.3e', $age) : (string) (int) $age,
+				$maxAgeSeconds,
+			));
 		}
+	}
+
+	/**
+	 * `strconv.ParseInt(s, 10, 64)`: null when not `[+-]?[0-9]+` or out of the int64 range.
+	 */
+	private static function parseInt64(string $value): ?int
+	{
+		if (preg_match('/^([+-]?)([0-9]+)$/', $value, $m) !== 1) {
+			return null;
+		}
+
+		$digits = ltrim($m[2], '0');
+		$digits = $digits === '' ? '0' : $digits;
+		$limit = $m[1] === '-' ? '9223372036854775808' : '9223372036854775807';
+
+		if (strlen($digits) > strlen($limit) || (strlen($digits) === strlen($limit) && strcmp($digits, $limit) > 0)) {
+			return null;
+		}
+
+		if ($m[1] === '-' && $digits === $limit) {
+			return PHP_INT_MIN;
+		}
+
+		return (int) ($m[1] === '-' ? '-' . $digits : $digits);
 	}
 
 	/**

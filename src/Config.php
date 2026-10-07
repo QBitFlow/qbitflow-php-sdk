@@ -26,10 +26,13 @@ final class Config
 	 */
 	public const DEFAULT_TIMEOUT = 30;
 
-	/** Default maximum number of retry attempts for failed requests. */
+	/**
+	 * Default maximum number of retry attempts for GET requests that hit a network failure
+	 * or a 5xx. POST, PUT and DELETE are never retried. `0` disables retries.
+	 */
 	public const DEFAULT_MAX_RETRIES = 3;
 
-	/** Base delay between retries, in seconds. Grows linearly with each attempt. */
+	/** Base delay between retries, in seconds. Doubles with each attempt: 1s, 2s, 4s. */
 	public const DEFAULT_RETRY_DELAY = 1.0;
 
 	/**

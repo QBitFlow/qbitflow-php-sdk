@@ -44,23 +44,31 @@ final class CursorData implements Countable, IteratorAggregate
 	}
 
 	/**
-	 * Hydrate a paginated response.
+	 * Hydrate a paginated response: `{"items": [...], "nextCursor": "<cursor>"|null}`.
+	 *
+	 * A `null` or absent `items` is an empty page (Go encodes a nil slice as `null`); a body
+	 * that is not this envelope — a bare list, or `items` of the wrong type — is a
+	 * response-shape failure.
 	 *
 	 * @template TItem of object
 	 *
-	 * @param array<string,mixed>                  $data
-	 * @param callable(array<string,mixed>): TItem $factory
+	 * @param array<array-key,mixed>                   $data
+	 * @param callable(array<array-key,mixed>): TItem $factory
 	 *
 	 * @return self<TItem>
+	 *
+	 * @throws \QBitFlow\Exceptions\ServerException When the body is not a cursor page.
 	 */
 	public static function fromArray(array $data, callable $factory): self
 	{
-		$cursor = $data['nextCursor'] ?? null;
+		return Cast::one($data, static function (array $page) use ($factory): self {
+			$cursor = Cast::nullableString($page, 'nextCursor');
 
-		return new self(
-			Cast::listOf($data['items'] ?? [], $factory),
-			is_scalar($cursor) && (string) $cursor !== '' ? (string) $cursor : null,
-		);
+			return new self(
+				Cast::listOf($page['items'] ?? null, $factory, 'items'),
+				$cursor === '' ? null : $cursor,
+			);
+		});
 	}
 
 	/** Whether another page is available. */

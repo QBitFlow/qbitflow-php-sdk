@@ -8,7 +8,7 @@ use QBitFlow\Dto\CreateCustomerDto;
 use QBitFlow\Dto\Customer;
 use QBitFlow\Dto\SuccessResponse;
 use QBitFlow\Dto\UpdateCustomerDto;
-use QBitFlow\Exceptions\ValidationException;
+use QBitFlow\Support\Validate;
 use QBitFlow\Support\CursorData;
 
 /**
@@ -35,7 +35,7 @@ final class CustomerRequests extends Request
 	{
 		$dto = is_array($customer) ? CreateCustomerDto::fromArray($customer) : $customer;
 
-		return Customer::fromArray($this->transport->post(self::BASE_ROUTE . '/', $dto->toArray()));
+		return $this->transport->post(self::BASE_ROUTE . '/', $dto->toArray(), self::one(Customer::fromArray(...)));
 	}
 
 	/**
@@ -45,8 +45,9 @@ final class CustomerRequests extends Request
 	{
 		$this->requireNonEmpty($customerUUID, 'Customer UUID');
 
-		return Customer::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/uuid/' . $this->encode($customerUUID)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/uuid/' . $this->encode($customerUUID),
+			map: self::one(Customer::fromArray(...)),
 		);
 	}
 
@@ -59,8 +60,9 @@ final class CustomerRequests extends Request
 	{
 		$this->requireNonEmpty($reference, 'Customer reference');
 
-		return Customer::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/reference/' . $this->encode($reference)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/reference/' . $this->encode($reference),
+			map: self::one(Customer::fromArray(...)),
 		);
 	}
 
@@ -69,12 +71,12 @@ final class CustomerRequests extends Request
 	 */
 	public function getByEmail(string $email): Customer
 	{
-		if (! str_contains($email, '@')) {
-			throw new ValidationException('Valid email is required');
-		}
+		Validate::required('email', $email);
+		Validate::email('email', $email);
 
-		return Customer::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/email/' . $this->encode($email)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/email/' . $this->encode($email),
+			map: self::one(Customer::fromArray(...)),
 		);
 	}
 
@@ -88,9 +90,10 @@ final class CustomerRequests extends Request
 	 */
 	public function getAll(?int $limit = null, ?string $cursor = null): CursorData
 	{
-		return CursorData::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/all', CursorData::queryParams($limit, $cursor)),
-			Customer::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/all',
+			CursorData::queryParams($limit, $cursor),
+			map: self::page(Customer::fromArray(...)),
 		);
 	}
 
@@ -105,10 +108,11 @@ final class CustomerRequests extends Request
 
 		$dto = is_array($customer) ? UpdateCustomerDto::fromArray($customer) : $customer;
 
-		return Customer::fromArray($this->transport->put(
+		return $this->transport->put(
 			self::BASE_ROUTE . '/' . $this->encode($customerUUID),
 			$dto->toArray(),
-		));
+			self::one(Customer::fromArray(...)),
+		);
 	}
 
 	/**
@@ -118,8 +122,9 @@ final class CustomerRequests extends Request
 	{
 		$this->requireNonEmpty($customerUUID, 'Customer UUID');
 
-		return SuccessResponse::fromArray(
-			$this->transport->delete(self::BASE_ROUTE . '/uuid/' . $this->encode($customerUUID)),
+		return $this->transport->delete(
+			self::BASE_ROUTE . '/uuid/' . $this->encode($customerUUID),
+			self::one(SuccessResponse::fromArray(...)),
 		);
 	}
 }

@@ -15,38 +15,44 @@ use QBitFlow\Support\Dto;
  *
  * Two cases trigger it: a one-time payment was paid, or a subscription checkout was
  * completed — in which case the first billing has already happened.
+ *
+ * ```php
+ * $event = SessionWebhookResponse::fromArray(json_decode($rawBody, true));
+ * ```
  */
 final class SessionWebhookResponse extends Dto
 {
 	public function __construct(
 		/** Session UUID. */
 		public readonly string $uuid,
-		/** Current transaction status. */
-		public readonly TransactionStatus $status,
-		/** The checkout data, as a payment, subscription or PAYG session. */
+		/**
+		 * Top-level transaction type: `payment` or `createSubscription`. A `TransactionType`
+		 * member, or the raw string for a type this SDK does not know.
+		 */
+		public readonly TransactionType|string $txType,
+		/** The checkout data, as a payment or subscription session. */
 		public readonly SessionCheckout $session,
-		/** Top-level transaction type: `payment` or `createSubscription`. */
-		public readonly TransactionType $txType,
-		/** Link to the QBitFlow management page for this transaction. */
-		public readonly string $managementPageLink,
+		/** Current transaction status; null when the delivery carries none. */
+		public readonly ?TransactionStatus $status = null,
+		/** Link to the QBitFlow management page for this transaction; `''` when not provided. */
+		public readonly string $managementPageLink = '',
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @throws \QBitFlow\Exceptions\ServerException When the payload does not have the webhook shape.
 	 */
 	public static function fromArray(array $data): self
 	{
-		$status = $data['status'] ?? [];
-		$session = $data['session'] ?? [];
-
-		return new self(
-			Cast::string($data, 'uuid'),
-			TransactionStatus::fromArray(is_array($status) ? $status : []),
-			SessionCheckout::discriminate(is_array($session) ? $session : []),
-			Cast::enum($data, 'txType', TransactionType::class, TransactionType::ONE_TIME_PAYMENT),
-			Cast::string($data, 'managementPageLink'),
-		);
+		return Cast::one($data, static fn (array $body): self => new self(
+			Cast::string($body, 'uuid'),
+			Cast::enum($body, 'txType', TransactionType::class),
+			Cast::object($body, 'session', SessionCheckout::discriminate(...)),
+			Cast::nullableObject($body, 'status', TransactionStatus::fromArray(...)),
+			Cast::string($body, 'managementPageLink'),
+		));
 	}
 
 	/** Whether this event announces a newly created subscription. */

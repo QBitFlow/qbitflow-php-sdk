@@ -21,21 +21,24 @@ final class AccountingEvent extends Dto
 	public function __construct(
 		/** Unique payment identifier. */
 		public readonly string $paymentId,
-		/** Your own reference for the payment, when one was set. */
+		/** Your own reference for the payment; `''` when none was set. */
 		public readonly string $paymentReference,
-		/** What kind of row this is. */
-		public readonly AccountingEventType $type,
+		/**
+		 * What kind of row this is. An `AccountingEventType` member, or the raw string for a
+		 * kind this SDK does not know — see {@see \QBitFlow\Support\Enums}.
+		 */
+		public readonly AccountingEventType|string $type,
 		/** Transaction timestamp, in UTC. */
 		public readonly DateTimeImmutable $txTimeUtc,
 		/** URL of the payment receipt. */
 		public readonly string $receiptUrl,
-		/** For refunds, the payment ID of the original transaction. */
+		/** For refunds, the payment ID of the original transaction; `''` otherwise. */
 		public readonly string $relatedPaymentId,
-		/** For refunds, your own reference for the original payment. */
+		/** For refunds, your own reference for the original payment; `''` otherwise. */
 		public readonly string $relatedPaymentReference,
 		/** Product ID. */
 		public readonly int $productId,
-		/** Your own product reference, when one was set. */
+		/** Your own product reference; `''` when none was set. */
 		public readonly string $productReference,
 		/** Product name at time of payment. */
 		public readonly string $productName,
@@ -43,7 +46,7 @@ final class AccountingEvent extends Dto
 		public readonly string $productDescription,
 		/** Customer UUID. */
 		public readonly string $customerUUID,
-		/** Your own customer reference, when one was set. */
+		/** Your own customer reference; `''` when none was set. */
 		public readonly string $customerReference,
 		/** Blockchain name, e.g. `bitcoin`, `solana`, `ethereum`. */
 		public readonly string $chain,
@@ -83,22 +86,22 @@ final class AccountingEvent extends Dto
 		public readonly float $netAmountUsd,
 		/** Net amount received, in token units. */
 		public readonly string $netAmount,
-		/** Network fees in USD, present when QBitFlow paid the network fee. */
-		public readonly ?float $networkFeesUsd = null,
-		/** Network fees in token units. */
-		public readonly ?string $networkFees = null,
+		/** Network fees in USD; `0.0` unless QBitFlow paid the network fee (e.g. a refund). */
+		public readonly float $networkFeesUsd = 0.0,
+		/** Network fees in native units, as a decimal string; `''` when none were recorded. */
+		public readonly string $networkFees = '',
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
 		return new self(
 			Cast::string($data, 'paymentId'),
 			Cast::string($data, 'paymentReference'),
-			Cast::enum($data, 'type', AccountingEventType::class, AccountingEventType::PAYMENT),
+			AccountingEventType::fromWire(Cast::enum($data, 'type', AccountingEventType::class)),
 			Cast::date($data, 'txTimeUtc'),
 			Cast::string($data, 'receiptUrl'),
 			Cast::string($data, 'relatedPaymentId'),
@@ -118,18 +121,18 @@ final class AccountingEvent extends Dto
 			Cast::int($data, 'currencyDecimals'),
 			Cast::string($data, 'tokenContractOrMint'),
 			Cast::string($data, 'explorerUrl'),
-			Cast::string($data, 'grossAmount', '0'),
+			Cast::string($data, 'grossAmount'),
 			Cast::float($data, 'grossAmountUsd'),
 			Cast::float($data, 'platformFeePercent'),
 			Cast::float($data, 'platformFeeUsd'),
-			Cast::string($data, 'platformFee', '0'),
+			Cast::string($data, 'platformFee'),
 			Cast::float($data, 'organizationFeePercent'),
 			Cast::float($data, 'organizationFeeUsd'),
-			Cast::string($data, 'organizationFee', '0'),
+			Cast::string($data, 'organizationFee'),
 			Cast::float($data, 'netAmountUsd'),
-			Cast::string($data, 'netAmount', '0'),
-			Cast::nullableFloat($data, 'networkFeesUsd'),
-			Cast::nullableString($data, 'networkFees'),
+			Cast::string($data, 'netAmount'),
+			Cast::float($data, 'networkFeesUsd'),
+			Cast::string($data, 'networkFees'),
 		);
 	}
 }

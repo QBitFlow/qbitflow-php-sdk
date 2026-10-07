@@ -10,7 +10,8 @@ use QBitFlow\Support\Dto;
 /**
  * A cryptocurrency accepted for payment — either a native chain currency or a token.
  *
- * Resolve the currency IDs found on sessions and payments with
+ * Returned by the currency lookups, and nested as `currency` on every payment,
+ * subscription and billing record. Resolve the currency IDs found on sessions with
  * {@see \QBitFlow\Requests\CurrencyRequests::getAllAvailable()}.
  */
 final class Currency extends Dto
@@ -26,17 +27,17 @@ final class Currency extends Dto
 		public readonly int $decimals,
 		/** Whether this is a test-network currency. */
 		public readonly bool $test,
-		/** Contract/mint address, or the chain identifier for a native currency. */
-		public readonly ?string $address = null,
-		/** For a token, the ID of the native currency it settles on. */
+		/** Token contract (EVM) or mint (Solana) address; `''` for a native currency. */
+		public readonly string $address = '',
+		/** For a token, the ID of the native currency it settles on; null for a native currency. */
 		public readonly ?int $mainCurrencyId = null,
-		/** For a token, the native currency it settles on. */
+		/** For a token, the native currency it settles on; null for a native currency. */
 		public readonly ?self $mainCurrency = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
@@ -46,9 +47,9 @@ final class Currency extends Dto
 			Cast::string($data, 'name'),
 			Cast::int($data, 'decimals'),
 			Cast::bool($data, 'test'),
-			Cast::nullableString($data, 'address'),
+			Cast::string($data, 'address'),
 			Cast::nullableInt($data, 'mainCurrencyId'),
-			Cast::nested($data, 'mainCurrency', self::fromArray(...)),
+			Cast::nullableObject($data, 'mainCurrency', self::fromArray(...)),
 		);
 	}
 

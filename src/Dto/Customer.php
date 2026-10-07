@@ -14,7 +14,7 @@ use QBitFlow\Support\Dto;
 final class Customer extends Dto
 {
 	public function __construct(
-		/** Unique identifier for the customer. */
+		/** Unique identifier for the customer (a bare UUID). */
 		public readonly string $uuid,
 		/** First name. */
 		public readonly string $name,
@@ -24,23 +24,23 @@ final class Customer extends Dto
 		public readonly string $email,
 		/** When the customer was created. */
 		public readonly DateTimeImmutable $createdAt,
-		/** Phone number, when provided. */
-		public readonly ?string $phoneNumber = null,
-		/** Postal address, when provided. */
-		public readonly ?string $address = null,
-		/** Your own reference for this customer. */
-		public readonly ?string $reference = null,
+		/** Owning organization ID. */
+		public readonly int $organizationId,
+		/** Owning user ID; `0` for organization-level customers. */
+		public readonly int $userId = 0,
+		/** Phone number; `''` when none was given. */
+		public readonly string $phoneNumber = '',
+		/** Postal address; `''` when none was given. */
+		public readonly string $address = '',
+		/** Your own reference for this customer; `''` when none was given. */
+		public readonly string $reference = '',
 		/** Whether this is a test-mode customer (test and live sets are isolated). */
 		public readonly bool $test = false,
-		/** Owning organization ID. Returned only on authenticated reads. */
-		public readonly ?int $organizationId = null,
-		/** Owning user ID, `0` for organization-level customers. Authenticated reads only. */
-		public readonly ?int $userId = null,
 	) {
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function fromArray(array $data): self
 	{
@@ -50,12 +50,12 @@ final class Customer extends Dto
 			Cast::string($data, 'lastName'),
 			Cast::string($data, 'email'),
 			Cast::date($data, 'createdAt'),
-			Cast::nullableString($data, 'phoneNumber'),
-			Cast::nullableString($data, 'address'),
-			Cast::nullableString($data, 'reference'),
+			Cast::int($data, 'organizationId'),
+			Cast::int($data, 'userId'),
+			Cast::string($data, 'phoneNumber'),
+			Cast::string($data, 'address'),
+			Cast::string($data, 'reference'),
 			Cast::bool($data, 'test'),
-			Cast::nullableInt($data, 'organizationId'),
-			Cast::nullableInt($data, 'userId'),
 		);
 	}
 

@@ -24,8 +24,10 @@ final class SessionRequests extends Request
 	 */
 	public function createForPayment(CreatePaymentSessionDto $session): LinkResponse
 	{
-		return LinkResponse::fromArray(
-			$this->transport->post(self::BASE_ROUTE . '/new/payment', $session->toArray()),
+		return $this->transport->post(
+			self::BASE_ROUTE . '/new/payment',
+			$session->toArray(),
+			self::one(LinkResponse::fromArray(...)),
 		);
 	}
 
@@ -34,16 +36,18 @@ final class SessionRequests extends Request
 	 */
 	public function createForSubscription(CreateSubscriptionSessionDto $session): LinkResponse
 	{
-		return LinkResponse::fromArray(
-			$this->transport->post(self::BASE_ROUTE . '/new/subscription', $session->toArray()),
+		return $this->transport->post(
+			self::BASE_ROUTE . '/new/subscription',
+			$session->toArray(),
+			self::one(LinkResponse::fromArray(...)),
 		);
 	}
 
 	/**
 	 * Get a session by UUID.
 	 *
-	 * This endpoint is public — it backs the checkout page itself — so the response omits
-	 * the fields marked "authenticated only" when called without a key.
+	 * This endpoint is public — it backs the checkout page itself — but it honours the API
+	 * key the SDK always sends, so the full session (organization ID, fees) comes back.
 	 *
 	 * @param bool|null $closeToExpireError Whether the API should error when the session is
 	 *                                      close to expiry. Defaults to true server-side.
@@ -54,8 +58,10 @@ final class SessionRequests extends Request
 
 		$params = $closeToExpireError === null ? [] : ['closeToExpireError' => $closeToExpireError];
 
-		return SessionCheckout::discriminate(
-			$this->transport->get(self::BASE_ROUTE . '/' . $this->encode($sessionUUID), $params),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/' . $this->encode($sessionUUID),
+			$params,
+			map: self::one(SessionCheckout::discriminate(...)),
 		);
 	}
 }

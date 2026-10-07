@@ -39,7 +39,6 @@ final class PaymentRequests extends Request
 	 * ```php
 	 * $payment = $client->oneTimePayments->createSession(new CreatePaymentSessionDto(
 	 *     productId: 1,
-	 *     customerUUID: 'customer-uuid',
 	 *     successUrl: 'https://example.com/success',
 	 * ));
 	 *
@@ -78,8 +77,9 @@ final class PaymentRequests extends Request
 	{
 		$this->requireNonEmpty($paymentUUID, 'Payment UUID');
 
-		return Payment::fromArray(
-			$this->transport->get(self::BASE_ROUTE . '/payment/' . $this->encode($paymentUUID)),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/payment/' . $this->encode($paymentUUID),
+			map: self::one(Payment::fromArray(...)),
 		);
 	}
 
@@ -93,9 +93,10 @@ final class PaymentRequests extends Request
 	{
 		$this->requireNonEmpty($reference, 'Payment reference');
 
-		return Payment::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/payment/reference/' . $this->encode($reference),
-		));
+			map: self::one(Payment::fromArray(...)),
+		);
 	}
 
 	/**
@@ -105,12 +106,10 @@ final class PaymentRequests extends Request
 	 */
 	public function getAll(?int $limit = null, ?string $cursor = null): CursorData
 	{
-		return CursorData::fromArray(
-			$this->transport->get(
-				self::BASE_ROUTE . '/payments',
-				CursorData::queryParams($limit, $cursor),
-			),
-			Payment::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/payments',
+			CursorData::queryParams($limit, $cursor),
+			map: self::page(Payment::fromArray(...)),
 		);
 	}
 
@@ -121,7 +120,7 @@ final class PaymentRequests extends Request
 	 * $page = $client->oneTimePayments->getAllCombined(limit: 20);
 	 *
 	 * foreach ($page as $entry) {
-	 *     echo $entry->source->value, ' ', $entry->amount, PHP_EOL;
+	 *     echo Enums::value($entry->source), ' ', $entry->amount, PHP_EOL;
 	 * }
 	 * ```
 	 *
@@ -129,24 +128,23 @@ final class PaymentRequests extends Request
 	 */
 	public function getAllCombined(?int $limit = null, ?string $cursor = null): CursorData
 	{
-		return CursorData::fromArray(
-			$this->transport->get(
-				self::BASE_ROUTE . '/payments/combined',
-				CursorData::queryParams($limit, $cursor),
-			),
-			CombinedPayment::fromArray(...),
+		return $this->transport->get(
+			self::BASE_ROUTE . '/payments/combined',
+			CursorData::queryParams($limit, $cursor),
+			map: self::page(CombinedPayment::fromArray(...)),
 		);
 	}
 
 	/**
-	 * Get the customer behind a transaction.
+	 * Get the customer behind a transaction: a payment (`pay@…`) or a subscription (`sub@…`).
 	 */
 	public function getCustomerForTransaction(string $transactionUUID): Customer
 	{
 		$this->requireNonEmpty($transactionUUID, 'Transaction UUID');
 
-		return Customer::fromArray($this->transport->get(
+		return $this->transport->get(
 			self::BASE_ROUTE . '/customer/' . $this->encode($transactionUUID),
-		));
+			map: self::one(Customer::fromArray(...)),
+		);
 	}
 }

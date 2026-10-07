@@ -8,8 +8,7 @@ use QBitFlow\Dto\CreateUserDto;
 use QBitFlow\Dto\SuccessResponse;
 use QBitFlow\Dto\UpdateUserDto;
 use QBitFlow\Dto\User;
-use QBitFlow\Exceptions\ValidationException;
-use QBitFlow\Support\Cast;
+use QBitFlow\Support\Validate;
 
 /**
  * Manage the users in your organization.
@@ -32,7 +31,7 @@ final class UserRequests extends Request
 	{
 		$dto = is_array($user) ? CreateUserDto::fromArray($user) : $user;
 
-		return User::fromArray($this->transport->post(self::BASE_ROUTE . '/', $dto->toArray()));
+		return $this->transport->post(self::BASE_ROUTE . '/', $dto->toArray(), self::one(User::fromArray(...)));
 	}
 
 	/**
@@ -40,7 +39,7 @@ final class UserRequests extends Request
 	 */
 	public function get(): User
 	{
-		return User::fromArray($this->transport->get(self::BASE_ROUTE . '/'));
+		return $this->transport->get(self::BASE_ROUTE . '/', map: self::one(User::fromArray(...)));
 	}
 
 	/**
@@ -50,7 +49,7 @@ final class UserRequests extends Request
 	 */
 	public function getAll(): array
 	{
-		return Cast::listOf($this->transport->get(self::BASE_ROUTE . '/all'), User::fromArray(...));
+		return $this->transport->get(self::BASE_ROUTE . '/all', map: self::list(User::fromArray(...)));
 	}
 
 	/**
@@ -60,7 +59,7 @@ final class UserRequests extends Request
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return User::fromArray($this->transport->get(self::BASE_ROUTE . '/id/' . $userId));
+		return $this->transport->get(self::BASE_ROUTE . '/id/' . $userId, map: self::one(User::fromArray(...)));
 	}
 
 	/**
@@ -68,18 +67,21 @@ final class UserRequests extends Request
 	 */
 	public function getByEmail(string $email): User
 	{
-		if (! str_contains($email, '@')) {
-			throw new ValidationException('Valid email is required');
-		}
+		Validate::required('email', $email);
+		Validate::email('email', $email);
 
-		return User::fromArray($this->transport->get(self::BASE_ROUTE . '/email/' . $this->encode($email)));
+		return $this->transport->get(
+			self::BASE_ROUTE . '/email/' . $this->encode($email),
+			map: self::one(User::fromArray(...)),
+		);
 	}
 
 	/**
 	 * Update a user.
 	 *
-	 * The organization fee is applied only when the call is made with an admin or owner
-	 * key; it is ignored when a user updates themselves.
+	 * Setting `organizationFeeBps` requires admin authority — an admin or owner key, or an
+	 * organization-level key acting through `onBehalfOf()`. A caller without it that sends
+	 * the field is rejected with a 403 ({@see \QBitFlow\Exceptions\ForbiddenException}).
 	 *
 	 * @param UpdateUserDto|array<string,mixed> $user
 	 */
@@ -89,7 +91,7 @@ final class UserRequests extends Request
 
 		$dto = is_array($user) ? UpdateUserDto::fromArray($user) : $user;
 
-		return User::fromArray($this->transport->put(self::BASE_ROUTE . '/' . $userId, $dto->toArray()));
+		return $this->transport->put(self::BASE_ROUTE . '/' . $userId, $dto->toArray(), self::one(User::fromArray(...)));
 	}
 
 	/**
@@ -99,6 +101,6 @@ final class UserRequests extends Request
 	{
 		$this->requirePositive($userId, 'User ID');
 
-		return SuccessResponse::fromArray($this->transport->delete(self::BASE_ROUTE . '/' . $userId));
+		return $this->transport->delete(self::BASE_ROUTE . '/' . $userId, self::one(SuccessResponse::fromArray(...)));
 	}
 }

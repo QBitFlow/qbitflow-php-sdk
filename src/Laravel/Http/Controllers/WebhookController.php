@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use QBitFlow\Dto\Session\SessionWebhookResponse;
 use QBitFlow\Dto\SubscriptionHistory;
 use QBitFlow\Dto\SubscriptionStatusTransition;
-use QBitFlow\Enums\SubscriptionWebhookType;
+use QBitFlow\Dto\SubscriptionWebhook;
 use QBitFlow\Laravel\Events\SubscriptionBilled;
 use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
 use QBitFlow\Laravel\Events\TransactionWebhookReceived;
@@ -51,26 +51,23 @@ final class WebhookController
 	 */
 	public function subscription(Request $request): JsonResponse
 	{
-		$payload = $this->payload($request);
+		$webhook = SubscriptionWebhook::fromArray($this->payload($request));
 
-		$type = SubscriptionWebhookType::tryFrom((string) ($payload['type'] ?? ''));
-		$data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
-
-		$reference = isset($payload['subscriptionReference'])
-			? (string) $payload['subscriptionReference']
-			: null;
-
-		$event = match ($type) {
-			SubscriptionWebhookType::STATUS_TRANSITION => new SubscriptionStatusChanged(
-				SubscriptionStatusTransition::fromArray($data),
+		// The subscription identity is on the envelope, not inside `data`.
+		$event = match (true) {
+			$webhook->data instanceof SubscriptionStatusTransition => new SubscriptionStatusChanged(
+				$webhook->data,
+				$webhook->subscriptionUUID,
+				$webhook->subscriptionReference,
 			),
-			SubscriptionWebhookType::BILLING => new SubscriptionBilled(
-				SubscriptionHistory::fromArray($data),
-				$reference,
+			$webhook->data instanceof SubscriptionHistory => new SubscriptionBilled(
+				$webhook->data,
+				$webhook->subscriptionUUID,
+				$webhook->subscriptionReference,
 			),
 			// An unrecognised type is acknowledged rather than retried forever; a new
 			// event kind on the API should not wedge the endpoint.
-			null => null,
+			default => null,
 		};
 
 		if ($event !== null) {

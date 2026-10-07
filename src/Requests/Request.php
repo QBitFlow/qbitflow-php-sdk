@@ -6,6 +6,8 @@ namespace QBitFlow\Requests;
 
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Http\Transport;
+use QBitFlow\Support\Cast;
+use QBitFlow\Support\CursorData;
 
 /**
  * Base class for every service exposed on {@see \QBitFlow\QBitFlow}.
@@ -33,25 +35,80 @@ abstract class Request
 	 * $all = $client->products->getAll();
 	 * ```
 	 *
-	 * Requires an admin- or owner-level API key; a regular user key gets a 403
-	 * ({@see \QBitFlow\Exceptions\ForbiddenException}).
+	 * Passing `0` means "act at the organization level": it returns a copy **without** the
+	 * header, which is how you undo an earlier `onBehalfOf()` on a scoped service. The API
+	 * reads `On-Behalf-Of: 0` the same way.
 	 *
-	 * @param int $userId ID of the user to act as.
+	 * Requires an admin- or owner-level API key; a regular user key gets a 403
+	 * ({@see \QBitFlow\Exceptions\ForbiddenException}). A user outside your organization
+	 * gets a 404 — existence is never revealed across organizations.
+	 *
+	 * @param int $userId ID of the user to act as, or 0 for the organization itself.
+	 *
+	 * @throws ValidationException If the ID is negative.
 	 */
 	public function onBehalfOf(int $userId): static
 	{
-		if ($userId <= 0) {
-			throw new ValidationException('User ID must be positive');
+		if ($userId < 0) {
+			throw new ValidationException('User ID must be zero or positive');
 		}
 
-		return new static($this->transport->withHeader('On-Behalf-Of', (string) $userId));
+		if ($userId === 0) {
+			return new static($this->transport->withoutHeader(Transport::ON_BEHALF_OF));
+		}
+
+		return new static($this->transport->withHeader(Transport::ON_BEHALF_OF, (string) $userId));
+	}
+
+	/**
+	 * Hydrate a response body that must be one JSON object.
+	 *
+	 * @template T of object
+	 *
+	 * @param callable(array<array-key,mixed>): T $factory
+	 *
+	 * @return callable(mixed): T
+	 */
+	protected static function one(callable $factory): callable
+	{
+		return static fn (mixed $body): object => Cast::one($body, $factory);
+	}
+
+	/**
+	 * Hydrate a response body that must be a JSON list of objects (`null` = empty).
+	 *
+	 * @template T of object
+	 *
+	 * @param callable(array<array-key,mixed>): T $factory
+	 *
+	 * @return callable(mixed): list<T>
+	 */
+	protected static function list(callable $factory): callable
+	{
+		return static fn (mixed $body): array => Cast::listOf($body, $factory);
+	}
+
+	/**
+	 * Hydrate a cursor-paginated response body.
+	 *
+	 * @template T of object
+	 *
+	 * @param callable(array<array-key,mixed>): T $factory
+	 *
+	 * @return callable(mixed): CursorData<T>
+	 */
+	protected static function page(callable $factory): callable
+	{
+		return static fn (mixed $body): CursorData => CursorData::fromArray($body ?? [], $factory);
 	}
 
 	/**
 	 * Escape a value for safe interpolation into a URL path.
 	 *
 	 * References and email addresses routinely contain characters such as `/`, `#` and
-	 * `+` that would otherwise change the shape of the request.
+	 * `+` that would otherwise change the shape of the request. They are escaped correctly,
+	 * but note that the API currently cannot route a reference containing `/` (it answers
+	 * 404 even when escaped).
 	 */
 	protected function encode(string $segment): string
 	{
