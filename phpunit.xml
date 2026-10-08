@@ -24,6 +24,8 @@
 		<testsuite name="Unit">
 			<directory>tests/Unit</directory>
 			<directory>tests/Laravel</directory>
+			<!-- The website snippets: runs the hub's embed-snippets check (skipped without the hub or node). -->
+			<file>tests/SnippetsTest.php</file>
 		</testsuite>
 		<testsuite name="Integration">
 			<directory>tests/Integration</directory>
