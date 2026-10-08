@@ -101,7 +101,7 @@ methods; 3.0.0 takes the params class only.
 
 | 2.x | 3.0.0 | Notes |
 |---|---|---|
-| `oneTimePayments->createSession(CreatePaymentSessionDto\|array)` | `checkoutSessions->createPayment(CreatePaymentSessionParams)` | `productId: int` → `productUuid: string`; `customerUUID` → `customerUuid`; new `expiresInMinutes`; returns a `Models\CheckoutSession` (`uuid`, `link`, `expiresAt`) |
+| `oneTimePayments->createSession(CreatePaymentSessionDto\|array)` | `checkoutSessions->createPayment(CreatePaymentSessionParams)` | `productId: int` → `productUuid: string`; `customerUUID` → `customerUuid`; new `expiresInMinutes` and `fees` (`CheckoutFees`); returns a `Models\CheckoutSession` (`uuid`, `link`, `expiresAt`) |
 | `subscriptions->createSession(CreateSubscriptionSessionDto\|array)` | `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)` | `frequency`, `trialPeriod` (`Models\Duration`) and `minPeriods` are optional over a subscription product's terms |
 | `transactionStatus->get($uuid, TransactionType $type)` | `checkoutSessions->getStatus($uuid)` | no type argument; four statuses (§ 9) |
 | `oneTimePayments->getSession($uuid)`, `subscriptions->getSession($uuid)` | removed | `getStatus()` for the state; the session's data comes with `checkout.expired` |
@@ -267,7 +267,7 @@ properties named exactly as the JSON keys, built by `Model::fromArray()`.
 | `Session\LinkResponse` | `CheckoutSession` | + `expiresAt` |
 | `TransactionStatus` | `CheckoutSessionStatus` | `status` is a string (§ 9); `settlementDetails` removed; + `uuid`, `lastAttempt` |
 | `Session\SessionCheckout`, `OneTimePaymentSession`, `SubscriptionSession`, `PaygSubscriptionSession`, `StatusLinkResponse` | removed | `PaymentSessionData` / `SubscriptionSessionData` in `checkout.expired` |
-| `Payment` | `Payment` | `transactionHash` → `txHash`; `productId` → `productUuid`; `userId` → `userUuid`; `metadata` always set; + `chain`, `explorerUrl`, `customerReference`, `customer`, `refund`, `refundable`, `paidMinUnits`, `paidUsd`, `confirmedAt` |
+| `Payment` | `Payment` | `transactionHash` → `txHash`; `productId` → `productUuid`; `userId` → `userUuid`; `metadata` always set; + `chain`, `explorerUrl`, `customerReference`, `customer`, `refund`, `refundable`, `paidMinUnits`, `paidUsd`, `confirmedAt`, `price`, `fees` (checkout fees) |
 | `CombinedPayment` | `CombinedPayment` | `source` `subscription_history` → `subscriptionHistory`; + `currency`, `refund`, `reference`, `subscriptionReference` |
 | `Subscription` | `Subscription` | `subscriptionStatus` → `status` (a string); `frequency` is a `Duration` (was an `int` of seconds); `stopped` → the status `stopped`; `productId` → `productUuid`; `nextBillingDate` nullable (null once cancelled); + `currentPeriodEnd`, `actionRequired`, `priceUsd`, `maxAmountPerPeriod`, `cancelledAt`, `cancellationReason`, `customer`, `dunning` |
 | `SubscriptionHistory` | `Bill` | the `Payment` renames; + `periodStart`, `periodEnd` |

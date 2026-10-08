@@ -402,8 +402,52 @@ echo "Subscribe at {$session->link}\n";
   webhook, or on `getStatus()`.
 - **Errors to expect:** `409 merchant_not_ready` (`details['reason']`) when the space's wallets
   accept no currency; `409 unique_violation` when another payment or open session holds the
-  `reference`; `400 validation_failed` above 5 USD in test mode (`details['max']`); `404` for an
-  unknown product or customer.
+  `reference`; `400 validation_failed` above 5 USD in test mode, fees included (`details['max']`);
+  `404` for an unknown product or customer.
+
+### Fees
+
+A payment checkout can add amounts to its product's price: a tax, shipping, a service fee, and
+QBitFlow's processing fee when you have the customer pay it. The customer sees them line by line
+and pays them with the price:
+
+<!-- docs:snippet checkout-create-payment-fees -->
+```php
+$session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
+	productName: 'T-shirt',
+	description: 'Blue, size M',
+	price: 3.99,
+	reference: 'order-1044',
+	successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
+	cancelUrl: 'https://shop.example.com/orders/cancel',
+	fees: new \QBitFlow\Params\CheckoutFees(
+		items: [
+			new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+		],
+		processingFee: true, // the customer pays QBitFlow's fee: you keep 3.99 + 0.75
+	),
+));
+echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping and the processing fee
+```
+<!-- /docs:snippet -->
+
+- **Your lines** (`FeeItem`, at most 10, shown in that order): `label` (one line, 1 to 40
+  characters), `description` (optional, at most 200) and `amountUsd`, above 0, at most 1,000,000,
+  with at most 2 decimals. A number is sent as a JSON number; a string (`'4.99'`) is sent as typed,
+  so no float rounds it. A bad line is a `ValidationException` on its path
+  (`fees.items[0].amountUsd`), before any request.
+- **The processing fee** (`processingFee: true`) is a last line (`Processing fee`) that QBitFlow
+  computes on the price and your lines at your platform fee, grossed up (its fee is also taken on
+  that line) and rounded up to the cent: you keep at least the price and your lines, as if no fee
+  were taken ($100 + $20 VAT at 1.5 % → a $1.83 processing fee, $121.83 charged, $120.00 kept). Left
+  `null`, the space's **`checkout.customerPaysProcessingFee`** setting decides (set in the dashboard,
+  off by default; it also applies to product links); `false` turns it off for this checkout.
+- **What the customer pays** is the checkout's `amount` = the price + every line; the network fee
+  comes on top, once they pick a currency. QBitFlow's fee (and a marketplace's organization fee) is
+  taken on that amount. Test mode caps it, fees included, at 5 USD (`400` on `fees`).
+- One-time payments only: `createSubscription()` takes no fees. The lines are fixed when the
+  session is created; `checkout.expired` carries them (`$event->data->fees`, `->amount`), and the
+  payment keeps them (`price`, `fees`: see [Payments](#payments-and-failures)).
 
 ### Status
 
@@ -546,6 +590,14 @@ echo "order-1042 was paid by {$payment->uuid}\n";
 
 A payment also says what the merchant got (`$payment->metadata->txAmounts->usd->merchant`), where
 to see it (`explorerUrl`) and whether it can be refunded (`refundable`).
+
+**What the amounts mean.** `amount` is what the customer paid in USD: the product's `price` at the
+checkout plus the checkout's `fees` (`FeeLine`s: `type` `custom` or `processingFee`, `label`,
+`description`, and `amountUsd`, a decimal string such as `"0.75"`), so
+`amount = price + Σ fees[]->amountUsd`. It is what the contracts split, and QBitFlow's fee is taken
+on it; with a processing fee the merchant's share is at least the price and the other lines. The
+network fee the customer paid on top is not in it (`paidUsd` and `metadata->txAmounts->usd->networkFee`
+include it). On payments recorded before fees existed, `price` is `amount` and `fees` is `[]`.
 
 - **Filters** (`PaymentListParams`): `customerUuid`, `productUuid`, `createdAfter` / `createdBefore`
   (both excluded), `refunded`, and, with an organization key acting for itself, `includeMembers`

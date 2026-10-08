@@ -1,8 +1,9 @@
 <?php
 
 /**
- * A one-time payment checkout: create it, read its status, expire it. With --wait, wait for the
- * customer to pay (waitForCompletion: for scripts and tests; fulfil orders on the webhook).
+ * A one-time payment checkout: create it, read its status, expire it; and a checkout with fees (a
+ * shipping line and the processing fee), expired right away. With --wait, wait for the customer
+ * to pay (waitForCompletion: for scripts and tests; fulfil orders on the webhook).
  *
  *     QBITFLOW_API_KEY=sk_… php examples/checkout.php [--wait]
  */
@@ -43,6 +44,29 @@ try {
 printf("Send the customer to %s (session %s, expires %s)\n", $session->link, $session->uuid, $session->expiresAt?->format(DATE_ATOM) ?? '?');
 
 $sessionUuid = $session->uuid;
+
+try {
+	// docs:start checkout-create-payment-fees
+	$session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
+		productName: 'T-shirt',
+		description: 'Blue, size M',
+		price: 3.99,
+		reference: 'order-1044',
+		successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
+		cancelUrl: 'https://shop.example.com/orders/cancel',
+		fees: new \QBitFlow\Params\CheckoutFees(
+			items: [
+				new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+			],
+			processingFee: true, // the customer pays QBitFlow's fee: you keep 3.99 + 0.75
+		),
+	));
+	echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping and the processing fee
+	// docs:end checkout-create-payment-fees
+	$client->checkoutSessions->expire($session->uuid); // a demo: frees order-1044 for the next run
+} catch (ConflictException $e) {
+	echo "No checkout with fees ({$e->apiCode}): unique_violation when order-1044 has a payment or an open checkout.\n";
+}
 
 if (in_array('--wait', $argv, true)) {
 	// docs:start wait-for-completion
