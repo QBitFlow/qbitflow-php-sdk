@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use QBitFlow\Enums\FeeLineType;
 use QBitFlow\Enums\NotRefundableReason;
 use QBitFlow\Enums\Role;
 use QBitFlow\Exceptions\ServerException;
@@ -101,6 +102,54 @@ final class HydrationTest extends TestCase
 		$held = Models\HeldFunds::fromArray(['ledgers' => [['txUuid' => 'refund@1', 'metadata' => null, 'owedMinUnits' => '-10004200']], 'totalAmount' => -10.0042]);
 		$this->assertNull($held->ledgers[0]->metadata);
 		$this->assertSame('-10004200', $held->ledgers[0]->owedMinUnits);
+	}
+
+	#[Test]
+	public function checkout_fees(): void
+	{
+		$decode = static fn (string $class, string $json): object => Transport::decode(new RawResponse(200, [], $json), Requester::one($class::fromArray(...)));
+
+		$payment = $decode(Models\Payment::class, Fixtures::model('Payment'));
+		$this->assertSame(9.5, $payment->price);
+		$this->assertCount(1, $payment->fees);
+		$this->assertInstanceOf(Models\FeeLine::class, $payment->fees[0]);
+		$this->assertSame([FeeLineType::CUSTOM, 'Shipping', 'Standard, 3 to 5 days', '0.5'],
+			[$payment->fees[0]->type, $payment->fees[0]->label, $payment->fees[0]->description, $payment->fees[0]->amountUsd], 'amountUsd stays a decimal string');
+
+		$withFees = $decode(Models\Payment::class, '{"uuid":"pay@1","amount":5.6,"price":3.99,"fees":['
+			. '{"type":"custom","label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":"0.75"},'
+			. '{"type":"processingFee","label":"Processing fee","amountUsd":"0.86"},'
+			. '{"type":"giftCard","label":"Future line","amountUsd":"0"}]}');
+		$this->assertSame(3.99, $withFees->price);
+		$this->assertSame([FeeLineType::CUSTOM, FeeLineType::PROCESSING_FEE, 'giftCard'], array_map(static fn (Models\FeeLine $f): string => $f->type, $withFees->fees), 'an unknown type is kept');
+		$this->assertNull($withFees->fees[1]->description, 'no description: null');
+		$this->assertSame('0.86', $withFees->fees[1]->amountUsd);
+
+		$before = $decode(Models\Payment::class, '{"uuid":"pay@1","amount":10}');
+		$this->assertSame(0.0, $before->price, 'absent price: zero (the API sends it, = amount, on older payments)');
+		$this->assertSame([], $before->fees, 'absent fees: []');
+		$this->assertSame([], $decode(Models\Payment::class, '{"fees":null}')->fees);
+
+		$completed = Models\PaymentCompleted::fromArray(['uuid' => 'pay@1', 'amount' => 10, 'price' => 10]);
+		$this->assertSame(10.0, $completed->price, 'payment.completed carries the price');
+
+		$session = $decode(Models\PaymentSessionData::class, '{"uuid":"pay@1","price":3.99,"amount":5.6,"fees":[{"type":"processingFee","label":"Processing fee","amountUsd":"0.86"}],"txType":"payment"}');
+		$this->assertSame(5.6, $session->amount);
+		$this->assertSame(3.99, $session->price);
+		$this->assertSame(FeeLineType::PROCESSING_FEE, $session->fees[0]->type);
+		$plain = $decode(Models\PaymentSessionData::class, '{"uuid":"pay@1","price":4.99,"txType":"payment"}');
+		$this->assertNull($plain->amount);
+		$this->assertSame([], $plain->fees);
+
+		$this->assertSame(['custom', 'processingFee'], FeeLineType::values());
+		foreach (['{"fees":{}}', '{"fees":[{"amountUsd":0.75}]}', '{"price":"3.99"}'] as $bad) {
+			try {
+				$decode(Models\Payment::class, $bad);
+				$this->fail('want a ServerException for ' . $bad);
+			} catch (ServerException) {
+				$this->addToAssertionCount(1);
+			}
+		}
 	}
 
 	/** @return array<string,array{0: string}> */

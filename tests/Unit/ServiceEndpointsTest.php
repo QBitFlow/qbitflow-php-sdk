@@ -135,9 +135,11 @@ final class ServiceEndpointsTest extends TestCase
 
 			'checkoutSessions.createPayment' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(
 				productName: 'T-shirt', description: 'Blue', price: 4.5, reference: 'order-1', successUrl: 'https://shop.example/ok?id={{UUID}}',
-				cancelUrl: 'https://shop.example/ko', customerReference: 'crm-1', expiresInMinutes: 30), $o),
+				cancelUrl: 'https://shop.example/ko', customerReference: 'crm-1', expiresInMinutes: 30, fees: new Params\CheckoutFees(
+					processingFee: true, items: [new Params\FeeItem('Shipping', 0.75, 'Standard, 3 to 5 days'), new Params\FeeItem('VAT (20%)', '0.80')])), $o),
 				'POST', '/transaction/session-checkout/new/payment', $m('CheckoutSession'),
-				body: '{"reference":"order-1","productName":"T-shirt","description":"Blue","price":4.5,"successUrl":"https://shop.example/ok?id={{UUID}}","cancelUrl":"https://shop.example/ko","customerReference":"crm-1","expiresInMinutes":30}',
+				body: '{"reference":"order-1","productName":"T-shirt","description":"Blue","price":4.5,"successUrl":"https://shop.example/ok?id={{UUID}}","cancelUrl":"https://shop.example/ko","customerReference":"crm-1","expiresInMinutes":30,'
+					. '"fees":{"processingFee":true,"items":[{"label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":0.75},{"label":"VAT (20%)","amountUsd":"0.80"}]}}',
 				idempotent: true, status: 201,
 				check: static function (self $t, Models\CheckoutSession $v): void {
 					$t->assertSame('pay@1', $v->uuid);
@@ -178,6 +180,8 @@ final class ServiceEndpointsTest extends TestCase
 				check: static function (self $t, Models\Payment $v): void {
 					$t->assertSame('order-1', $v->reference);
 					$t->assertNotNull($v->metadata->organizationFee);
+					$t->assertSame(9.5, $v->price);
+					$t->assertSame('0.5', $v->fees[0]->amountUsd);
 				}),
 			'payments.get bare uuid' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->payments->get(substr(self::PAY_ID, 4), null, $o),
 				'GET', '/transaction/payment/' . substr(self::PAY_ID, 4), $m('Payment')),
@@ -499,6 +503,8 @@ final class ServiceEndpointsTest extends TestCase
 			'customers.update phone' => ['phoneNumber', static fn (QBitFlow $c) => $c->customers->update(self::UUID_A, new Params\UpdateCustomerParams(phoneNumber: 'call me'))],
 			'customers.list email' => ['email', static fn (QBitFlow $c) => $c->customers->list(new Params\CustomerListParams(email: 'x'))],
 			'checkoutSessions.createPayment mixed' => ['productUuid', static fn (QBitFlow $c) => $c->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productUuid: self::UUID_A, productReference: 'pro'))],
+			'checkoutSessions.createPayment fees' => ['fees.items[0].amountUsd', static fn (QBitFlow $c) => $c->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productUuid: self::UUID_A,
+				fees: new Params\CheckoutFees(items: [new Params\FeeItem('Shipping', 1.999)])))],
 			'checkoutSessions.createSubscription frequency' => ['frequency.unit', static fn (QBitFlow $c) => $c->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(productUuid: self::UUID_A, frequency: new Models\Duration(1)))],
 			'payments.list exclusive' => ['userUuid', static fn (QBitFlow $c) => $c->payments->list(new Params\PaymentListParams(includeMembers: true, userUuid: self::MEMBER_UUID))],
 			'payments.listCombined source' => ['source', static fn (QBitFlow $c) => $c->payments->listCombined(new Params\CombinedPaymentListParams(source: 'bills'))],

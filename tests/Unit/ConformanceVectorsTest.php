@@ -18,6 +18,8 @@ use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Exceptions\WebhookSignatureException;
 use QBitFlow\Models\Duration;
 use QBitFlow\Models\SubscriptionSessionData;
+use QBitFlow\Params\CheckoutFees;
+use QBitFlow\Params\FeeItem;
 use QBitFlow\Params\SubscriptionTermsParams;
 use QBitFlow\QBitFlow;
 use QBitFlow\RequestOptions;
@@ -372,6 +374,14 @@ final class ConformanceVectorsTest extends TestCase
 				isset($value['trialPeriod']) ? new Duration($value['trialPeriod']['value'] ?? 0, $value['trialPeriod']['unit'] ?? null) : null,
 				$value['minPeriods'] ?? null,
 			),
+			$name === CheckoutFees::class => new CheckoutFees(
+				$value['processingFee'] ?? null,
+				array_map(static fn (array $item): FeeItem => new FeeItem(
+					$item['label'] ?? '',
+					self::amount($item['amountUsd'] ?? 0),
+					$item['description'] ?? null,
+				), $value['items'] ?? []),
+			),
 			$name === DateTimeInterface::class => new DateTimeImmutable($value),
 			$name === 'float' => match ($value) {
 				'NaN' => NAN,
@@ -379,6 +389,17 @@ final class ConformanceVectorsTest extends TestCase
 				'-Infinity' => -INF,
 				default => (float) $value,
 			},
+			default => $value,
+		};
+	}
+
+	/** A vector's amount: a number, a string as typed, or a non-finite float's marker (`NaN`, `Infinity`). */
+	private static function amount(int|float|string $value): int|float|string
+	{
+		return match ($value) {
+			'NaN' => NAN,
+			'Infinity' => INF,
+			'-Infinity' => -INF,
 			default => $value,
 		};
 	}

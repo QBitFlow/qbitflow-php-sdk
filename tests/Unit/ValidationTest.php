@@ -10,6 +10,7 @@ use QBitFlow\Enums\SubscriptionStatus;
 use QBitFlow\Enums\WebhookPayloadVersion;
 use QBitFlow\Http\Transport;
 use QBitFlow\Models\Duration;
+use QBitFlow\Params\CheckoutFees;
 use QBitFlow\Params\CombinedPaymentListParams;
 use QBitFlow\Params\CreateCustomerParams;
 use QBitFlow\Params\CreateInvitationParams;
@@ -20,6 +21,7 @@ use QBitFlow\Params\CreateWebhookEndpointParams;
 use QBitFlow\Params\CustomerListParams;
 use QBitFlow\Params\EventListParams;
 use QBitFlow\Params\FailureListParams;
+use QBitFlow\Params\FeeItem;
 use QBitFlow\Params\InitiateRefundParams;
 use QBitFlow\Params\InvitationListParams;
 use QBitFlow\Params\PaymentListParams;
@@ -225,6 +227,83 @@ final class ValidationTest extends TestCase
 		}
 		$this->check('subscription inline', new CreateSubscriptionSessionParams(productName: 'Pro', price: 9.99, frequency: Duration::months(1)));
 		$this->check('subscription mixing', new CreateSubscriptionSessionParams(productReference: 'pro', price: 9.99), ['productUuid']);
+	}
+
+	/** A payment checkout for the product with these fees. */
+	private static function withFees(?bool $processingFee = null, FeeItem ...$items): CreatePaymentSessionParams
+	{
+		return new CreatePaymentSessionParams(productUuid: self::UUID, fees: new CheckoutFees($processingFee, $items));
+	}
+
+	#[Test]
+	public function the_fees_rule(): void
+	{
+		$line = static fn (int|float|string $amount, string $label = 'Shipping', ?string $description = null): FeeItem => new FeeItem($label, $amount, $description);
+
+		$this->check('no fees', new CreatePaymentSessionParams(productUuid: self::UUID));
+		$this->check('empty fees', self::withFees());
+		$this->check('processing fee only', self::withFees(true));
+		$this->check('10 lines', self::withFees(null, ...array_fill(0, 10, $line(1))));
+		$this->check('11 lines', self::withFees(null, ...array_fill(0, 11, $line(1))), ['fees.items']);
+
+		foreach ([0.01, 1, 19.9, 0.29, 4.99, 1000000, 1000000.0, '4.99', '0.01', '19.9', '1000000', '1000000.00', '007.50'] as $amount) {
+			$this->check('amountUsd ' . var_export($amount, true), self::withFees(null, $line($amount)));
+		}
+		$tenth = 0.1;
+		foreach ([0, 0.0, -1, -0.01, 0.001, 1.999, 1000000.01, 1000001, $tenth + 0.2, NAN, INF, -INF, '0', '0.00', '-1', '+1', '1e2', '1E2', 'abc', '',
+			' 4.99', '4.99 ', '1.999', '.5', '5.', '1,5', '1000000.01', '1000001', '0x10', 'NaN', 'Infinity'] as $amount) {
+			$this->check('amountUsd ' . var_export($amount, true), self::withFees(null, $line($amount)), ['fees.items[0].amountUsd']);
+		}
+
+		foreach (['X', str_repeat('é', 40), 'VAT (20%)', 'Service fee & handling'] as $label) {
+			$this->check('label ' . $label, self::withFees(null, $line(1, $label)));
+		}
+		foreach (['', '   ', str_repeat('é', 41), "two\nlines", "tab\there", '<b>', 'semi;colon', "bidi\u{202E}x"] as $label) {
+			$this->check('label ' . var_export($label, true), self::withFees(null, $line(1, $label)), ['fees.items[0].label']);
+		}
+
+		foreach (['x', str_repeat('d', 200), "Standard,\n3 to 5 days", ''] as $description) {
+			$this->check('description ' . strlen($description), self::withFees(null, $line(1, 'Shipping', $description)));
+		}
+		foreach ([str_repeat('d', 201), '   ', '<script>', "bell\x07"] as $description) {
+			$this->check('description ' . var_export($description, true), self::withFees(null, $line(1, 'Shipping', $description)), ['fees.items[0].description']);
+		}
+
+		$this->check('every line is checked, by its index', self::withFees(false, $line(1), $line(0, '<b>', ' '), $line('1e2')),
+			['fees.items[1].label', 'fees.items[1].description', 'fees.items[1].amountUsd', 'fees.items[2].amountUsd']);
+		$this->check('with the session checks', new CreatePaymentSessionParams(productReference: 'bad ref', fees: new CheckoutFees(items: [$line(-1)])),
+			['productReference', 'fees.items[0].amountUsd']);
+		$this->check('a line that is not a FeeItem', new CreatePaymentSessionParams(productUuid: self::UUID, fees: new CheckoutFees(items: [['label' => 'x', 'amountUsd' => 1]])),
+			['fees.items[0]']);
+
+		try {
+			self::withFees(null, $line('1e2'))->validate();
+			$this->fail('want a ValidationException');
+		} catch (\QBitFlow\Exceptions\ValidationException $e) {
+			$this->assertSame('fees.items[0].amountUsd must be an amount in USD above 0 and at most 1000000, with at most 2 decimals', $e->fieldErrors[0]->message);
+		}
+	}
+
+	#[Test]
+	public function the_fees_body(): void
+	{
+		$base = '{"productUuid":"' . self::UUID . '"';
+		$cases = [
+			'no fees: omitted' => [new CreatePaymentSessionParams(productUuid: self::UUID), $base . '}'],
+			'empty fees: an empty object' => [self::withFees(), $base . ',"fees":{}}'],
+			'processing fee true' => [self::withFees(true), $base . ',"fees":{"processingFee":true}}'],
+			'processing fee false' => [self::withFees(false), $base . ',"fees":{"processingFee":false}}'],
+			'a number stays a number' => [self::withFees(null, new FeeItem('Shipping', 0.75)), $base . ',"fees":{"items":[{"label":"Shipping","amountUsd":0.75}]}}'],
+			'an integer' => [self::withFees(null, new FeeItem('Shipping', 5)), $base . ',"fees":{"items":[{"label":"Shipping","amountUsd":5}]}}'],
+			'a string stays a string, as typed' => [self::withFees(null, new FeeItem('VAT', '4.90')), $base . ',"fees":{"items":[{"label":"VAT","amountUsd":"4.90"}]}}'],
+			'description sent when given' => [self::withFees(true, new FeeItem('Shipping', 0.75, 'Standard, 3 to 5 days'), new FeeItem('Gift wrap', '2')),
+				$base . ',"fees":{"processingFee":true,"items":[{"label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":0.75},{"label":"Gift wrap","amountUsd":"2"}]}}'],
+			'empty description omitted' => [self::withFees(null, new FeeItem('Shipping', 1, '')), $base . ',"fees":{"items":[{"label":"Shipping","amountUsd":1}]}}'],
+		];
+		foreach ($cases as $name => [$params, $want]) {
+			$this->assertSame($want, Transport::encodeBody($params->toArray()), $name);
+		}
+		$this->assertFalse((new \ReflectionClass(CreateSubscriptionSessionParams::class))->hasProperty('fees'), 'subscriptions take no fees');
 	}
 
 	#[Test]

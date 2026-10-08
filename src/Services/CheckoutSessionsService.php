@@ -31,8 +31,11 @@ final class CheckoutSessionsService extends Service
 	 * transient failures.
 	 *
 	 * Send the customer to `link`; fulfil on the `payment.completed` webhook (or `getStatus()`
-	 * `completed`), give up on `checkout.expired`. Errors: 400 validation_failed (test mode caps
-	 * the price at 5 USD); 404 for an unknown product or customer; 409 `merchant_not_ready`.
+	 * `completed`), give up on `checkout.expired`. `fees` adds your lines and QBitFlow's
+	 * processing fee to the price ({@see \QBitFlow\Params\CheckoutFees}): the customer pays the
+	 * price plus the fees, the network fee on top. Errors: 400 validation_failed (test mode caps
+	 * the amount, fees included, at 5 USD: on `price`, or on `fees` when the fees cross it); 404
+	 * for an unknown product or customer; 409 `merchant_not_ready`.
 	 */
 	public function createPayment(CreatePaymentSessionParams $params, ?RequestOptions $options = null): CheckoutSession
 	{

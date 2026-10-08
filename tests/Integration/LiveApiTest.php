@@ -271,6 +271,32 @@ final class LiveApiTest extends TestCase
 	}
 
 	#[Test]
+	public function writes_a_checkout_session_with_fees(): void
+	{
+		$this->requireWrites();
+		// The catalog's feesCheckout values (3.99 + 0.75 + the processing fee stays under test mode's $5 cap).
+		try {
+			$session = $this->client->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productName: 'T-shirt', description: 'Blue, size M',
+				price: 3.99, reference: 'order-1044-' . self::suffix(), successUrl: 'https://shop.example.com/orders/success?uuid={{UUID}}',
+				cancelUrl: 'https://shop.example.com/orders/cancel', fees: new Params\CheckoutFees(processingFee: true, items: [
+					new Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+				])));
+		} catch (ConflictException $e) {
+			if ($e->apiCode === 'merchant_not_ready') {
+				$this->markTestSkipped('the space accepts no currency (merchant_not_ready)');
+			}
+
+			throw $e;
+		}
+		$this->cleanups[] = fn () => $this->client->checkoutSessions->expire($session->uuid);
+		$this->assertNotSame('', $session->link);
+		$this->assertStringStartsWith('pay@', $session->uuid);
+
+		// No API-key route reads a session's fees or amount back (the checkout page's read is frontend-only): the round trip only.
+		$this->assertSame(CheckoutSessionStatusValue::CREATED, $this->client->checkoutSessions->getStatus($session->uuid)->status);
+	}
+
+	#[Test]
 	public function writes_a_webhook_endpoint(): void
 	{
 		$this->requireWrites();
