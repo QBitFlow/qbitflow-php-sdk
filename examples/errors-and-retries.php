@@ -2,7 +2,7 @@
 
 /**
  * Typed errors, isRetryable(), and an idempotency key that makes a create safe to retry across
- * processes.
+ * processes (the checkout it opens is expired again so the example can run twice).
  *
  *     QBITFLOW_API_KEY=sk_… php examples/errors-and-retries.php
  */
@@ -11,23 +11,14 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use QBitFlow\Exceptions\ApiException;
 use QBitFlow\Exceptions\ConflictException;
 use QBitFlow\Exceptions\IdempotencyException;
-use QBitFlow\Exceptions\NotFoundException;
-use QBitFlow\Exceptions\RateLimitException;
+use QBitFlow\Exceptions\QBitFlowException;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Params\CreateCustomerParams;
-use QBitFlow\Params\CreatePaymentSessionParams;
 use QBitFlow\QBitFlow;
-use QBitFlow\RequestOptions;
 
-$client = new QBitFlow(
-	apiKey: (string) getenv('QBITFLOW_API_KEY'),
-	baseUrl: getenv('QBITFLOW_BASE_URL') ?: null,
-	timeout: 10.0,  // per attempt
-	maxRetries: 5,  // reads and the 7 creates; 0 disables
-);
+$client = QBitFlow::fromEnv();
 
 // Client-side validation: nothing is sent.
 try {
@@ -38,26 +29,52 @@ try {
 	}
 }
 
+// docs:start errors-handling
 try {
-	$client->products->get('0192f1c2-1111-7c4d-9e5f-6a7b8c9d0e1f');
-} catch (NotFoundException $e) {
-	echo "Not found (request {$e->requestId})\n";
-} catch (RateLimitException $e) {
-	echo "Slow down: retry in {$e->retryAfter} s\n";
-} catch (ApiException $e) {
-	printf("QBitFlow error %d %s (request %s), retryable: %s\n", $e->status, $e->apiCode, $e->requestId, $e->isRetryable() ? 'yes' : 'no');
+	$payment = $client->payments->getByReference('order-1042');
+	echo "order-1042 was paid by {$payment->uuid}\n";
+} catch (\QBitFlow\Exceptions\ValidationException $e) {
+	foreach ($e->fieldErrors as $fieldError) { // refused before sending (status 0), or a 400
+		echo "{$fieldError->field}: {$fieldError->message}\n";
+	}
+} catch (\QBitFlow\Exceptions\NotFoundException) {
+	echo "No payment for order-1042 yet\n";
+} catch (\QBitFlow\Exceptions\ApiException $e) {
+	// Branch on apiCode, never on the message; quote the request id to support.
+	printf("QBitFlow error %d %s (request %s), retryable: %s\n",
+		$e->status, $e->apiCode, $e->requestId, $e->isRetryable() ? 'yes' : 'no');
 }
+// docs:end errors-handling
 
-// The same key returns the same session, even from another process after a crash.
-$orderId = 'order-1044';
 try {
+	// docs:start retries-idempotency
+	// Reads and creates are retried on network errors, 5xx and 429 (3 retries by default).
+	$client = \QBitFlow\QBitFlow::fromEnv(maxRetries: 5);
+
+	$orderId = 'order-1042';
 	$session = $client->checkoutSessions->createPayment(
-		new CreatePaymentSessionParams(productName: 'T-shirt', price: 4.99, reference: $orderId),
-		new RequestOptions(idempotencyKey: 'checkout-' . $orderId, requestId: 'job-7781'),
+		new \QBitFlow\Params\CreatePaymentSessionParams(
+			productName: 'T-shirt',
+			description: 'Blue, size M',
+			price: 4.99,
+			reference: $orderId,
+			successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
+			cancelUrl: 'https://shop.example.com/orders/cancel',
+		),
+		// The same key returns the same session, even from another process after a crash.
+		new \QBitFlow\RequestOptions(idempotencyKey: 'checkout-' . $orderId),
 	);
 	echo "Pay at {$session->link}\n";
+	// docs:end retries-idempotency
 } catch (IdempotencyException) {
-	echo "This key was already used with other params (422 idempotency_key_reused)\n";
+	exit("This key was already used with other params (422 idempotency_key_reused)\n");
 } catch (ConflictException $e) {
-	echo "Conflict: {$e->apiCode}\n"; // e.g. unique_violation on the reference, merchant_not_ready
+	exit("Conflict: {$e->apiCode}\n"); // unique_violation on the reference, merchant_not_ready
+}
+
+// Frees order-1042 for the other examples (a rerun within 24 hours gets the same, expired, session).
+try {
+	$client->checkoutSessions->expire($session->uuid);
+} catch (QBitFlowException) {
+	// already expired by an earlier run
 }
