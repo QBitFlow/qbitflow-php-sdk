@@ -112,6 +112,17 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `$client->onBehalfOf()`: a client acting in a member's space, sharing the transport.
 -   `checkoutSessions`: `createPayment`, `createSubscription` (with `expiresInMinutes` and the
     `{{UUID}}` / `{{TRANSACTION_TYPE}}` redirect placeholders), `getStatus`, `expire`.
+-   **Checkout fees** (one-time payments): `CreatePaymentSessionParams(fees: new CheckoutFees(…))`
+    adds your lines (`FeeItem`: `label`, `amountUsd` as a number or a string sent as typed,
+    optional `description`; at most 10) and QBitFlow's processing fee (`processingFee: true`,
+    grossed up so you keep the price and your lines; `null` follows the dashboard setting
+    `checkout.customerPaysProcessingFee`) to the price. Checked before the request (label 1-40 on
+    one line, description at most 200, `amountUsd` above 0, at most 1,000,000, 2 decimals) on
+    `fees.items[<i>].<field>`. `Payment` (and `payment.completed`) has `price` and `fees`, with
+    `amount = price + fees`; `PaymentSessionData` (`checkout.expired`) has `fees` and `amount`; new
+    `Models\FeeLine` (`amountUsd` a decimal string) and `Enums\FeeLineType` (`custom`,
+    `processingFee`). The network fee stays on top of `amount`; test mode caps it, fees included,
+    at 5 USD.
 -   `payments->list()` / `listCombined()` with filters (customer, product, dates, `refunded`,
     `includeMembers` / `userUuid`, `source`, `subscriptionUuid`); `payments->get()` with
     `ReadParams`. `failures->list()`: the failed payment attempts.

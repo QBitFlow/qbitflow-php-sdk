@@ -1,12 +1,13 @@
 {
   "sdk": "php",
-  "catalog": "24c3d761ef71e3b16c7b550b93bdce05d9636c28",
+  "catalog": "f9eecb0441342a2f962621197a55097b965006da",
   "snippets": {
     "client-init": "examples/client-setup.php",
     "client-on-behalf-of": "examples/marketplace.php",
     "config-from-env": "examples/client-setup.php",
     "checkout-create-payment": "examples/checkout.php",
     "checkout-create-payment-product": "examples/catalog.php",
+    "checkout-create-payment-fees": "examples/checkout.php",
     "checkout-create-subscription": "examples/subscriptions.php",
     "checkout-status": "examples/checkout.php",
     "checkout-expire": "examples/checkout.php",
