@@ -444,6 +444,11 @@ final class Validator
 		if (self::isBlank($value)) {
 			throw self::fieldError($field, 'is required');
 		}
+		// "." and ".." would be resolved as relative path segments (by URL parsers and by the
+		// server's path cleaning) and reach another route: refused, identically in every SDK.
+		if ($value === '.' || $value === '..') {
+			throw self::fieldError($field, 'cannot be "." or ".."');
+		}
 	}
 
 	/** Whether a string is valid UTF-8. */
