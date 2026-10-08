@@ -5,17 +5,9 @@ declare(strict_types=1);
 namespace QBitFlow\Exceptions;
 
 /**
- * Thrown when a request is rejected as invalid (HTTP 400), and for local input validation before a request is sent.
+ * A 400 `validation_failed`, or an input the SDK refused **before sending anything**
+ * (`status` 0, `apiCode` empty). `fieldErrors` names each failing input by its wire name.
  */
-class ValidationException extends QBitFlowException
+class ValidationException extends ApiException
 {
-	public function __construct(
-		string $message = 'Validation failed',
-		?int $statusCode = null,
-		?array $response = null,
-		?\Throwable $previous = null,
-		array $fields = [],
-	) {
-		parent::__construct($message, $statusCode, $response, $previous, $fields);
-	}
 }

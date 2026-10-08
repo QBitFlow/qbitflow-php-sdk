@@ -1,36 +1,17 @@
 # Examples
 
-| File | What it shows |
-| ---- | ------------- |
-| [`client.php`](client.php) | A tour of the SDK outside any framework: products, customers, a payment session, a subscription, currency lookups, a transaction-status check, pagination, client- and service-level `onBehalfOf`, and an accounting export. It deletes what it creates. |
-| [`webhook-server.php`](webhook-server.php) | A webhook endpoint in plain PHP — local or API signature verification, the dashboard test probe, and both typed webhook shapes. |
-| [`laravel/routes.php`](laravel/routes.php) | Registering the webhook routes. |
-| [`laravel/CheckoutController.php`](laravel/CheckoutController.php) | Turning an order into a checkout link, including the marketplace `onBehalfOf` variant. |
-| [`laravel/WebhookListeners.php`](laravel/WebhookListeners.php) | Queued listeners for the three webhook events. |
-
-## Running them
-
-Use a **test** API key. Test-mode data is kept entirely separate from live mode, and every
-action runs on blockchain testnets.
+Runnable with an API key (and, for a non-production server, `QBITFLOW_BASE_URL`):
 
 ```bash
 composer install
-
-QBITFLOW_API_KEY=your-test-key php examples/client.php
+QBITFLOW_API_KEY=sk_… php examples/checkout.php
 ```
 
-For the webhook server, serve it and expose it with a tunnel so QBitFlow can reach it. With
-your webhook secret it verifies signatures locally and needs no API key; with only the API
-key it asks QBitFlow to verify each delivery:
-
-```bash
-QBITFLOW_WEBHOOK_SECRET=whsec_... php -S 127.0.0.1:8001 examples/webhook-server.php
-# or: QBITFLOW_API_KEY=your-test-key php -S 127.0.0.1:8001 examples/webhook-server.php
-ngrok http 8001
-```
-
-Then set the public URL in the dashboard under **Settings → Webhooks** and use the
-"Test the endpoint" button to confirm it is reachable.
-
-The Laravel files are illustrative rather than runnable — they reference models such as
-`Order` that belong to your application. Copy them into `app/` and adjust.
+| Example | Shows |
+|---|---|
+| [`checkout.php`](checkout.php) | a payment checkout, its status, expiry |
+| [`subscriptions.php`](subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, bills, cancel at period end |
+| [`marketplace.php`](marketplace.php) | invite a seller, sell `onBehalfOf`, held funds, trust |
+| [`webhook-handler.php`](webhook-handler.php) | a verified plain-PHP receiver with deduplication and typed events (`php -S`) |
+| [`errors-and-retries.php`](errors-and-retries.php) | exception types, `isRetryable()`, idempotency keys across processes |
+| [`laravel/`](laravel) | the webhook route, a checkout controller with the facade, queued listeners |

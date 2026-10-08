@@ -12,12 +12,13 @@ use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Laravel\Console\VerifyCommand;
 use QBitFlow\QBitFlow;
 use QBitFlow\Tests\Support\FakeApplication;
+use QBitFlow\Tests\Support\MockHttpClient;
+use QBitFlow\Tests\Support\MockNetworkException;
 use QBitFlow\Tests\Support\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
- * Covers `php artisan qbitflow:verify`, the command an integrator runs to confirm their
- * key works. It resolves the client from the container, so the mock transport stands in.
+ * `php artisan qbitflow:verify`: checks the key with `me()`.
  */
 final class ConsoleCommandsTest extends TestCase
 {
@@ -26,7 +27,6 @@ final class ConsoleCommandsTest extends TestCase
 	protected function setUp(): void
 	{
 		parent::setUp();
-
 		$this->app = new FakeApplication();
 		FakeApplication::setInstance($this->app);
 		$this->app->instance('config', new ConfigRepository());
@@ -36,7 +36,6 @@ final class ConsoleCommandsTest extends TestCase
 	protected function tearDown(): void
 	{
 		FakeApplication::setInstance(null);
-
 		parent::tearDown();
 	}
 
@@ -45,7 +44,6 @@ final class ConsoleCommandsTest extends TestCase
 		if ($client !== null) {
 			$this->app->instance(QBitFlow::class, $client);
 		}
-
 		$command = new VerifyCommand();
 		$command->setLaravel($this->app);
 		$command->setApplication(new Artisan($this->app, $this->app->make('events'), '12.x'));
@@ -54,88 +52,53 @@ final class ConsoleCommandsTest extends TestCase
 	}
 
 	#[Test]
-	public function it_reports_the_user_the_key_belongs_to(): void
+	public function it_reports_what_the_key_is(): void
 	{
-		$this->http->push([
-			'id' => 7,
-			'name' => 'Jane',
-			'lastName' => 'Smith',
-			'email' => 'jane@example.com',
-			'role' => 'admin',
-			'organizationId' => 3,
-			'organizationFeeBps' => 150,
-			'createdAt' => '2026-01-01T00:00:00Z',
-			'updatedAt' => '2026-01-01T00:00:00Z',
-		]);
-
-		$tester = $this->tester($this->client());
-		$exit = $tester->execute([]);
+		$client = $this->client(MockHttpClient::static(200, '{"credential":"apiKey","role":"admin","space":{"uuid":"s-1","organizationUuid":"o-1","organizationName":"Example Shop","test":true}}'));
+		$tester = $this->tester($client);
+		$this->assertSame(0, $tester->execute([]));
 		$output = $tester->getDisplay();
-
-		$this->assertSame(0, $exit);
-		$this->assertStringContainsString('API key is valid', $output);
-		$this->assertStringContainsString('Jane Smith', $output);
-		$this->assertStringContainsString('jane@example.com', $output);
-		$this->assertStringContainsString('admin', $output);
-		$this->assertStringContainsString('150 bps (1.50%)', $output);
-		$this->assertSame('/v1/user/', $this->http->lastPath());
+		foreach (['API key is valid', 'Example Shop', 'admin', 'test', 's-1'] as $text) {
+			$this->assertStringContainsString($text, $output);
+		}
+		$this->assertSame('/me', self::pathOf($this->http->last()));
 	}
 
 	#[Test]
-	public function it_warns_that_a_user_level_key_cannot_act_on_behalf_of_others(): void
+	public function it_warns_that_a_member_key_cannot_act_for_others(): void
 	{
-		$this->http->push([
-			'id' => 7, 'name' => 'Bob', 'lastName' => 'Jones', 'email' => 'b@e.com',
-			'role' => 'user', 'organizationId' => 3, 'organizationFeeBps' => 0,
-			'createdAt' => '2026-01-01T00:00:00Z', 'updatedAt' => '2026-01-01T00:00:00Z',
-		]);
-
-		$tester = $this->tester($this->client());
+		$client = $this->client(MockHttpClient::static(200, '{"credential":"apiKey","role":"user","space":{"uuid":"s-2","userUuid":"m-1","member":{"userUuid":"m-1","name":"Ada","lastName":"L"},"test":false}}'));
+		$tester = $this->tester($client);
 		$tester->execute([]);
-
-		$this->assertStringContainsString('onBehalfOf() will fail with a 403', $tester->getDisplay());
+		$this->assertStringContainsString('organization key', $tester->getDisplay());
+		$this->assertStringContainsString('live', $tester->getDisplay());
+		$this->assertStringContainsString('Ada L', $tester->getDisplay());
 	}
 
 	#[Test]
 	public function it_says_plainly_when_the_key_is_rejected(): void
 	{
-		$this->http->push(['error' => 'Invalid API key'], 401);
-
-		$tester = $this->tester($this->client());
-		$exit = $tester->execute([]);
-
-		$this->assertSame(1, $exit);
+		$tester = $this->tester($this->client(MockHttpClient::static(401, '{"error":"invalid API key","code":"unauthorized"}')));
+		$this->assertSame(1, $tester->execute([]));
 		$this->assertStringContainsString('QBITFLOW_API_KEY', $tester->getDisplay());
 	}
 
 	#[Test]
 	public function it_distinguishes_an_unreachable_api_from_a_bad_key(): void
 	{
-		$this->http->pushFailure('Connection refused');
-
-		$tester = $this->tester($this->client());
-		$exit = $tester->execute([]);
-		$output = $tester->getDisplay();
-
-		$this->assertSame(1, $exit);
-		$this->assertStringContainsString('Could not reach QBitFlow', $output);
-		$this->assertStringContainsString('The key may still be fine', $output);
+		$tester = $this->tester($this->client(new MockHttpClient(static fn () => new MockNetworkException('Connection refused')), 0));
+		$this->assertSame(1, $tester->execute([]));
+		$this->assertStringContainsString('Could not reach QBitFlow', $tester->getDisplay());
 	}
 
 	#[Test]
-	public function it_explains_a_missing_api_key_instead_of_crashing(): void
+	public function it_explains_a_missing_api_key(): void
 	{
-		// Mirrors the service provider refusing to build a client with no key configured.
 		$this->app->bind(QBitFlow::class, static function (): QBitFlow {
-			throw new ValidationException(
-				'QBitFlow API key is not configured. Set QBITFLOW_API_KEY in your .env file.',
-			);
+			throw new ValidationException('QBitFlow API key is not configured. Set QBITFLOW_API_KEY in your .env file.');
 		});
-
 		$tester = $this->tester();
-		$exit = $tester->execute([]);
-
-		$this->assertSame(1, $exit);
+		$this->assertSame(1, $tester->execute([]));
 		$this->assertStringContainsString('Set QBITFLOW_API_KEY in your .env file', $tester->getDisplay());
 	}
 }

@@ -5,28 +5,53 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * Lifecycle states of a subscription.
+ * A subscription's lifecycle status.
+ *
+ * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
+ * know yet is kept as is, never rejected. Compare against these constants.
  */
-enum SubscriptionStatus: string
+final class SubscriptionStatus
 {
-	/** Active and billing normally. */
-	case ACTIVE = 'active';
+	/** In its free trial. */
+	public const TRIAL = 'trial';
 
-	/** Cancelled (inactive). */
-	case CANCELLED = 'cancelled';
+	/** The trial ended without its customer confirming it. */
+	public const TRIAL_EXPIRED = 'trialExpired';
 
-	/** Last payment attempt failed; retried until the grace period ends, then cancelled. */
-	case PAST_DUE = 'past_due';
+	/** Billed normally. */
+	public const ACTIVE = 'active';
 
-	/** On-chain allowance is running low; the next billing may fail. */
-	case LOW_ON_FUNDS = 'low_on_funds';
+	/** A bill failed: retried (dunning) until it is paid or the subscription cancelled. */
+	public const PAST_DUE = 'pastDue';
 
-	/** Max amount reached (e.g. price fluctuation); the subscriber must raise it. */
-	case PENDING = 'pending';
+	/** Paused by its customer: not billed until resumed. */
+	public const PAUSED = 'paused';
 
-	/** Currently within the trial period. */
-	case TRIAL = 'trial';
+	/** Stopped: cancelled at the end of the current period. */
+	public const STOPPED = 'stopped';
 
-	/** Trial expired; grace period to upgrade before being flagged as cancelled. */
-	case TRIAL_EXPIRED = 'trial_expired';
+	/** Cancelled. Final. */
+	public const CANCELLED = 'cancelled';
+
+	/**
+	 * Every value this SDK knows.
+	 *
+	 * @return list<string>
+	 */
+	public static function values(): array
+	{
+		return [
+			self::TRIAL,
+			self::TRIAL_EXPIRED,
+			self::ACTIVE,
+			self::PAST_DUE,
+			self::PAUSED,
+			self::STOPPED,
+			self::CANCELLED,
+		];
+	}
+
+	private function __construct()
+	{
+	}
 }

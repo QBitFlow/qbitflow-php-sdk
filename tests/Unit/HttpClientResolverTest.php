@@ -15,20 +15,14 @@ use QBitFlow\QBitFlow;
 final class HttpClientResolverTest extends TestCase
 {
 	#[Test]
-	public function it_prefers_guzzle_and_applies_the_timeout(): void
+	public function it_prefers_guzzle_with_the_timeout_and_no_redirects(): void
 	{
 		$client = HttpClientResolver::resolve(12.5);
 
 		$this->assertInstanceOf(GuzzleClient::class, $client);
 		$this->assertSame(12.5, $client->getConfig('timeout'));
-		$this->assertFalse(
-			$client->getConfig('http_errors'),
-			'Non-2xx responses are classified by the transport, not thrown by Guzzle.',
-		);
-		$this->assertFalse(
-			$client->getConfig('allow_redirects'),
-			'A 3xx must reach the transport (the API never redirects) instead of being followed with the API key attached.',
-		);
+		$this->assertFalse($client->getConfig('http_errors'), 'non-2xx responses are classified by the transport');
+		$this->assertFalse($client->getConfig('allow_redirects'), 'a 3xx is a ServerException, never followed with the API key attached');
 	}
 
 	#[Test]
@@ -39,22 +33,9 @@ final class HttpClientResolverTest extends TestCase
 	}
 
 	#[Test]
-	public function a_client_built_with_no_injected_dependencies_discovers_everything_it_needs(): void
+	public function a_client_with_only_a_key_discovers_everything(): void
 	{
-		// The zero-config path most consumers take: nothing but an API key. Clear the env
-		// override so the assertion on the default base URL is hermetic.
-		$previous = getenv('QBITFLOW_BASE_URL');
-		putenv('QBITFLOW_BASE_URL');
-
-		try {
-			$client = new QBitFlow('test-api-key');
-		} finally {
-			if (is_string($previous)) {
-				putenv('QBITFLOW_BASE_URL=' . $previous);
-			}
-		}
-
-		$this->assertSame('https://api.qbitflow.app/v1', $client->getBaseUrl());
-		$this->assertSame('test-api-key', $client->getApiKey());
+		$client = new QBitFlow('sk_test_key');
+		$this->assertSame('https://api.qbitflow.app/v2', $client->getBaseUrl());
 	}
 }

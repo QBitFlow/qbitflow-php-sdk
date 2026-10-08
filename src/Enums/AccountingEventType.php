@@ -5,32 +5,40 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * Row types found in an accounting export.
+ * An accounting export row's kind.
+ *
+ * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
+ * know yet is kept as is, never rejected. Compare against these constants.
  */
-enum AccountingEventType: string
+final class AccountingEventType
 {
-	case PAYMENT = 'payment';
-	case SUBSCRIPTION_HISTORY = 'subscriptionHistory';
-	case REFUND = 'refund';
-	case ORGANIZATION_FEE = 'organizationFee';
-	case REFERRAL_FEE = 'referralFee';
+	public const PAYMENT = 'payment';
+
+	public const SUBSCRIPTION_HISTORY = 'subscriptionHistory';
+
+	public const REFUND = 'refund';
+
+	public const ORGANIZATION_FEE = 'organizationFee';
+
+	public const REFERRAL_FEE = 'referralFee';
 
 	/**
-	 * Alternative spelling of the subscription-billing row type.
+	 * Every value this SDK knows.
 	 *
-	 * The API reference documents the row type both as `TransactionShortTypeSubHistory`
-	 * (`subscriptionHistory`) and, in prose, as `subHistory`. Both hydrate to
-	 * {@see AccountingEventType::SUBSCRIPTION_HISTORY}.
+	 * @return list<string>
 	 */
-	public const SUBSCRIPTION_HISTORY_ALIAS = 'subHistory';
-
-	/**
-	 * Resolve a hydrated value, folding the documented alias onto its member.
-	 *
-	 * @internal
-	 */
-	public static function fromWire(self|string $value): self|string
+	public static function values(): array
 	{
-		return $value === self::SUBSCRIPTION_HISTORY_ALIAS ? self::SUBSCRIPTION_HISTORY : $value;
+		return [
+			self::PAYMENT,
+			self::SUBSCRIPTION_HISTORY,
+			self::REFUND,
+			self::ORGANIZATION_FEE,
+			self::REFERRAL_FEE,
+		];
+	}
+
+	private function __construct()
+	{
 	}
 }

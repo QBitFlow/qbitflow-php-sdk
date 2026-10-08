@@ -10,14 +10,13 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Routing\Router;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Client\ClientInterface;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
 use QBitFlow\Laravel\Http\Middleware\VerifyQBitFlowWebhook;
 use QBitFlow\Laravel\QBitFlowServiceProvider;
 use QBitFlow\QBitFlow;
 use QBitFlow\Tests\Support\MockHttpClient;
-use QBitFlow\Webhooks\WebhookVerifier;
-use Psr\Http\Client\ClientInterface;
 
 final class ServiceProviderTest extends TestCase
 {
@@ -26,28 +25,28 @@ final class ServiceProviderTest extends TestCase
 	protected function setUp(): void
 	{
 		parent::setUp();
-
 		$this->app = new Container();
 		Container::setInstance($this->app);
-
 		$this->app->instance('config', new ConfigRepository());
-		$this->app->singleton('router', fn ($app) => new Router(new Dispatcher($app), $app));
+		$this->app->singleton('router', static fn ($app) => new Router(new Dispatcher($app), $app));
 	}
 
 	protected function tearDown(): void
 	{
 		Container::setInstance(null);
-
 		parent::tearDown();
 	}
 
+	/** @param array<string,mixed> $config */
 	private function register(array $config = []): QBitFlowServiceProvider
 	{
 		$this->app->make('config')->set('qbitflow', array_merge([
-			'api_key' => 'test-api-key',
+			'api_key' => 'sk_test_key',
 			'base_url' => null,
 			'timeout' => 30,
 			'max_retries' => 3,
+			'webhook_secret' => null,
+			'webhook_tolerance' => 300,
 		], $config));
 
 		$provider = new QBitFlowServiceProvider($this->app);
@@ -60,212 +59,78 @@ final class ServiceProviderTest extends TestCase
 	public function it_binds_the_client_as_a_singleton(): void
 	{
 		$this->register();
-
 		$client = $this->app->make(QBitFlow::class);
-
 		$this->assertInstanceOf(QBitFlow::class, $client);
-		$this->assertSame('test-api-key', $client->getApiKey());
-		$this->assertSame($client, $this->app->make(QBitFlow::class), 'The client should be shared.');
-		$this->assertSame($client, $this->app->make('qbitflow'), 'The short alias resolves the same client.');
+		$this->assertSame($client, $this->app->make(QBitFlow::class));
+		$this->assertSame($client, $this->app->make('qbitflow'));
+		$this->assertSame('https://api.qbitflow.app/v2', $client->getBaseUrl());
 	}
 
 	#[Test]
 	public function it_applies_the_configured_base_url(): void
 	{
-		$this->register(['base_url' => 'https://staging.qbitflow.app/v1']);
-
-		$this->assertSame('https://staging.qbitflow.app/v1', $this->app->make(QBitFlow::class)->getBaseUrl());
-	}
-
-	#[Test]
-	public function it_falls_back_to_the_production_base_url(): void
-	{
-		// Clear the env override so the assertion is hermetic for a developer who has
-		// QBITFLOW_BASE_URL exported for integration work.
-		$previous = getenv('QBITFLOW_BASE_URL');
-		putenv('QBITFLOW_BASE_URL');
-
-		try {
-			$this->register(['base_url' => null]);
-
-			$this->assertSame('https://api.qbitflow.app/v1', $this->app->make(QBitFlow::class)->getBaseUrl());
-		} finally {
-			if (is_string($previous)) {
-				putenv('QBITFLOW_BASE_URL=' . $previous);
-			}
-		}
-	}
-
-	#[Test]
-	public function it_wires_the_webhook_secret_into_the_middleware(): void
-	{
-		$mock = new MockHttpClient();
-		$this->app->instance(ClientInterface::class, $mock);
-		$this->register(['webhook_secret' => 'whsec_from_config']);
-
-		$middleware = $this->app->make(VerifyQBitFlowWebhook::class);
-
-		$body = '{"uuid":"s1"}';
-		$timestamp = (string) time();
-		$request = \Illuminate\Http\Request::create('/hooks', 'POST', [], [], [], [
-			'HTTP_X_WEBHOOK_SIGNATURE_256' => WebhookVerifier::computeSignature('whsec_from_config', $timestamp, $body),
-			'HTTP_X_WEBHOOK_TIMESTAMP' => $timestamp,
-		], $body);
-
-		$response = $middleware->handle($request, fn () => new \Illuminate\Http\JsonResponse(['ok' => true]));
-
-		$this->assertSame(200, $response->getStatusCode());
-		$this->assertSame(0, $mock->requestCount(), 'A configured secret means local verification, no API call.');
-	}
-
-	#[Test]
-	public function without_a_webhook_secret_the_middleware_verifies_through_the_api(): void
-	{
-		$mock = new MockHttpClient();
-		$this->app->instance(ClientInterface::class, $mock);
-		$this->register(['webhook_secret' => null]);
-
-		$middleware = $this->app->make(VerifyQBitFlowWebhook::class);
-
-		$mock->push(['message' => 'verified']);
-		$request = \Illuminate\Http\Request::create('/hooks', 'POST', [], [], [], [
-			'HTTP_X_WEBHOOK_SIGNATURE_256' => 'sig',
-			'HTTP_X_WEBHOOK_TIMESTAMP' => '1700000000',
-		], '{"uuid":"s1"}');
-
-		$response = $middleware->handle($request, fn () => new \Illuminate\Http\JsonResponse(['ok' => true]));
-
-		$this->assertSame(200, $response->getStatusCode());
-		$this->assertSame('/v1/webhooks/verify', $mock->lastPath());
+		$this->register(['base_url' => 'https://sandbox.example.com/v2/']);
+		$this->assertSame('https://sandbox.example.com/v2', $this->app->make(QBitFlow::class)->getBaseUrl());
 	}
 
 	#[Test]
 	public function it_explains_itself_when_the_api_key_is_missing(): void
 	{
 		$this->register(['api_key' => null]);
-
 		$this->expectException(ValidationException::class);
-		$this->expectExceptionMessage('QBITFLOW_API_KEY');
+		$this->expectExceptionMessage('Set QBITFLOW_API_KEY');
+		$this->app->make(QBitFlow::class);
+	}
 
+	#[Test]
+	public function it_refuses_a_key_that_is_not_an_sk_key(): void
+	{
+		$this->register(['api_key' => 'pk_live_x']);
+		$this->expectException(ValidationException::class);
 		$this->app->make(QBitFlow::class);
 	}
 
 	#[Test]
 	public function it_ships_a_config_file_with_every_documented_key(): void
 	{
-		$config = require __DIR__ . '/../../config/qbitflow.php';
-
-		$this->assertSame(
-			['api_key', 'base_url', 'timeout', 'max_retries', 'webhook_secret'],
-			array_keys($config),
-		);
+		$config = require dirname(__DIR__, 2) . '/config/qbitflow.php';
+		foreach (['api_key', 'base_url', 'timeout', 'max_retries', 'webhook_secret', 'webhook_tolerance'] as $key) {
+			$this->assertArrayHasKey($key, $config);
+		}
 	}
 
 	#[Test]
-	public function it_registers_the_middleware_alias_and_route_macros(): void
+	public function it_wires_the_webhook_secret_into_the_middleware(): void
 	{
-		$provider = $this->register();
-		$provider->boot();
-
-		$router = $this->app->make('router');
-
-		$this->assertArrayHasKey('qbitflow.webhook', $router->getMiddleware());
-		$this->assertSame(VerifyQBitFlowWebhook::class, $router->getMiddleware()['qbitflow.webhook']);
-
-		$this->assertTrue(Router::hasMacro('qbitflowTransactionWebhook'));
-		$this->assertTrue(Router::hasMacro('qbitflowSubscriptionWebhook'));
+		$this->register(['webhook_secret' => 'whsec_x']);
+		$this->assertInstanceOf(VerifyQBitFlowWebhook::class, $this->app->make(VerifyQBitFlowWebhook::class));
 	}
 
 	#[Test]
-	public function the_route_macros_register_verified_post_routes(): void
+	public function it_registers_the_middleware_alias_and_the_route_macro(): void
 	{
-		$provider = $this->register();
-		$provider->boot();
-
+		$this->register()->boot();
+		/** @var Router $router */
 		$router = $this->app->make('router');
-		$router->qbitflowTransactionWebhook('hooks/qbitflow/tx');
-		$router->qbitflowSubscriptionWebhook();
+		$this->assertSame(VerifyQBitFlowWebhook::class, $router->getMiddleware()['qbitflow.webhook'] ?? null);
+		$this->assertTrue(Router::hasMacro('qbitflowWebhooks'));
 
-		$routes = $router->getRoutes();
-		// Names are applied after a route is added, so the lookup table needs rebuilding.
-		$routes->refreshNameLookups();
-
-		$transaction = $routes->getByName('qbitflow.webhook.transaction');
-		$this->assertNotNull($transaction);
-		$this->assertSame('hooks/qbitflow/tx', $transaction->uri());
-		$this->assertContains('POST', $transaction->methods());
-		$this->assertContains(VerifyQBitFlowWebhook::class, $transaction->gatherMiddleware());
-		$this->assertSame(WebhookController::class . '@transaction', $transaction->getActionName());
-
-		$subscription = $routes->getByName('qbitflow.webhook.subscription');
-		$this->assertNotNull($subscription);
-		$this->assertSame('webhooks/qbitflow/subscription', $subscription->uri(), 'Default URI.');
-		$this->assertSame(WebhookController::class . '@subscription', $subscription->getActionName());
+		$route = $router->qbitflowWebhooks('hooks/qbitflow');
+		$this->assertSame(['POST'], $route->methods());
+		$this->assertSame('hooks/qbitflow', $route->uri());
+		$this->assertSame('qbitflow.webhooks', $route->getName());
+		$this->assertContains(VerifyQBitFlowWebhook::class, $route->middleware());
+		$this->assertSame(WebhookController::class, $route->getAction('controller'));
 	}
 
 	#[Test]
 	public function it_uses_a_psr18_client_bound_in_the_container(): void
 	{
-		// Lets an application supply a client carrying its own proxy or logging middleware,
-		// and lets tests swap in a fake without rebuilding the SDK client.
-		$mock = new MockHttpClient();
-		$this->app->instance(ClientInterface::class, $mock);
-
-		$this->register();
-		$client = $this->app->make(QBitFlow::class);
-
-		$mock->push([['id' => 1, 'name' => 'Widget', 'description' => 'd', 'price' => 1.0, 'isActive' => true, 'createdAt' => '2026-01-01T00:00:00Z']]);
-		$client->products->getAll();
-
-		$this->assertSame(1, $mock->requestCount(), 'The container-bound client should have been used.');
-		$this->assertSame('/v1/product/', $mock->lastPath());
-	}
-
-	#[Test]
-	public function it_falls_back_to_auto_detection_when_nothing_is_bound(): void
-	{
+		$http = MockHttpClient::static(200, '{"credential":"apiKey"}');
+		$this->app->instance(ClientInterface::class, $http);
 		$this->register();
 
-		// Nothing bound, so the SDK discovers Guzzle on its own and still builds.
-		$this->assertInstanceOf(QBitFlow::class, $this->app->make(QBitFlow::class));
-	}
-
-	#[Test]
-	public function api_verification_without_an_api_key_is_a_configuration_error(): void
-	{
-		$this->register(['api_key' => null, 'webhook_secret' => null]);
-
-		$middleware = $this->app->make(VerifyQBitFlowWebhook::class);
-		$request = \Illuminate\Http\Request::create('/hooks', 'POST', [], [], [], [
-			'HTTP_X_WEBHOOK_SIGNATURE_256' => 'sig',
-			'HTTP_X_WEBHOOK_TIMESTAMP' => '1700000000',
-		], '{"uuid":"s1"}');
-
-		// Surfaces (a 5xx, so QBitFlow retries) rather than reading as a rejected signature.
-		$this->expectException(ValidationException::class);
-		$this->expectExceptionMessage('QBITFLOW_API_KEY');
-
-		$middleware->handle($request, fn () => new \Illuminate\Http\JsonResponse(['ok' => true]));
-	}
-
-	#[Test]
-	public function local_webhook_verification_needs_no_api_key(): void
-	{
-		// With a webhook secret, the middleware never needs the client — so it must not
-		// fail on a missing QBITFLOW_API_KEY.
-		$this->register(['api_key' => null, 'webhook_secret' => 'whsec_local_only']);
-
-		$middleware = $this->app->make(VerifyQBitFlowWebhook::class);
-
-		$body = '{"uuid":"s1"}';
-		$timestamp = (string) time();
-		$request = \Illuminate\Http\Request::create('/hooks', 'POST', [], [], [], [
-			'HTTP_X_WEBHOOK_SIGNATURE_256' => WebhookVerifier::computeSignature('whsec_local_only', $timestamp, $body),
-			'HTTP_X_WEBHOOK_TIMESTAMP' => $timestamp,
-		], $body);
-
-		$response = $middleware->handle($request, fn () => new \Illuminate\Http\JsonResponse(['ok' => true]));
-
-		$this->assertSame(200, $response->getStatusCode());
+		$this->assertSame('apiKey', $this->app->make(QBitFlow::class)->me()->credential);
+		$this->assertSame(1, $http->count());
 	}
 }

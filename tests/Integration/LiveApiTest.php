@@ -4,150 +4,216 @@ declare(strict_types=1);
 
 namespace QBitFlow\Tests\Integration;
 
-use GuzzleHttp\Client as GuzzleClient;
+use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use QBitFlow\Dto\Customer;
-use QBitFlow\Dto\Product;
-use QBitFlow\Dto\User;
-use QBitFlow\Enums\UserRole;
+use QBitFlow\Enums\CheckoutSessionStatusValue;
+use QBitFlow\Enums\EventType;
+use QBitFlow\Enums\Role;
+use QBitFlow\Exceptions\ConflictException;
 use QBitFlow\Exceptions\NotFoundException;
+use QBitFlow\Models\Me;
+use QBitFlow\Params;
 use QBitFlow\QBitFlow;
-use QBitFlow\Support\CursorData;
-use QBitFlow\Support\Enums;
 
 /**
- * Opt-in smoke test against a running QBitFlow API.
+ * Live checks against a QBitFlow API (the Go SDK's integration suite). Never part of an
+ * offline run:
  *
- * Both variables come from the environment (for this workspace, `sdk2/.local.env`); the
- * suite never falls back to a default server:
- *
- * - `QBITFLOW_API_KEY` not set → every test is skipped (offline runs stay green);
- * - `QBITFLOW_API_KEY` set but `QBITFLOW_BASE_URL` missing → every test FAILS, so a
- *   misconfigured run is never mistaken for a green one;
- * - an unreachable or unhealthy server → FAILS rather than skipping.
+ * - `QBITFLOW_API_KEY` not set → skipped;
+ * - `QBITFLOW_API_KEY` set without `QBITFLOW_BASE_URL` → FAILS (never aim at production by accident);
+ * - the read-only checks only read; the write checks also need `QBITFLOW_LIVE_WRITES=1` and a
+ *   test-mode key (or `QBITFLOW_ALLOW_LIVE_MODE_WRITES=1`). Each write is undone (deleted or expired).
  *
  * ```bash
- * set -a; . ../.local.env; set +a
- * vendor/bin/phpunit --testsuite Integration
+ * QBITFLOW_API_KEY=sk_… QBITFLOW_BASE_URL=https://… vendor/bin/phpunit --testsuite Integration
  * ```
- *
- * The provided key is live-scope against local chains, so nothing here creates anything:
- * a health check, a handful of reads, and one end-to-end signature rejection.
  */
 #[Group('integration')]
 final class LiveApiTest extends TestCase
 {
 	private QBitFlow $client;
 
-	private string $baseUrl;
+	private Me $me;
+
+	/** @var list<\Closure(): void> */
+	private array $cleanups = [];
 
 	protected function setUp(): void
 	{
 		parent::setUp();
+		$key = getenv('QBITFLOW_API_KEY');
+		$base = getenv('QBITFLOW_BASE_URL');
+		if (! is_string($key) || trim($key) === '') {
+			$this->markTestSkipped('QBITFLOW_API_KEY not set: live checks skipped');
+		}
+		if (! is_string($base) || trim($base) === '') {
+			$this->fail('QBITFLOW_API_KEY is set but QBITFLOW_BASE_URL is not: set the API\'s base URL explicitly');
+		}
+		$this->client = new QBitFlow(apiKey: $key, baseUrl: $base, timeout: 30.0);
+		$this->me = $this->client->me();
+	}
 
-		$apiKey = getenv('QBITFLOW_API_KEY');
-		$baseUrl = getenv('QBITFLOW_BASE_URL');
-		$hasKey = is_string($apiKey) && trim($apiKey) !== '';
-		$hasBaseUrl = is_string($baseUrl) && trim($baseUrl) !== '';
+	protected function tearDown(): void
+	{
+		foreach (array_reverse($this->cleanups) as $cleanup) {
+			try {
+				$cleanup();
+			} catch (NotFoundException) {
+				// already gone
+			}
+		}
+		parent::tearDown();
+	}
 
-		if (! $hasKey) {
-			$this->markTestSkipped('QBITFLOW_API_KEY is not set; live tests are skipped.');
+	private function isOrganizationKey(): bool
+	{
+		return $this->me->role === Role::ADMIN && $this->me->onBehalfOf === null;
+	}
+
+	private function requireWrites(): void
+	{
+		if (getenv('QBITFLOW_LIVE_WRITES') !== '1') {
+			$this->markTestSkipped('QBITFLOW_LIVE_WRITES=1 not set: write checks skipped');
+		}
+		if (! ($this->me->space?->test ?? false) && getenv('QBITFLOW_ALLOW_LIVE_MODE_WRITES') !== '1') {
+			$this->markTestSkipped('write checks run on a test-mode key only (QBITFLOW_ALLOW_LIVE_MODE_WRITES=1 overrides)');
+		}
+	}
+
+	private static function suffix(): string
+	{
+		return (string) hrtime(true);
+	}
+
+	#[Test]
+	public function me_describes_the_key(): void
+	{
+		$this->assertNotNull($this->me->space);
+		$this->assertNotSame('', $this->me->space->uuid);
+	}
+
+	#[Test]
+	public function read_only_routes_answer(): void
+	{
+		$c = $this->client;
+		$c->products->list(new Params\ProductListParams(includeHidden: true));
+
+		$page = $c->customers->list(new Params\CustomerListParams(limit: 2));
+		$this->assertLessThanOrEqual(2, count($page->items));
+		$n = 0;
+		foreach ($c->customers->iterate(new Params\CustomerListParams(limit: 2)) as $customer) {
+			$this->assertNotSame('', $customer->uuid);
+			if (++$n === 3) {
+				break;
+			}
 		}
 
-		if (! $hasBaseUrl) {
-			$this->fail('QBITFLOW_API_KEY is set but QBITFLOW_BASE_URL is not. Set QBITFLOW_BASE_URL (see sdk2/.local.env); '
-				. 'the live suite never falls back to a default server.');
+		$c->payments->list(new Params\PaymentListParams(limit: 5));
+		$c->payments->listCombined(new Params\CombinedPaymentListParams(limit: 5, createdAfter: new DateTimeImmutable('-30 days')));
+		$c->failures->list(new Params\FailureListParams(limit: 5));
+		$c->subscriptions->list(new Params\SubscriptionListParams(limit: 5));
+		$c->refunds->list();
+		$c->refunds->listInactive(new Params\RefundListParams(limit: 5));
+		if ($this->isOrganizationKey()) {
+			$c->members->list(new Params\MemberListParams(limit: 5));
+			$c->members->listHeldFunds();
+			$c->invitations->list(new Params\InvitationListParams(limit: 5));
+		}
+		$c->wallets->list(new Params\WalletListParams(withBalances: true));
+		$c->wallets->listSupportedCurrencies();
+
+		$currencies = $c->currencies->listAvailable(new Params\CurrencyListParams(test: $this->me->space?->test ?? false));
+		$c->currencies->listMain();
+		if ($currencies !== []) {
+			$this->assertSame($currencies[0]->id, $c->currencies->get($currencies[0]->id)->id);
 		}
 
-		$this->baseUrl = rtrim(trim($baseUrl), '/');
-		$healthPath = getenv('QBITFLOW_HEALTH_ENDPOINT');
-		$healthPath = is_string($healthPath) && $healthPath !== '' ? $healthPath : '/healthz';
+		$to = new DateTimeImmutable('now');
+		$from = $to->modify('-30 days');
+		$c->accounting->exportJson($from->format('Y-m-d'), $to->format('Y-m-d'));
+		$this->assertNotSame('', $c->accounting->exportCsv($from->format('Y-m-d'), $to->format('Y-m-d')), 'a header line is expected');
 
-		// The health endpoint lives at the server root and needs no key.
+		$c->webhooks->endpoints->list();
+		$events = $c->webhooks->events->list(new Params\EventListParams(limit: 5));
+		if ($events->items !== []) {
+			$c->webhooks->events->get($events->items[0]->id);
+		}
+
 		try {
-			$health = (new GuzzleClient(['timeout' => 5, 'http_errors' => false]))
-				->get($this->baseUrl . '/' . ltrim($healthPath, '/'));
-		} catch (\Throwable $e) {
-			$this->fail('QBitFlow API is not reachable at ' . $this->baseUrl . ': ' . $e->getMessage());
-		}
-
-		if ($health->getStatusCode() !== 200) {
-			$this->fail('QBitFlow API health check returned ' . $health->getStatusCode());
-		}
-
-		$this->client = new QBitFlow($apiKey, $this->baseUrl, timeout: 10.0);
-	}
-
-	#[Test]
-	public function the_key_identifies_a_user(): void
-	{
-		$user = $this->client->users->get();
-
-		$this->assertInstanceOf(User::class, $user);
-		$this->assertGreaterThan(0, $user->id);
-		$this->assertNotSame('', $user->email);
-		$this->assertContains(Enums::value($user->role), array_column(UserRole::cases(), 'value'));
-	}
-
-	#[Test]
-	public function main_currencies_are_listed_publicly(): void
-	{
-		$currencies = $this->client->currencies->getAllMain();
-
-		$this->assertNotEmpty($currencies);
-
-		foreach ($currencies as $currency) {
-			$this->assertNull($currency->mainCurrency, 'A main currency has no parent.');
-			$this->assertFalse($currency->isToken());
+			$c->checkoutSessions->getStatus('pay@019eca82-5680-7b00-8000-00000000dead');
+			$this->fail('want a NotFoundException');
+		} catch (NotFoundException) {
+			$this->addToAssertionCount(1);
 		}
 	}
 
 	#[Test]
-	public function products_and_customers_can_be_read(): void
+	public function writes_a_product(): void
 	{
-		foreach ($this->client->products->getAll() as $product) {
-			$this->assertInstanceOf(Product::class, $product);
-		}
+		$this->requireWrites();
+		$ref = 'sdk-php-test-' . self::suffix();
+		$product = $this->client->products->create(new Params\CreateProductParams(name: 'SDK PHP test', price: 1, reference: $ref));
+		$this->cleanups[] = fn () => $this->client->products->delete($product->uuid);
 
-		$page = $this->client->customers->getAll(limit: 5);
-
-		$this->assertInstanceOf(CursorData::class, $page);
-		$this->assertLessThanOrEqual(5, count($page));
-		$this->assertContainsOnlyInstancesOf(Customer::class, $page->items);
-	}
-
-	#[Test]
-	public function payments_carry_their_currency_object(): void
-	{
-		$page = $this->client->oneTimePayments->getAll(limit: 5);
-
-		foreach ($page as $payment) {
-			$this->assertSame($payment->currencyId, $payment->currency->id, 'The nested currency matches currencyId.');
-			$this->assertNotSame('', $payment->currency->symbol);
-		}
-
-		foreach ($this->client->oneTimePayments->getAllCombined(limit: 5) as $entry) {
-			$this->assertSame($entry->currencyId, $entry->currency->id);
-		}
-	}
-
-	#[Test]
-	public function an_unknown_product_is_a_not_found_error(): void
-	{
+		$this->assertSame($ref, $this->client->products->get($product->uuid)->reference);
+		$this->assertSame($product->uuid, $this->client->products->getByReference($ref)->uuid);
+		$updated = $this->client->products->update($product->uuid, new Params\UpdateProductParams(description: 'Updated by the PHP SDK', price: 2.0));
+		$this->assertSame(2.0, $updated->price);
+		$this->client->products->delete($product->uuid);
 		$this->expectException(NotFoundException::class);
-
-		$this->client->products->get(2147483647);
+		$this->client->products->get($product->uuid);
 	}
 
 	#[Test]
-	public function a_forged_webhook_signature_is_rejected_as_false_not_thrown(): void
+	public function writes_a_customer(): void
 	{
-		// End to end: the API answers 400 for a signature mismatch, which verify() must
-		// report as `false` — and only that status.
-		$this->assertFalse(
-			$this->client->webhooks->verify(['probe' => true], 'sha256=' . str_repeat('0', 64), (string) time()),
-		);
+		$this->requireWrites();
+		$s = self::suffix();
+		$customer = $this->client->customers->create(new Params\CreateCustomerParams(name: 'Ada', email: "sdk-php-test-$s@example.com",
+			lastName: 'Test', phoneNumber: '+33 6 12 34 56 78', reference: 'sdk-php-' . $s));
+		$this->cleanups[] = fn () => $this->client->customers->delete($customer->uuid);
+		$this->assertNotNull($customer->phoneNumber);
+
+		$updated = $this->client->customers->update($customer->uuid, new Params\UpdateCustomerParams(phoneNumber: ''));
+		$this->assertContains($updated->phoneNumber, [null, ''], 'cleared');
+		$this->assertSame($customer->email, $updated->email);
+	}
+
+	#[Test]
+	public function writes_a_checkout_session(): void
+	{
+		$this->requireWrites();
+		try {
+			$session = $this->client->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productName: 'SDK PHP test', price: 1,
+				reference: 'sdk-php-order-' . self::suffix(), successUrl: 'https://example.com/ok?id={{UUID}}', cancelUrl: 'https://example.com/cancel'));
+		} catch (ConflictException $e) {
+			if ($e->apiCode === 'merchant_not_ready') {
+				$this->markTestSkipped('the space accepts no currency (merchant_not_ready)');
+			}
+
+			throw $e;
+		}
+		$this->assertNotSame('', $session->link);
+		$this->assertNotNull($session->expiresAt);
+
+		$this->assertSame(CheckoutSessionStatusValue::CREATED, $this->client->checkoutSessions->getStatus($session->uuid)->status);
+		$this->assertSame(CheckoutSessionStatusValue::EXPIRED, $this->client->checkoutSessions->expire($session->uuid)->status);
+	}
+
+	#[Test]
+	public function writes_a_webhook_endpoint(): void
+	{
+		$this->requireWrites();
+		$created = $this->client->webhooks->endpoints->create(new Params\CreateWebhookEndpointParams(url: 'https://example.com/qbitflow-sdk-test',
+			events: [EventType::PAYMENT_COMPLETED], description: 'PHP SDK test ' . self::suffix()));
+		$this->cleanups[] = fn () => $this->client->webhooks->endpoints->delete($created->uuid);
+		$this->assertNotSame('', $created->secret);
+
+		$this->assertSame($created->url, $this->client->webhooks->endpoints->get($created->uuid)->url);
+		$updated = $this->client->webhooks->endpoints->update($created->uuid, new Params\UpdateWebhookEndpointParams(description: '', enabled: false));
+		$this->assertSame('', $updated->description);
+		$this->assertNotNull($updated->disabledAt);
 	}
 }

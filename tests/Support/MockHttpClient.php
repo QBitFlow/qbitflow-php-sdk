@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace QBitFlow\Tests\Support;
 
+use Closure;
 use Nyholm\Psr7\Response;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -12,40 +13,62 @@ use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 
 /**
- * A PSR-18 client that replays queued responses and records what it was asked to send.
+ * A PSR-18 client answering with a scripted handler (or a queue) and recording every request.
  */
 final class MockHttpClient implements ClientInterface
 {
-	/** @var list<ResponseInterface|ClientExceptionInterface> */
-	private array $queue = [];
-
 	/** @var list<RequestInterface> */
 	public array $requests = [];
 
+	/** @var list<ResponseInterface|ClientExceptionInterface> */
+	private array $queue = [];
+
 	/**
-	 * Queue a JSON response.
-	 *
-	 * @param array<array-key,mixed>|string $body
-	 * @param array<string,string>          $headers
+	 * @param (Closure(RequestInterface, int): (ResponseInterface|ClientExceptionInterface))|null $handler
+	 *        Answers the n-th request (0-based); the queue is used when null.
 	 */
-	public function push(array|string $body = [], int $status = 200, array $headers = []): self
+	public function __construct(private ?Closure $handler = null)
 	{
-		$encoded = is_string($body) ? $body : json_encode($body, JSON_THROW_ON_ERROR);
+	}
 
-		$this->queue[] = new Response($status, ['Content-Type' => 'application/json'] + $headers, $encoded);
+	/** @param array<string,string> $headers */
+	public static function response(int $status, string $body = '', array $headers = []): ResponseInterface
+	{
+		return new Response($status, $headers + ['Content-Type' => 'application/json'], $body);
+	}
+
+	/**
+	 * Answers every request with the same status and body.
+	 *
+	 * @param array<string,string> $headers
+	 */
+	public static function static(int $status, string $body, array $headers = []): self
+	{
+		return new self(static fn (): ResponseInterface => self::response($status, $body, $headers));
+	}
+
+	/**
+	 * Answers the scripted `[status, body]` pairs in order, then repeats the last one.
+	 *
+	 * @param list<array{0: int, 1: string}> $replies
+	 */
+	public static function sequence(array $replies): self
+	{
+		return new self(static function (RequestInterface $r, int $n) use ($replies): ResponseInterface {
+			[$status, $body] = $replies[min($n, count($replies) - 1)];
+
+			return self::response($status, $body);
+		});
+	}
+
+	/** @param array<string,string> $headers */
+	public function push(string $body, int $status = 200, array $headers = []): self
+	{
+		$this->queue[] = self::response($status, $body, $headers);
 
 		return $this;
 	}
 
-	/** Queue a raw (non-JSON) response, such as a CSV export. */
-	public function pushRaw(string $body, int $status = 200, string $contentType = 'text/csv'): self
-	{
-		$this->queue[] = new Response($status, ['Content-Type' => $contentType], $body);
-
-		return $this;
-	}
-
-	/** Queue a transport-level failure, as if the request never landed. */
 	public function pushFailure(string $message = 'Connection refused'): self
 	{
 		$this->queue[] = new MockNetworkException($message);
@@ -53,74 +76,37 @@ final class MockHttpClient implements ClientInterface
 		return $this;
 	}
 
-	/** Queue a refusal to send the request at all (PSR-18 RequestExceptionInterface). */
-	public function pushRequestFailure(string $message = 'Malformed request'): self
-	{
-		$this->queue[] = new MockRequestException($message);
-
-		return $this;
-	}
-
 	public function sendRequest(RequestInterface $request): ResponseInterface
 	{
+		$n = count($this->requests);
 		$this->requests[] = $request;
 
-		if ($this->queue === []) {
-			throw new RuntimeException(sprintf(
-				'MockHttpClient received an unexpected request: %s %s',
-				$request->getMethod(),
-				(string) $request->getUri(),
-			));
+		if ($this->handler !== null) {
+			$answer = ($this->handler)($request, $n);
+		} elseif ($this->queue !== []) {
+			$answer = array_shift($this->queue);
+		} else {
+			throw new RuntimeException(sprintf('unexpected request: %s %s', $request->getMethod(), (string) $request->getUri()));
 		}
 
-		$next = array_shift($this->queue);
-
-		if ($next instanceof ClientExceptionInterface) {
-			throw $next;
+		if ($answer instanceof ClientExceptionInterface) {
+			throw $answer;
 		}
 
-		return $next;
+		return $answer;
 	}
 
-	/** The last request the client was asked to send. */
-	public function lastRequest(): RequestInterface
+	public function count(): int
+	{
+		return count($this->requests);
+	}
+
+	public function last(): RequestInterface
 	{
 		if ($this->requests === []) {
-			throw new RuntimeException('No request was sent.');
+			throw new RuntimeException('no request was sent');
 		}
 
 		return $this->requests[array_key_last($this->requests)];
-	}
-
-	/** Path and query string of the last request, e.g. `/product/id/1?limit=5`. */
-	public function lastPath(): string
-	{
-		$uri = $this->lastRequest()->getUri();
-		$query = $uri->getQuery();
-
-		return $uri->getPath() . ($query === '' ? '' : '?' . $query);
-	}
-
-	public function lastMethod(): string
-	{
-		return $this->lastRequest()->getMethod();
-	}
-
-	/**
-	 * Decoded JSON body of the last request.
-	 *
-	 * @return array<array-key,mixed>
-	 */
-	public function lastBody(): array
-	{
-		$decoded = json_decode((string) $this->lastRequest()->getBody(), true);
-
-		return is_array($decoded) ? $decoded : [];
-	}
-
-	/** Number of requests sent so far. */
-	public function requestCount(): int
-	{
-		return count($this->requests);
 	}
 }
