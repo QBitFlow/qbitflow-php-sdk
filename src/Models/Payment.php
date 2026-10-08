@@ -33,7 +33,8 @@ readonly class Payment extends Model
 	public string $to;
 
 	/**
-	 * What the customer paid, in USD.
+	 * What the customer paid, in USD: the price plus the fees (`price + Σ fees[].amountUsd`),
+	 * what the contracts split. The network fee the customer paid on top is not in it.
 	 */
 	public float $amount;
 
@@ -81,6 +82,20 @@ readonly class Payment extends Model
 	 * The merchant's reference for the payment, set when creating its checkout.
 	 */
 	public ?string $reference;
+
+	/**
+	 * The product's price in USD, as the checkout had it. On payments recorded before checkout
+	 * fees existed, it is `amount`.
+	 */
+	public float $price;
+
+	/**
+	 * What the checkout added to the price, line by line, as the customer saw them (a tax,
+	 * shipping, the processing fee when the customer paid it); `[]` without any.
+	 *
+	 * @var list<FeeLine>
+	 */
+	public array $fees;
 
 	/**
 	 * What was paid for: the checkout's product name when the checkout was created.
@@ -176,6 +191,8 @@ readonly class Payment extends Model
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
 		$this->reference = Cast::nullableString($data, 'reference');
+		$this->price = Cast::float($data, 'price');
+		$this->fees = Cast::listOf($data, 'fees', FeeLine::fromArray(...));
 		$this->name = Cast::string($data, 'name');
 		$this->description = Cast::string($data, 'description');
 		$this->productUuid = Cast::nullableString($data, 'productUuid');

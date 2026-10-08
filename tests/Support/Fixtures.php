@@ -24,6 +24,8 @@ final class Fixtures
 		"txAmounts":{"usd":{"platform":0.15,"organization":0.98,"referral":0.03,"merchant":8.87,"networkFee":0.0042},
 		"minUnits":{"platform":"150000","organization":"985000","referral":"30000","merchant":"8865000","networkFee":"4200"}}}';
 
+	public const FEE_LINE = '{"type":"custom","label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":"0.5"}';
+
 	private const TRANSFER = '"createdAt":"2026-10-01T12:00:00Z","from":"0xfrom","to":"0xto","amount":10,"amountMinUnits":"10000000","currencyId":8,
 		"currency":' . self::CURRENCY . ',"txHash":"0xhash","chain":"BASE","explorerUrl":"https://basescan.org/tx/0xhash","test":false,"userUuid":"m-1"';
 
@@ -36,7 +38,7 @@ final class Fixtures
 	{
 		return [
 			'Currency' => self::CURRENCY,
-			'Payment' => '{"uuid":"pay@1",' . self::TRANSFER . ',"reference":"order-1","name":"Pro","description":"Lifetime","productUuid":"p-1",
+			'Payment' => '{"uuid":"pay@1",' . self::TRANSFER . ',"reference":"order-1","price":9.5,"fees":[' . self::FEE_LINE . '],"name":"Pro","description":"Lifetime","productUuid":"p-1",
 				"customerUuid":"c-1","customerReference":"crm-1","note":"thanks","customer":' . self::SUMMARY . ',"metadata":' . self::METADATA . ',
 				"confirmedAt":"2026-10-01T11:59:58Z","paidMinUnits":"10004200","paidUsd":10.0042,"refund":' . self::REFUND_SUMMARY . ',"refundable":false,
 				"notRefundableReason":"refundExists","checkoutOpenedAt":"2026-10-01T11:00:00Z"}',

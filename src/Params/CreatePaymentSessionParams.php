@@ -12,6 +12,8 @@ use QBitFlow\Support\Validator;
  * Name the product with exactly one of `productUuid`, `productReference`, or an inline product
  * (`productName` + `price`, `description` optional). `successUrl` and `cancelUrl` may carry
  * `{{UUID}}` (the session's id) and `{{TRANSACTION_TYPE}}` (`payment` or `createSubscription`).
+ * `fees` adds lines to the price (a tax, shipping, QBitFlow's processing fee): the customer pays
+ * the price plus the fees ({@see CheckoutFees}).
  */
 final readonly class CreatePaymentSessionParams
 {
@@ -24,7 +26,7 @@ final readonly class CreatePaymentSessionParams
 		public ?string $productName = null,
 		/** An inline product's description (2 to 500 characters), optional. */
 		public ?string $description = null,
-		/** An inline product's price in USD, above 0 (at most 5 in test mode). */
+		/** An inline product's price in USD, above 0 (test mode caps the checkout's amount, fees included, at 5). */
 		public ?float $price = null,
 		/** Your reference for the payment (an order id): unique per space, 1 to 100 of `A-Z a-z 0-9 . _ : @ -`. */
 		public ?string $reference = null,
@@ -38,6 +40,13 @@ final readonly class CreatePaymentSessionParams
 		public ?string $customerReference = null,
 		/** The session's lifetime, 10 to 1440 (null or 0: the default). */
 		public ?int $expiresInMinutes = null,
+		/**
+		 * Amounts added to the price, shown to the customer line by line and paid with it: your
+		 * lines and QBitFlow's processing fee. The checkout's `amount` is the price plus every line
+		 * (the network fee comes on top). Null: none, unless the space's
+		 * `checkout.customerPaysProcessingFee` setting adds the processing fee.
+		 */
+		public ?CheckoutFees $fees = null,
 	) {
 	}
 
@@ -47,14 +56,20 @@ final readonly class CreatePaymentSessionParams
 		$v = new Validator();
 		self::check($v, $this->productUuid, $this->productReference, $this->productName, $this->description, $this->price,
 			$this->reference, $this->successUrl, $this->cancelUrl, $this->customerUuid, $this->customerReference, $this->expiresInMinutes);
+		$this->fees?->check($v);
 		$v->throwIfAny();
 	}
 
 	/** @return array<string,mixed> */
 	public function toArray(): array
 	{
-		return self::body($this->productUuid, $this->productReference, $this->productName, $this->description, $this->price,
+		$out = self::body($this->productUuid, $this->productReference, $this->productName, $this->description, $this->price,
 			$this->reference, $this->successUrl, $this->cancelUrl, $this->customerUuid, $this->customerReference, $this->expiresInMinutes);
+		if ($this->fees !== null) {
+			$out['fees'] = $this->fees->toObject();
+		}
+
+		return $out;
 	}
 
 	/**

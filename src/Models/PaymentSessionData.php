@@ -43,9 +43,23 @@ readonly class PaymentSessionData extends Model
 	public ?string $description;
 
 	/**
-	 * The price in USD.
+	 * The product's price in USD.
 	 */
 	public ?float $price;
+
+	/**
+	 * What the checkout adds to the price, line by line, in the order shown: the merchant's lines,
+	 * then the processing fee (when the customer pays it); `[]` without any.
+	 *
+	 * @var list<FeeLine>
+	 */
+	public array $fees;
+
+	/**
+	 * What the customer pays in USD before the network fee: the price plus every line of `fees`
+	 * (the payment's `amount`); null when absent.
+	 */
+	public ?float $amount;
 
 	/**
 	 * Where the customer goes after paying (placeholders filled).
@@ -111,6 +125,8 @@ readonly class PaymentSessionData extends Model
 		$this->productName = Cast::nullableString($data, 'productName');
 		$this->description = Cast::nullableString($data, 'description');
 		$this->price = Cast::nullableFloat($data, 'price');
+		$this->fees = Cast::listOf($data, 'fees', FeeLine::fromArray(...));
+		$this->amount = Cast::nullableFloat($data, 'amount');
 		$this->successUrl = Cast::nullableString($data, 'successUrl');
 		$this->cancelUrl = Cast::nullableString($data, 'cancelUrl');
 		$this->redirectUrl = Cast::nullableString($data, 'redirectUrl');

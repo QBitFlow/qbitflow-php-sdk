@@ -190,6 +190,44 @@ final class Validator
 		}
 	}
 
+	/**
+	 * An amount in USD (the API's `usd=<max>` validator): a finite number or a numeric string,
+	 * above 0, at most `$max`, with at most 2 decimals, no sign and no exponent. A float is judged
+	 * by its shortest decimal form (`0.1 + 0.2` is `0.30000000000000004`: refused); a string as
+	 * typed (`"4.99"`; not `"+1"`, `"1e2"`, `" 1"`).
+	 */
+	public function usd(string $field, int|float|string $value, int $max): void
+	{
+		$ok = match (true) {
+			is_string($value) => self::isUsdString($value, $max),
+			is_int($value) => $value > 0 && $value <= $max,
+			default => is_finite($value) && $value > 0 && $value <= $max && self::hasAtMostTwoDecimals($value),
+		};
+		if (! $ok) {
+			$this->add($field, sprintf('must be an amount in USD above 0 and at most %d, with at most 2 decimals', $max));
+		}
+	}
+
+	/** Whether `$text` is digits with at most 2 decimals, above 0 and at most `$max` (compared as digits: no float rounds it). */
+	private static function isUsdString(string $text, int $max): bool
+	{
+		if (preg_match('/^([0-9]+)(?:\.([0-9]{1,2}))?$/D', $text, $m) !== 1) {
+			return false;
+		}
+		$whole = ltrim($m[1], '0');
+		$cents = rtrim($m[2] ?? '', '0');
+		if ($whole === '' && $cents === '') {
+			return false; // zero
+		}
+		$limit = (string) $max;
+		if (strlen($whole) !== strlen($limit)) {
+			return strlen($whole) < strlen($limit);
+		}
+		$cmp = strcmp($whole, $limit);
+
+		return $cmp < 0 || ($cmp === 0 && $cents === '');
+	}
+
 	/** A rate in percent: finite, from 0 (above 0 when `$positive`) to `$max`, at most 2 decimals. */
 	public function percent(string $field, float $value, float $max, bool $positive): void
 	{
