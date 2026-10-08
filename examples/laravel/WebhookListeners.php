@@ -1,105 +1,55 @@
 <?php
 
-/**
- * Listeners for the three events the webhook routes dispatch.
- *
- * Register them in your EventServiceProvider:
- *
- *   protected $listen = [
- *       TransactionWebhookReceived::class  => [MarkOrderPaid::class],
- *       SubscriptionBilled::class          => [RecordRenewal::class],
- *       SubscriptionStatusChanged::class   => [ReactToStatusChange::class],
- *   ];
- *
- * Queue them. The route answers 200 as soon as the event is dispatched, so slow work in a
- * synchronous listener risks a timeout — and a redelivery.
- */
-
 declare(strict_types=1);
 
 namespace App\Listeners;
 
-use App\Models\Order;
-use App\Models\Renewal;
-use App\Models\Subscription;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use QBitFlow\Enums\SubscriptionStatus;
-use QBitFlow\Enums\TransactionStatusValue;
-use QBitFlow\Laravel\Events\SubscriptionBilled;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use QBitFlow\Laravel\Events\CheckoutExpired;
+use QBitFlow\Laravel\Events\PaymentCompleted;
 use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
-use QBitFlow\Laravel\Events\TransactionWebhookReceived;
-use QBitFlow\Support\Enums;
+use QBitFlow\Laravel\Events\WebhookReceived;
 
 /**
- * A checkout was completed: a payment was paid, or a subscription was started.
+ * Queued listeners for the QBitFlow webhook events (register them in your EventServiceProvider,
+ * or let Laravel discover them). Deliveries are at least once: deduplicate on the event id.
  */
-final class MarkOrderPaid implements ShouldQueue
+final class FulfilPaidOrder implements ShouldQueue
 {
-    public function handle(TransactionWebhookReceived $event): void
-    {
-        if ($event->payload->status?->status !== TransactionStatusValue::COMPLETED) {
-            return;
-        }
-
-        // reference() is the order ID you set when creating the session ('' when none).
-        $order = Order::find($event->reference());
-
-        if ($order === null) {
-            return;
-        }
-
-        if ($event->isSubscription()) {
-            // The first period has already been billed at this point.
-            $order->startSubscription($event->payload->session->uuid);
-
-            return;
-        }
-
-        $order->markPaid($event->payload->status->txHash);
-    }
+	public function handle(PaymentCompleted $event): void
+	{
+		if (! Cache::add('qbitflow-event-' . $event->event->id, true, now()->addDays(7))) {
+			return; // a retry of an event already handled
+		}
+		Log::info('fulfil order', ['reference' => $event->data->reference, 'payment' => $event->data->uuid, 'usd' => $event->data->amount]);
+	}
 }
 
-/**
- * An active subscription renewed for a new period.
- */
-final class RecordRenewal implements ShouldQueue
+final class ReleaseExpiredOrder implements ShouldQueue
 {
-    public function handle(SubscriptionBilled $event): void
-    {
-        Renewal::create([
-            'subscription_uuid' => $event->subscriptionUUID,        // from the webhook envelope
-            'order_id' => $event->reference() ?: null,              // '' when you set no reference
-            'amount_usd' => $event->billing->amount,
-            'currency' => $event->billing->currency->symbol,
-            'tx_hash' => $event->billing->transactionHash,
-            'billed_at' => $event->billing->createdAt,
-        ]);
-    }
+	public function handle(CheckoutExpired $event): void
+	{
+		Log::info('release order', ['reference' => $event->data->reference, 'session' => $event->data->uuid]);
+	}
 }
 
-/**
- * A subscription changed status. Listening for this beats polling on a cron.
- */
-final class ReactToStatusChange implements ShouldQueue
+final class SyncSubscriptionAccess implements ShouldQueue
 {
-    public function handle(SubscriptionStatusChanged $event): void
-    {
-        // The subscription identity is on the event (it comes from the webhook envelope);
-        // the transition itself only holds the two statuses and the timestamp.
-        $subscription = Subscription::firstWhere('uuid', $event->subscriptionUUID);
+	public function handle(SubscriptionStatusChanged $event): void
+	{
+		$subscription = $event->data;
+		$hasAccess = $subscription->currentPeriodEnd !== null && now() < $subscription->currentPeriodEnd;
+		Log::info('subscription', ['uuid' => $subscription->uuid, 'from' => $subscription->previousStatus, 'to' => $subscription->status, 'access' => $hasAccess]);
+	}
+}
 
-        // A status this SDK does not know yet arrives as a raw string rather than an enum
-        // member; Enums::value() renders either, and the match below simply falls through.
-        $subscription?->update(['status' => Enums::value($event->transition->currentStatus)]);
-
-        match ($event->transition->currentStatus) {
-            // The next billing may fail — ask the subscriber to top up their allowance.
-            SubscriptionStatus::LOW_ON_FUNDS,
-            SubscriptionStatus::PAST_DUE => $subscription?->notifyPaymentProblem(),
-
-            SubscriptionStatus::CANCELLED => $subscription?->revokeAccess(),
-
-            default => null,
-        };
-    }
+final class StoreEveryWebhook implements ShouldQueue
+{
+	public function handle(WebhookReceived $event): void
+	{
+		// Every verified delivery, the types this SDK does not know included (UnknownEvent).
+		Log::debug('qbitflow webhook', ['id' => $event->event->id, 'type' => $event->event->type, 'member' => $event->event->userUuid]);
+	}
 }

@@ -5,315 +5,191 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0] - 2026-09-23
+## [3.0.0] - 2026-10-08
 
-Aligns the SDK with docs revision `5e7d5a5` and with the behaviour of the live API, and
-brings the Go, JavaScript, Python and PHP SDKs to one contract: the same response types and
-decoding policy, one retry policy, one error taxonomy, one client-side validation rule set,
-and byte-identical webhook canonicalisation.
+The SDK for **QBitFlow API v2**, aligned with the API docs `v2` @ `58460e9` and with the
+behaviour contract the Go, JavaScript, Python and PHP SDKs 3.0.0 share (same services, methods,
+errors, retries and webhook verification). A major release: the client, most names and the
+Laravel integration change. [MIGRATION-v3.md](MIGRATION-v3.md) maps every 2.x method and class
+to its replacement.
 
-The headline fixes: **local webhook verification rejected genuine webhooks** whose payload
-carried a decimal amount of 19 or more digits (any payment of 1 ETH or more, or of a few
-dollars in an 18-decimal token), and **every `SubscriptionStatusChanged` event arrived
-without a subscription UUID**.
+This entry describes the changes since 2.1.0, the last published release (2.5.0 was prepared
+but never published; its changes are part of 3.0.0). Requires PHP **8.2** or later, as before.
 
-> **⚠️ Breaking changes in a minor release.** They are listed under **Removed** and
-> **Changed (breaking)** below. Semver-aware resolvers treat `2.5.0` as a safe upgrade
-> from any `2.x`, so `^2` / `~2.1` constraints will pick it up automatically — review
-> before updating, or pin.
+### ⚠️ Breaking
 
-See **[Upgrading from 2.1](#upgrading-from-21)** at the end of this entry for a line-by-line
-migration guide.
-
-### Removed
-
--   **`PaygSubscriptionSession`** and its arm of `SessionCheckout::discriminate()`. The API
-    has no pay-as-you-go routes, so the type could never be produced. The PAYG cases of
-    `TransactionType` and `TransactionShortType` are kept — a transaction can still carry
-    them.
--   **`LinkResponse::$expiresAt`** — the API's `LinkResponse` is exactly `{link, uuid}`.
--   **`StatusLinkResponse`, `StatusResponse`, `StatusResponseError`** — types with no route
-    behind them. `executeTestBilling()` now returns a `SuccessResponse` (the API answers a
-    plain `{message}`).
--   **`CombinedPayment::$organizationId` and `$userId`** — the combined feed does not carry
-    them.
--   **`SubscriptionStatusTransition::$subscriptionUUID` / `$subscriptionReference`** — the
-    identity lives on the webhook envelope, not in `data` (see the fix below).
-
-### Changed (breaking)
-
--   **Response types follow the API's Go models exactly.** A field is nullable only when the
-    API can send `null` for it (a Go pointer); everything else is non-nullable:
-    -   Fields the API always sends are required — including the organization/user
-        identity and fee fields the older docs marked "authenticated only", which the API
-        always returns to an API key (public routes honour credentials too):
-        `organizationId`/`userId` on `Payment`, `Subscription`, `SubscriptionHistory`,
-        `RefundEntry` and `Customer::$organizationId`; `metadata` on `Payment` and
-        `SubscriptionHistory`; `organizationId`/`feeBps` on sessions.
-    -   Optional fields the API omits when empty read as their zero value, never `null`:
-        `Customer::$phoneNumber`/`$address`/`$reference` and `$userId`,
-        `Payment::$productId`, `TransactionStatus::$message`, `RefundEntry::$merchantMessage`
-        and `$txHash`, `TxMetadata::$mainCurrencyPriceUSD`,
-        `TxAmountsUSD::$organization`/`$referral`, every optional session field
-        (`reference`, `productId`, `productReference`, `successUrl`, `cancelUrl`,
-        `organizationFeeBps`, `userId`, `userName`, `customerReference`, `trialPeriod`,
-        `minPeriods`), `AccountingEvent::$networkFeesUsd`/`$networkFees`.
-    -   `Product::$reference`, `Currency::$address`, every `amountMinUnits`,
-        `ReferralFee::$deadline` and `Subscription::$lastBillingDate` are always set.
-    -   **Nullable** (Go pointers): `customerUUID` on `Payment`, `Subscription`,
-        `SubscriptionHistory` and sessions (it was a non-null string); `Payment::$reference`,
-        `Subscription::$reference`, `Subscription::$minimumCancellationDate`,
-        `SessionWebhookResponse::$status`, `TransactionStatus::$settlementDetails`,
-        `RefundEntry::$respondedAt`/`$metadata`, `CombinedPayment::$productId`/
-        `$subscriptionUUID`/`$metadata`, `User::$claimedAt`, `ApiKey::$expiresAt`,
-        `Currency::$mainCurrencyId`/`$mainCurrency`, `PaymentMetadata::$organizationFee`/
-        `$referralFee`.
-    -   **`currency` is a required `Currency` object** on `Payment`, `CombinedPayment`,
-        `Subscription` and `SubscriptionHistory`: the API sends the expanded currency on all
-        four.
-    -   Constructor parameters were reordered so required ones come first — only code that
-        constructs these DTOs positionally is affected.
--   **One decoding policy, shared by all four SDKs.** A field that is absent or `null` where
-    the type is non-nullable decodes to its zero value (`''`, `0`, `0.0`, `false`, `[]`, a
-    zero-valued nested object, or Go's zero time `0001-01-01T00:00:00Z` for a timestamp) —
-    never an error, and never a 1970 date. A field of the wrong JSON type (a string where a
-    number belongs, a list where an object belongs, an unparseable timestamp) raises a
-    `ServerException` carrying the HTTP status, instead of being silently coerced. An
-    integer beyond PHP's range is reported the same way instead of being rounded (bodies are
-    decoded with `JSON_BIGINT_AS_STRING`). `null` lists read as `[]`; a paginated body that
-    is not `{items, nextCursor}` is a `ServerException` instead of an empty page. A timestamp
-    the API always sends is never `null`: test for "never set" with the new `Support\Time`.
--   **Unknown enum values are preserved, not guessed.** Response fields backed by an enum are
-    typed `<Enum>|string`: a known value hydrates to the member, an unknown one arrives as
-    the raw string, an absent one as `''`. (Previously an unknown subscription status read
-    as `ACTIVE` and an unknown accounting row as a `PAYMENT`.) Applies to
-    `Subscription::$subscriptionStatus`, `SubscriptionStatusTransition`,
-    `TransactionStatus::$status`, `RefundEntry::$status`, `User::$role`, `ApiKey::$role`,
-    `CombinedPayment::$source`, `AccountingEvent::$type` (both documented spellings of a
-    billing row, `subscriptionHistory` and `subHistory`, are recognised),
-    `SessionWebhookResponse::$txType` and `SessionCheckout::$txType`. The new
-    `Support\Enums` helper renders and compares the union.
--   **Retries are GET-only.** `POST`, `PUT` and `DELETE` are sent exactly once, and so are
-    the three GET routes that perform an action — `forceCancel()`, `executeTestBilling()`
-    and `triggerTestClaimFunds()`. Other GETs are retried on any transport-level failure —
-    every PSR-18 client exception, including the connection resets and truncated responses
-    Guzzle reports as request exceptions — and on `5xx`, with exponential backoff (1s, 2s,
-    4s); `maxRetries: 0` disables retries. `4xx`, `429` and `3xx` are never retried. A `3xx`
-    is reported immediately as a `ServerException`, and the client the SDK builds never
-    follows redirects (following one would replay your `X-API-Key` to another host).
--   **Error taxonomy.** A `409` raises the new `ConflictException`. Any other unmapped `4xx`
-    raises the base `QBitFlowException` with its status code, not `ValidationException`
-    (reserved for `400`/`422` and local validation). `ServerException` also covers an empty
-    (non-`204`) or non-JSON `2xx` and a `2xx` body of the wrong shape. Every exception
-    carries `getStatusCode()`, `getResponse()` and `getFields()`; `Retry-After` is read in
-    both its delta-seconds and HTTP-date forms. A request body JSON cannot encode (`NAN`,
-    `INF`, invalid UTF-8) is a `ValidationException`, never a bare `JsonException`.
--   **Client-side validation mirrors the live API**, with one shared helper:
-    -   names (`alphanumspace`): letters, *decimal* digits (Unicode Nd — `²`, `½` and Roman
-        numerals are rejected), spaces and `- _ ' .`, 2–100 characters; a name of only
-        spaces is accepted, as the API accepts it;
-    -   product text (`producttext`): no markup or control characters, not blank after a
-        Unicode whitespace trim, 2–100 (name) / 2–500 (description) characters;
-    -   prices — product create/update and inline session products — must be finite and
-        greater than 0 (the API refuses an inline session price of 0);
-    -   `customerUUID` on a session must be a bare UUID (a prefixed or malformed id is a
-        400); every empty optional session string is left off the request;
-    -   redirect URLs: absolute `http(s)`, scheme case-insensitive (`HTTPS://` is accepted);
-    -   durations fit a `uint32`; a billing `frequency` must be at least 1, a `trialPeriod`
-        and `minPeriods` may be 0 (`minPeriods: 0` is left off the request);
-    -   `UpdateProductDto` rejects an empty name or description (the API does too);
-    -   the accounting export checks real `YYYY-MM-DD` dates and `from <= to` locally, and
-        leaves the maximum window length to the API;
-    -   `CreateUserDto` rejects `UserRole::OWNER` and `UserRole::HANDLE` (the API binds
-        `oneof=admin user`); `fromArray()` with an unknown role raises
-        `ValidationException`; `Duration::fromArray()` requires a unit.
--   **`webhooks->verify()` returns `false` only for the API's 400.** 401, 403, 409, 5xx and
-    network failures are rethrown as their own typed exceptions, so a bad API key no longer
-    looks like a forged signature. The raw payload is now forwarded byte for byte.
--   **`onBehalfOf(0)` acts at organization level** — it returns a copy *without* the
-    `On-Behalf-Of` header (it used to throw); a negative id raises `ValidationException`.
--   **Laravel:** `SubscriptionStatusChanged` and `SubscriptionBilled` carry
-    `$subscriptionUUID` from the envelope; their `$subscriptionReference` / `reference()`
-    (and `TransactionWebhookReceived::reference()`) are `string`, `''` when none was set.
-    The service provider no longer declares `provides()`.
--   **Exception constructors take an optional trailing `$fields`.**
+-   **API v2**: the default base URL is `https://api.qbitflow.app/v2`
+    (`QBitFlow::DEFAULT_BASE_URL`). API v1 runs next to it, against the same data, for a
+    transition period. The client no longer reads `QBITFLOW_BASE_URL` from the environment: pass
+    `baseUrl:` (the Laravel config still maps it).
+-   **The client.** `new QBitFlow(apiKey: …, baseUrl:, timeout:, maxRetries:, onBehalfOf:,
+    httpClient:, requestFactory:, streamFactory:)`: use named arguments (`onBehalfOf` comes
+    before `httpClient`). The key must be non-blank and start with `sk_`, `baseUrl` an absolute
+    http(s) URL, `timeout` positive (now **per attempt**), `maxRetries` not negative: a
+    `ValidationException` otherwise, and nothing is sent. `QBitFlow::fromArray()`, `getApiKey()`
+    and the `Config` class are removed (`QBitFlow::DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES`).
+-   **`onBehalfOf` takes a member's user UUID**: `$client->onBehalfOf(string $userUuid)` returns
+    a client for every service (checked at once: a non-UUID or the nil UUID is a
+    `ValidationException`; `''` gives the organization level). The per-service `onBehalfOf(int)`
+    methods are removed. `RequestOptions(onBehalfOf: …)` acts for one call.
+-   **`RequestOptions` last on every method** (`onBehalfOf`, `idempotencyKey`, `requestId`).
+-   **Params classes.** Every create, update and list takes a `final readonly`
+    `QBitFlow\Params\…` class built with named arguments (`CreatePaymentSessionParams`,
+    `UpdateCustomerParams`, `PaymentListParams`, …) instead of a DTO or an array; each has
+    `validate()` (run before every request) and `toArray()`.
+-   **Models.** Responses are `readonly` `QBitFlow\Models\…` classes (was `QBitFlow\Dto\…`)
+    whose properties are the API's JSON keys: `customerUUID` → `customerUuid`,
+    `transactionHash` → `txHash`, `TxAmountsUSD` → `TxAmountsUsd`, `TxAmountsFull` →
+    `TxAmounts`, `LinkResponse` → `CheckoutSession`, `TransactionStatus` →
+    `CheckoutSessionStatus`, `SubscriptionHistory` → `Bill`, `RefundEntry` → `Refund`, `User` →
+    `Member`. Optional fields are nullable (`?T`, `null` when absent); fields the API always
+    sends get their zero value when absent.
+-   **Enums are strings.** Enum properties are plain `string`s, and `QBitFlow\Enums\…` are
+    classes of string constants (was PHP backed `enum`s): compare with `===`. Values follow the
+    API's lowerCamelCase (`pastDue`, `trialExpired`, `subscriptionHistory`);
+    `TransactionType::ONE_TIME_PAYMENT` → `PAYMENT`, `EXECUTE_SUBSCRIPTION_PAYMENT` →
+    `EXECUTE_SUBSCRIPTION`; `UserRole` → `Role`; `RefundStatus::REFUSED` → `REJECTED`,
+    `FAILED` removed.
+-   **Ids are UUID strings.** Products are named by `uuid` (was the numeric `id`), and
+    `productId` is `productUuid` everywhere; people are named by their user UUID (`userId` →
+    `userUuid`). `organizationId` is gone from every model. Currencies keep numeric ids.
+-   **Users and claims become invitations, members and the trust layer**: `users` →
+    `invitations` and `members` (a person exists once they accept an invitation); `claims` →
+    `members->trust()` and the held-funds reads; `apiKeys` is removed (`$client->me()`
+    describes the current key).
+-   **Checkout sessions have their own service.** `oneTimePayments->createSession()` and
+    `subscriptions->createSession()` → `checkoutSessions->createPayment()` /
+    `createSubscription()`; `transactionStatus->get($uuid, $type)` →
+    `checkoutSessions->getStatus($uuid)`, with four statuses (`created`, `waitingConfirmation`,
+    `completed`, `expired`): a failed attempt is `created` with `lastAttempt` set, never final.
+    `oneTimePayments` becomes `payments`.
+-   **Subscriptions.** `status` (was `subscriptionStatus`) takes `trial`, `trialExpired`,
+    `active`, `pastDue`, `paused`, `stopped`, `cancelled`; `low_on_funds` and `pending` became
+    `actionRequired` values (`topUpAllowance`, `raiseMaximum`, `confirmTrial`), and the
+    `stopped` bool the `stopped` status. `frequency` is a `Duration` (was seconds),
+    `nextBillingDate` nullable. `forceCancel()` → `cancel($uuid, ?CancelSubscriptionParams)`
+    (a POST, never retried, returns a `SubscriptionCancellation` with `pending` for an HTTP
+    202); `executeTestBilling()` returns the bill's `BillingState`; `getPaymentHistory()` →
+    `listBills()` / `iterateBills()`, or `getPublicHistory()`; `get()` returns cancelled
+    subscriptions too.
+-   **Fee rates are percents**: `feeBps` → `feePercent`, `organizationFeeBps` →
+    `organizationFeePercent` (`150` bps is `1.5`).
+-   **Exceptions.** One class per condition, all extending `ApiException`, itself a
+    `QBitFlowException` implementing the marker `ExceptionInterface`: `ValidationException`
+    (400 `validation_failed` and client-side checks), `BadRequestException` (other 400s, which
+    2.x reported as validation errors), `AuthenticationException` (was
+    `UnauthorizedException`), `PermissionDeniedException` (was `ForbiddenException`),
+    `NotFoundException`, `ConflictException`, `GoneException`, `IdempotencyException` (422, which
+    2.x reported as a validation error), `RateLimitException`, `ServerException`,
+    `NetworkException`, `WebhookSignatureException`. Every exception carries `status`,
+    `apiCode` (the API's string code: `Exception::getCode()` stays the integer status),
+    `errorMessage`, `details`, `requestId`, `fieldErrors` and `rawBody`, with getters;
+    `getStatusCode()`, `getFields()` and `getResponse()` are removed.
+-   **Webhooks** use API v2's scheme: the `QBitFlow-Signature: t=…,v1=…` header, an
+    HMAC-SHA256 of `t + "." + rawBody` over the raw body (no canonical JSON), and the event
+    envelope `{id, type, version, createdAt, test, userUuid, data}`. Endpoints must be on payload
+    version v2: v1 bodies are not parsed. `WebhookVerifier` → `QBitFlow\Webhooks\Webhook`;
+    `webhooks->verify($payload, $signature, $timestamp): bool` →
+    `webhooks->verifyRemote($endpointUuid, $rawBody, $signatureHeader): void`.
+-   **Pagination**: `getAll…($limit, $cursor)` returning a `CursorData` → `list(?…ListParams)`
+    returning a `QBitFlow\Page`, with filters.
+-   **Laravel.** `Route::qbitflowTransactionWebhook()` and `Route::qbitflowSubscriptionWebhook()`
+    → one `Route::qbitflowWebhooks()`; the invokable `WebhookController` dispatches one Laravel
+    event per webhook type (`PaymentCompleted`, `SubscriptionCreated`, `SubscriptionBilled`,
+    `SubscriptionStatusChanged`, `SubscriptionActionRequiredChanged`,
+    `SubscriptionBillingFailed`, `SubscriptionUpcomingBill`, `RefundRequested`,
+    `RefundCompleted`, `RefundDenied`, `MemberJoined`, `MemberRemoved`, `HeldFundsReleased`,
+    `CheckoutExpired`, `WebhookTestReceived`) then `WebhookReceived` for every delivery;
+    `TransactionWebhookReceived` and the 2.x payloads of `SubscriptionBilled` /
+    `SubscriptionStatusChanged` are gone. The `qbitflow.webhook` middleware verifies locally with
+    `QBITFLOW_WEBHOOK_SECRET` (required; no API fallback), answers 400 to a bad signature or a v1
+    body, and no longer short-circuits the dashboard's test (it is a `webhook.test` event,
+    dispatched as `WebhookTestReceived`). `qbitflow:verify` calls `me()`.
 
 ### Added
 
--   **Client-level On-Behalf-Of.** `$client->onBehalfOf($userId)` returns a copy of the
-    client whose every service sends `On-Behalf-Of`, sharing its configuration and HTTP
-    client. The per-service `onBehalfOf()` stays.
--   **`transactionStatus->get()` accepts the raw type string** as well as a
-    `TransactionType` member, for a type this SDK has no enum case for yet.
--   **`Dto\SubscriptionWebhook`**, the typed subscription-webhook envelope:
-    `subscriptionUUID`, `subscriptionReference`, `type`, and `data` hydrated as a
-    `SubscriptionStatusTransition` or a `SubscriptionHistory` by `type` (raw array for an
-    unknown type).
--   **`Support\Time`** — `Time::isZero()` / `Time::zero()` for Go's zero time — and
-    `Subscription::hasBeenBilled()` / `hasNextBilling()`.
--   **Local webhook verification in Laravel.** `config/qbitflow.php` gains `webhook_secret`
-    (`QBITFLOW_WEBHOOK_SECRET`). When set, the `qbitflow.webhook` middleware and the route
-    macros verify signatures with `WebhookVerifier` — no API round-trip, and no API key
-    needed. `php artisan qbitflow:install` adds the placeholder.
--   **`ConflictException`** (HTTP `409`), **`FieldError`** and
-    **`QBitFlowException::getFields()`**, **`UserRole::HANDLE`**,
-    **`UserRole::isAssignableOnCreate()`**, **`SubscriptionSession::$upgradingFromTrial`**,
-    **`SessionCheckout::isPayment()`**.
--   **Session discriminator prefers `txType`**, falling back to `frequency`.
--   **`QBitFlow::fromArray()`** accepts `requestFactory` and `streamFactory`; a blank
-    `baseUrl` means the default.
--   **Golden webhook vectors** shared by all four SDKs are pinned in
-    `tests/Unit/WebhookVerifierTest.php`, including decimal strings of 19+ digits, C0
-    controls, lone surrogates, `-0` and UTF-8 key ordering.
--   **Opt-in integration suite** (`tests/Integration`): skipped unless `QBITFLOW_API_KEY` is
-    set, and failing — never falling back to a default server — when the key is set without
-    `QBITFLOW_BASE_URL`.
+-   `$client->me()`: what the key is (role, space, mode), the recommended start-up check;
+    `$client->onBehalfOf()`: a client acting in a member's space, sharing the transport.
+-   `checkoutSessions`: `createPayment`, `createSubscription` (with `expiresInMinutes` and the
+    `{{UUID}}` / `{{TRANSACTION_TYPE}}` redirect placeholders), `getStatus`, `expire`.
+-   `payments->list()` / `listCombined()` with filters (customer, product, dates, `refunded`,
+    `includeMembers` / `userUuid`, `source`, `subscriptionUuid`); `payments->get()` with
+    `ReadParams`. `failures->list()`: the failed payment attempts.
+-   `subscriptions->list()` (status, reference and the shared filters), `listBills()`,
+    `getBill()`; `Subscription::$currentPeriodEnd` (grant access while now is before it),
+    `actionRequired`, `priceUsd`, `cancellationReason`, `dunning`.
+-   `refunds->initiate()`: a merchant's refund of a payment or a bill, signed in the dashboard;
+    refund list filters (`includeMembers`, `userUuid`, `held`).
+-   `members` (`list`, `get`, `update`, `remove`, `trust`, `listHeldFunds`, `getHeldFunds`,
+    `getOwnHeldFunds`) and `invitations` (`create`, `list`, `revoke`) for marketplaces.
+-   `wallets` (`list` with balances, `listForMember`, `listSupportedCurrencies`),
+    `currencies->get()`, product filters and subscription products, customer filters.
+-   `webhooks->endpoints` (`list`, `create` with the secret shown once, `get`, `update`,
+    `delete`) and `webhooks->events` (the event log: `list`, `get` with its deliveries).
+-   Webhook verification without a client: `Webhook::verify()`, `Webhook::verifyRequest()` (a
+    PSR-7 request, 1 MiB at most), `Webhook::constructEvent()`, `Webhook::parseEvent()`, with a
+    tolerance and an injectable clock; every `v1=` signature is checked, so a secret rotation
+    needs nothing on the receiver's side. The header constants `Webhook::SIGNATURE_HEADER`,
+    `EVENT_ID_HEADER`, `EVENT_TYPE_HEADER`, `VERSION_HEADER`.
+-   Typed events: `Events\Event::fromArray()` returns one `final readonly` subclass per type
+    (`PaymentCompletedEvent`, `SubscriptionBilledEvent`, `CheckoutExpiredEvent`, … 15 types)
+    with a typed `data`, or an `UnknownEvent` keeping the raw data; `Event::decodeData()` for
+    another shape.
+-   A `Generator` next to every paginated list: `iterate()`, `iterateCombined()`,
+    `iterateBills()`, `iterateInactive()`.
+-   Retries: reads and the 7 creates are retried on network errors, timeouts, 5xx, 429 (after
+    `Retry-After`, at most 60 s) and `409 idempotency_key_in_use`, 3 times by default with a
+    1 s · 2ⁿ back-off; `maxRetries: 0` disables them; `QBitFlowException::isRetryable()`.
+-   An `Idempotency-Key` on each create, generated per call and reused by its retries;
+    `RequestOptions(idempotencyKey: …)` for retries across processes.
+-   `RequestOptions(requestId: …)` (`X-Request-Id`) and the request id on every exception.
+-   Laravel: `webhook_secret` and `webhook_tolerance` config keys (`QBITFLOW_WEBHOOK_SECRET`,
+    `QBITFLOW_WEBHOOK_TOLERANCE`); the verified event on `$request->attributes`
+    (`qbitflow.event`); facade methods for every service and `me()`.
+-   `User-Agent: qbitflow-php/3.0.0` and `QBitFlow::VERSION`.
+-   Examples: `checkout.php`, `subscriptions.php`, `marketplace.php`, `webhook-handler.php`,
+    `errors-and-retries.php`, `laravel/`; `MIGRATION-v3.md`.
+
+### Changed
+
+-   Responses decode leniently: a field the API leaves out or sends as `null` gets its zero
+    value; a value of the wrong JSON type (an empty list where an object is expected included) is
+    a `ServerException`. Unknown enum values are kept as is, decimal strings are never parsed,
+    timestamps keep the offset the API sends.
+-   Redirects are never followed: a 3xx is a `ServerException`.
+-   A 2xx with an empty or non-JSON body where a result is expected is a `ServerException`.
+-   A request body JSON cannot represent (NaN, ±INF, invalid UTF-8) is a `ValidationException`
+    naming the field, and nothing is sent.
+-   Update params send an explicit `''` for the clearable fields
+    (`UpdateCustomerParams::$phoneNumber` / `$address`, `UpdateProductParams::$description`,
+    `UpdateWebhookEndpointParams::$description`): `''` clears them, `null` leaves them.
+-   Exception messages read `<message> (status <status>, code <code>, request <requestId>)`,
+    followed by each field error.
+
+### Removed
+
+-   `users`, `claims`, `apiKeys`, `transactionStatus`, `oneTimePayments->getSession()`,
+    `subscriptions->getSession()`, `oneTimePayments->getCustomerForTransaction()` (read
+    `Payment::$customer`, or `customers->get($payment->customerUuid)`),
+    `refunds->getByTransaction()` (read `Payment::$refund` / `Bill::$refund`),
+    `accounting->export($from, $to, $format)` (use `exportJson()` / `exportCsv()`).
+-   The v1 webhook verifier: `WebhookVerifier` (`verify`, `computeSignature`, `canonicalJson`,
+    `extractHeaders`), the `X-Webhook-*` header constants, `TEST_WEBHOOK_ID`,
+    `webhooks->isTestWebhook()` and its header getters, and the v1 payloads
+    `SessionWebhookResponse` and `SubscriptionStatusTransition`.
+-   `Dto\Session\SessionCheckout`, `OneTimePaymentSession`, `SubscriptionSession`,
+    `PaygSubscriptionSession`, `StatusLinkResponse`, `Dto\StatusResponse`, `SuccessResponse`,
+    `Organization`, `ApiKey`, `ClaimFunds`, `ClaimRequestResponse`, `Support\Dto`,
+    `Support\CursorData`, `Support\Validate`, `Config`, the enums `ExportFormat`,
+    `SubscriptionWebhookType`, `TransactionShortType`, `TransactionStatusValue`.
 
 ### Fixed
 
--   **Local webhook verification rejected genuine webhooks.** Canonicalisation turned any
-    JSON string of 19 or more digits into a number, so a payload carrying a large decimal
-    amount (`amountMinUnits`, `txAmounts.minUnits.*`) never matched the signature. It also
-    depended on PHP's `serialize_precision` (a host set to 17 rejected every webhook carrying
-    a float) and could not represent `-0`, lone surrogate escapes or invalid UTF-8 the way
-    Go does. Canonical JSON is now produced by a strict parser of its own and is
-    byte-identical to Go's `encoding/json` for all shared vectors.
--   **API webhook verification turned `{}` into `[]`.** The payload was decoded into PHP
-    arrays and re-encoded, changing what the API re-canonicalised; it is now forwarded
-    byte for byte.
--   **`SubscriptionStatusChanged` always reported an empty subscription UUID.** The event
-    was hydrated from the webhook's `data`, but the identity lives on the envelope. The
-    shipped examples read the same wrong field and are fixed too.
--   **Transient network failures on GETs were not retried** when Guzzle reported them as
-    request exceptions (cURL 18, 55, 56 — a truncated response or a connection reset).
--   **Subscription sessions rejected inline ghost products.** The API accepts them.
--   **Only the first validation failure was reported**; `getFields()` now carries all.
--   **`producttext` missed the C1 control range** (U+007F–U+009F).
--   **Laravel:** with a webhook secret, the middleware no longer requires an API key; on the
-    API path, a delivery whose body is not JSON gets a 400 instead of a 500.
--   **The Symfony HTTP client** built by the resolver now bounds the whole request
-    (`max_duration`), not only idle time.
--   **The webhook-id header was defined twice with different casing**; both entry points now
-    share `WebhookVerifier`'s constants (`X-Webhook-Id`).
-
-### Documentation
-
--   README rewritten against the final types: a "Response Types" section, client-level
-    `onBehalfOf`, the retry list including the test claim-funds
-    trigger, the webhook argument-order warning, and the caveat that the API currently
-    cannot route a reference containing `/` (it is escaped, but answers 404).
--   Examples run as written: `examples/client.php` exports the last month and always cleans
-    up after itself; `examples/webhook-server.php` verifies locally without an API key and
-    uses the typed webhook envelopes.
--   `.qbitflow-sync/last-commit.json` records docs revision `5e7d5a5`.
-
-### Upgrading from 2.1
-
-Every source-level break, with the change you need to make. If none of these appear in your
-codebase, the upgrade is drop-in.
-
-**1. Null checks on fields that are now always set.** Fields such as
-`Customer::$phoneNumber`, `Product::$reference`, `Payment::$organizationId` or
-`TransactionStatus::$message` are never `null` any more: an empty value is `''` / `0`.
-
-```php
-// before
-if ($customer->phoneNumber !== null) { … }
-// after
-if ($customer->phoneNumber !== '') { … }
-```
-
-**2. `customerUUID` is nullable** on `Payment`, `Subscription` and `SubscriptionHistory`
-(it was `''` when no customer was attached), and `SessionWebhookResponse::$status` is
-nullable.
-
-```php
-$payment->customerUUID ?? 'no customer';
-$event->payload->status?->txHash;
-```
-
-**3. `currency` is always a `Currency`** on payments, combined entries, subscriptions and
-billing records — drop any `?->` on it. `CombinedPayment::$organizationId` / `$userId` are
-gone.
-
-**4. Enum-backed response fields are `<Enum>|string`.**
-
-```php
-// before
-$subscription->subscriptionStatus->value;
-// after
-use QBitFlow\Support\Enums;
-Enums::value($subscription->subscriptionStatus);                    // 'active', or e.g. 'paused'
-$subscription->subscriptionStatus === SubscriptionStatus::ACTIVE;   // still works
-```
-
-Exhaustive `match ($status)` expressions need a `default` arm.
-
-**5. Subscription webhook listeners — the UUID is on the event.**
-
-```php
-public function handle(SubscriptionStatusChanged $event): void
-{
-    $uuid = $event->subscriptionUUID;   // 'sub@01a0c5be-...'
-    $ref  = $event->reference();        // your own reference, '' when none
-}
-
-// If you construct the events yourself (tests):
-new SubscriptionBilled($history, $subscriptionUUID, $reference);
-```
-
-**6. Unset timestamps are Go's zero time, not 1970.** A timestamp the API always sends is
-never `null`; one that was never set is `0001-01-01T00:00:00Z`.
-
-```php
-use QBitFlow\Support\Time;
-
-if (! Time::isZero($subscription->lastBillingDate)) { … }   // or $subscription->hasBeenBilled()
-```
-
-**7. Malformed responses raise `ServerException`.** A field of the wrong JSON type used to
-be coerced silently; it now fails the call with the HTTP status attached.
-
-**8. `executeTestBilling()` returns `SuccessResponse`**, and a subscription that is not yet
-due raises `ConflictException`.
-
-**9. Error handling.**
-
-```php
-catch (ValidationException $e) { /* 400, 422, or local validation (status code null) */ }
-catch (ConflictException $e)   { /* 409 */ }
-catch (QBitFlowException $e)   { /* anything else; $e->getStatusCode() says which */ }
-```
-
-**10. Retries.** Nothing to change unless you relied on a `POST` being retried for you: it
-is not, any more. If a create fails with `NetworkException` or `ServerException`, look the
-resource up by your own `reference` before resending.
-
-**11. `webhooks->verify()` throws on `401`/`403`** instead of returning `false`.
-
-```php
-try {
-    if (! $client->webhooks->verify(payload: $raw, signature: $sig, timestamp: $ts)) {
-        http_response_code(400);   // genuinely rejected signature
-        exit;
-    }
-} catch (UnauthorizedException | ForbiddenException $e) {
-    http_response_code(500);       // a credentials problem: non-2xx so QBitFlow retries
-    exit;
-}
-```
-
-**12. Stricter local validation.** Input the API rejects is now rejected before the
-round-trip: a price of `0`, markup in product text, `&`/`,`/`(`/non-decimal digits in a name,
-a malformed email, a prefixed `customerUUID`, a non-http(s) redirect URL, an inverted
-accounting window, `UserRole::OWNER`/`HANDLE` on create.
-
-**13. Removed types** (`PaygSubscriptionSession`, `StatusLinkResponse`, `StatusResponse`,
-`StatusResponseError`) and `LinkResponse::$expiresAt`: remove the references;
-`discriminate()` returns `OneTimePaymentSession` or `SubscriptionSession` only.
-
-**14. Positional DTO construction** (tests, fixtures): constructor parameters were reordered
-so required ones come first — switch to named arguments.
+-   **Field validation errors were read from the wrong key** (a top-level `errors` list instead
+    of the API's `details.errors`), so every field of a 400 came back empty. `fieldErrors` now
+    names each failing input by the name sent, dotted when nested (`frequency.unit`).
+-   A `.` or `..` path segment (a reference) is escaped, so it can no longer address another
+    route.
 
 ## [2.1.0] - 2026-09-21
 

@@ -5,17 +5,10 @@ declare(strict_types=1);
 namespace QBitFlow\Exceptions;
 
 /**
- * Thrown when the API returns a server error (HTTP 5xx) and all retries have been exhausted.
+ * A 5xx (503 `network_unavailable` and 504 `timeout` included), an unexpected 3xx (redirects
+ * are never followed), or a 2xx whose body is not the expected JSON (empty, not JSON, or a
+ * value of the wrong JSON type).
  */
-class ServerException extends QBitFlowException
+class ServerException extends ApiException
 {
-	public function __construct(
-		string $message = 'Internal server error',
-		?int $statusCode = null,
-		?array $response = null,
-		?\Throwable $previous = null,
-		array $fields = [],
-	) {
-		parent::__construct($message, $statusCode, $response, $previous, $fields);
-	}
 }

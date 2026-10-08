@@ -157,8 +157,8 @@ final class InstallCommandTest extends TestCase
 	{
 		$output = $this->runInstall()->getDisplay();
 
-		$this->assertStringContainsString('QBITFLOW_API_KEY=your-api-key', $output);
+		$this->assertStringContainsString('QBITFLOW_API_KEY=sk_', $output);
 		$this->assertStringContainsString('qbitflow:verify', $output);
-		$this->assertStringContainsString('qbitflowTransactionWebhook', $output);
+		$this->assertStringContainsString('Route::qbitflowWebhooks', $output);
 	}
 }

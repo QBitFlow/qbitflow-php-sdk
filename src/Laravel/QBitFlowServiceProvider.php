@@ -12,19 +12,21 @@ use Illuminate\Support\ServiceProvider;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use QBitFlow\Exceptions\FieldError;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Laravel\Console\InstallCommand;
 use QBitFlow\Laravel\Console\VerifyCommand;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
 use QBitFlow\Laravel\Http\Middleware\VerifyQBitFlowWebhook;
 use QBitFlow\QBitFlow;
+use QBitFlow\Webhooks\Webhook;
 
 /**
- * Wires the QBitFlow SDK into a Laravel application.
+ * Wires the QBitFlow SDK into a Laravel application (registered by package discovery).
  *
- * Registered automatically through package discovery. It binds the client as a
- * singleton, publishes the config file, registers the `qbitflow.webhook` middleware
- * alias (wired to the configured webhook secret), and adds the webhook route macros.
+ * It binds the client as a singleton (also as `qbitflow`), publishes the config file, registers
+ * the `qbitflow.webhook` middleware alias and the `Route::qbitflowWebhooks()` macro, and the
+ * Artisan commands `qbitflow:install` and `qbitflow:verify`.
  */
 final class QBitFlowServiceProvider extends ServiceProvider
 {
@@ -32,127 +34,78 @@ final class QBitFlowServiceProvider extends ServiceProvider
 	{
 		$this->mergeConfigFrom($this->configPath(), 'qbitflow');
 
-		$this->app->singleton(QBitFlow::class, function ($app): QBitFlow {
+		$this->app->singleton(QBitFlow::class, static function ($app): QBitFlow {
 			/** @var ConfigRepository $config */
 			$config = $app['config'];
 
-			$apiKey = (string) ($config->get('qbitflow.api_key') ?? '');
-
-			if (trim($apiKey) === '') {
+			$apiKey = $config->get('qbitflow.api_key');
+			if (! is_string($apiKey) || trim($apiKey) === '') {
 				throw new ValidationException(
 					'QBitFlow API key is not configured. Set QBITFLOW_API_KEY in your .env file.',
+					fieldErrors: [new FieldError('apiKey', 'apiKey is required')],
 				);
 			}
+			$baseUrl = $config->get('qbitflow.base_url');
 
 			return new QBitFlow(
-				$apiKey,
-				is_string($config->get('qbitflow.base_url')) ? $config->get('qbitflow.base_url') : null,
-				$config->get('qbitflow.timeout') !== null ? (float) $config->get('qbitflow.timeout') : null,
-				$config->get('qbitflow.max_retries') !== null ? (int) $config->get('qbitflow.max_retries') : null,
-				// Honour a PSR-18 client bound in the container, so an application can add
-				// its own proxy, logging or retry middleware — and so tests can swap in a
-				// fake without rebuilding the client. Falls back to auto-detection.
-				httpClient: $app->bound(ClientInterface::class)
-					? $app->make(ClientInterface::class)
-					: null,
-				requestFactory: $app->bound(RequestFactoryInterface::class)
-					? $app->make(RequestFactoryInterface::class)
-					: null,
-				streamFactory: $app->bound(StreamFactoryInterface::class)
-					? $app->make(StreamFactoryInterface::class)
-					: null,
+				apiKey: $apiKey,
+				baseUrl: is_string($baseUrl) && trim($baseUrl) !== '' ? $baseUrl : null,
+				timeout: $config->get('qbitflow.timeout') !== null ? (float) $config->get('qbitflow.timeout') : null,
+				maxRetries: $config->get('qbitflow.max_retries') !== null ? (int) $config->get('qbitflow.max_retries') : null,
+				// A PSR-18 client bound in the container (proxies, logging, a fake in tests) wins
+				// over auto-detection.
+				httpClient: $app->bound(ClientInterface::class) ? $app->make(ClientInterface::class) : null,
+				requestFactory: $app->bound(RequestFactoryInterface::class) ? $app->make(RequestFactoryInterface::class) : null,
+				streamFactory: $app->bound(StreamFactoryInterface::class) ? $app->make(StreamFactoryInterface::class) : null,
 			);
 		});
-
 		$this->app->alias(QBitFlow::class, 'qbitflow');
 
-		// The middleware verifies locally when a webhook secret is configured and falls
-		// back to the API otherwise; hand it the secret from config.
-		$this->app->bind(VerifyQBitFlowWebhook::class, function ($app): VerifyQBitFlowWebhook {
+		$this->app->bind(VerifyQBitFlowWebhook::class, static function ($app): VerifyQBitFlowWebhook {
 			/** @var ConfigRepository $config */
 			$config = $app['config'];
 			$secret = $config->get('qbitflow.webhook_secret');
+			$tolerance = $config->get('qbitflow.webhook_tolerance');
 
-			// Resolved lazily: with a webhook secret the client (and so the API key) is
-			// never needed.
 			return new VerifyQBitFlowWebhook(
-				static fn (): QBitFlow => $app->make(QBitFlow::class),
 				is_string($secret) && $secret !== '' ? $secret : null,
+				is_numeric($tolerance) ? (int) $tolerance : Webhook::DEFAULT_TOLERANCE,
 			);
 		});
 	}
 
 	public function boot(): void
 	{
-		// `runningInConsole()` and `configPath()` come from the full framework; guard them
-		// so the provider also works in a bare container.
 		if ($this->app instanceof Application && $this->app->runningInConsole()) {
-			$this->publishes([
-				$this->configPath() => $this->app->configPath('qbitflow.php'),
-			], 'qbitflow-config');
-
-			$this->commands([
-				InstallCommand::class,
-				VerifyCommand::class,
-			]);
+			$this->publishes([$this->configPath() => $this->app->configPath('qbitflow.php')], 'qbitflow-config');
+			$this->commands([InstallCommand::class, VerifyCommand::class]);
 		}
 
-		$this->registerMiddlewareAlias();
-		$this->registerRouteMacros();
+		if ($this->app->bound('router')) {
+			$router = $this->app->make('router');
+			if ($router instanceof Router) {
+				$router->aliasMiddleware('qbitflow.webhook', VerifyQBitFlowWebhook::class);
+			}
+		}
+
+		if (class_exists(Router::class) && ! Router::hasMacro('qbitflowWebhooks')) {
+			/*
+			 * Route::qbitflowWebhooks('webhooks/qbitflow') registers the POST route of your webhook
+			 * endpoint, verified by the middleware, answered by the WebhookController (which
+			 * dispatches the Laravel events). Declare it in routes/api.php, or exclude it from CSRF
+			 * protection: QBitFlow sends no CSRF token.
+			 */
+			Router::macro('qbitflowWebhooks', function (string $uri = 'webhooks/qbitflow', string $name = 'qbitflow.webhooks'): Route {
+				/** @var Router $this */
+				return $this->post($uri, WebhookController::class)
+					->middleware(VerifyQBitFlowWebhook::class)
+					->name($name);
+			});
+		}
 	}
 
 	private function configPath(): string
 	{
 		return dirname(__DIR__, 2) . '/config/qbitflow.php';
-	}
-
-	/**
-	 * Expose the signature-verification middleware as `qbitflow.webhook`.
-	 */
-	private function registerMiddlewareAlias(): void
-	{
-		if (! $this->app->bound('router')) {
-			return;
-		}
-
-		$router = $this->app->make('router');
-
-		if ($router instanceof Router) {
-			$router->aliasMiddleware('qbitflow.webhook', VerifyQBitFlowWebhook::class);
-		}
-	}
-
-	/**
-	 * Register `Route::qbitflowTransactionWebhook()` and `Route::qbitflowSubscriptionWebhook()`.
-	 *
-	 * Both register a POST route already wrapped in signature verification. Declare them
-	 * in `routes/api.php`, or exclude the paths from CSRF protection if you put them in
-	 * `routes/web.php` — QBitFlow does not send a CSRF token.
-	 */
-	private function registerRouteMacros(): void
-	{
-		if (! class_exists(Router::class) || Router::hasMacro('qbitflowTransactionWebhook')) {
-			return;
-		}
-
-		Router::macro('qbitflowTransactionWebhook', function (
-			string $uri = 'webhooks/qbitflow/transaction',
-			string $name = 'qbitflow.webhook.transaction',
-		): Route {
-			/** @var Router $this */
-			return $this->post($uri, [WebhookController::class, 'transaction'])
-				->middleware(VerifyQBitFlowWebhook::class)
-				->name($name);
-		});
-
-		Router::macro('qbitflowSubscriptionWebhook', function (
-			string $uri = 'webhooks/qbitflow/subscription',
-			string $name = 'qbitflow.webhook.subscription',
-		): Route {
-			/** @var Router $this */
-			return $this->post($uri, [WebhookController::class, 'subscription'])
-				->middleware(VerifyQBitFlowWebhook::class)
-				->name($name);
-		});
 	}
 }

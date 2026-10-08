@@ -5,17 +5,9 @@ declare(strict_types=1);
 namespace QBitFlow\Exceptions;
 
 /**
- * Thrown when the request never reached the API: connection failures, DNS errors and timeouts.
+ * No response was received: DNS, connection, TLS, timeout. `getPrevious()` holds the PSR-18
+ * client's exception.
  */
-class NetworkException extends QBitFlowException
+class NetworkException extends ApiException
 {
-	public function __construct(
-		string $message = 'Network request failed',
-		?int $statusCode = null,
-		?array $response = null,
-		?\Throwable $previous = null,
-		array $fields = [],
-	) {
-		parent::__construct($message, $statusCode, $response, $previous, $fields);
-	}
 }

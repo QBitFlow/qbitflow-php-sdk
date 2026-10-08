@@ -1,23 +1,16 @@
 <?php
 
 /**
- * Webhook routes, for routes/api.php.
- *
- * Both macros register a POST route already wrapped in signature verification. They also
- * answer the dashboard's "Test the endpoint" probe automatically, so it never reaches your
- * listeners.
- *
- * Keep these in routes/api.php. If you move them to routes/web.php, exclude the paths from
- * CSRF protection — QBitFlow does not send a CSRF token.
+ * routes/api.php (or routes/web.php, excluded from CSRF protection).
  */
 
 declare(strict_types=1);
 
+use App\Http\Controllers\CheckoutController;
 use Illuminate\Support\Facades\Route;
 
-Route::qbitflowTransactionWebhook('/webhooks/qbitflow/transaction');
-Route::qbitflowSubscriptionWebhook('/webhooks/qbitflow/subscription');
+// POST /webhooks/qbitflow: verified with QBITFLOW_WEBHOOK_SECRET, answered 200, and turned into
+// Laravel events (PaymentCompleted, SubscriptionStatusChanged, … and WebhookReceived).
+Route::qbitflowWebhooks('webhooks/qbitflow');
 
-// Verification is also available as a middleware alias, for a route of your own:
-//
-// Route::post('/hooks/qbitflow', MyWebhookController::class)->middleware('qbitflow.webhook');
+Route::post('/checkout/{order}', [CheckoutController::class, 'store']);

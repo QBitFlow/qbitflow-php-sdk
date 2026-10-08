@@ -4,28 +4,24 @@ declare(strict_types=1);
 
 namespace QBitFlow\Laravel\Events;
 
-use QBitFlow\Dto\SubscriptionHistory;
+use QBitFlow\Events\SubscriptionBilledEvent;
+use QBitFlow\Models;
 
 /**
- * Fired when an active subscription renewed for a new period and was billed successfully.
+ * Dispatched for a verified `subscription.billed` webhook: A subscription's bill was paid: extend access to `data->periodEnd`.
  *
- * Record the billing against your own records; the payload carries the full history entry.
+ * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
+ * listener; the webhook is answered 200 as soon as the events are dispatched.
  */
 final class SubscriptionBilled
 {
-	public function __construct(
-		/** The billing record for this cycle. */
-		public readonly SubscriptionHistory $billing,
-		/** UUID of the subscription that was billed. */
-		public readonly string $subscriptionUUID,
-		/** Your own reference for the subscription; `''` when you set none. */
-		public readonly string $subscriptionReference = '',
-	) {
-	}
+	/** The event's data. */
+	public readonly Models\SubscriptionBilled $data;
 
-	/** Your own reference for the subscription; `''` when you set none. */
-	public function reference(): string
-	{
-		return $this->subscriptionReference;
+	public function __construct(
+		/** The verified webhook event. */
+		public readonly SubscriptionBilledEvent $event,
+	) {
+		$this->data = $event->data;
 	}
 }

@@ -8,318 +8,302 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use QBitFlow\Exceptions\ValidationException;
+use QBitFlow\Http\Requester;
 use QBitFlow\Http\Transport;
-use QBitFlow\Requests\AccountingRequests;
-use QBitFlow\Requests\ApiKeyRequests;
-use QBitFlow\Requests\ClaimRequests;
-use QBitFlow\Requests\CurrencyRequests;
-use QBitFlow\Requests\CustomerRequests;
-use QBitFlow\Requests\PaymentRequests;
-use QBitFlow\Requests\ProductRequests;
-use QBitFlow\Requests\RefundRequests;
-use QBitFlow\Requests\SubscriptionRequests;
-use QBitFlow\Requests\TransactionStatusRequests;
-use QBitFlow\Requests\UserRequests;
-use QBitFlow\Requests\WebhookRequests;
+use QBitFlow\Models\Me;
+use QBitFlow\Services\AccountingService;
+use QBitFlow\Services\CheckoutSessionsService;
+use QBitFlow\Services\CurrenciesService;
+use QBitFlow\Services\CustomersService;
+use QBitFlow\Services\FailuresService;
+use QBitFlow\Services\InvitationsService;
+use QBitFlow\Services\MembersService;
+use QBitFlow\Services\PaymentsService;
+use QBitFlow\Services\ProductsService;
+use QBitFlow\Services\RefundsService;
+use QBitFlow\Services\SubscriptionsService;
+use QBitFlow\Services\WalletsService;
+use QBitFlow\Services\WebhooksService;
+use QBitFlow\Support\Validator;
 
 /**
- * The QBitFlow API client.
- *
- * Every area of the API hangs off this object as a service. Each service is reachable
- * both as a property and as a method — the property reads best in application code, the
- * method is what the Laravel facade forwards to:
+ * The QBitFlow API client (API v2). Create one per API key and share it.
  *
  * ```php
- * $client = new QBitFlow('your-api-key');
+ * $client = new QBitFlow(apiKey: getenv('QBITFLOW_API_KEY'));
  *
- * $client->products->getAll();     // direct
- * QBitFlow::products()->getAll();  // through the facade
- * ```
- *
- * Creating a payment link:
- *
- * ```php
- * $payment = $client->oneTimePayments->createSession(new CreatePaymentSessionDto(
- *     productId: 1,
- *     successUrl: 'https://example.com/success',
+ * $me = $client->me(); // the recommended start-up check
+ * $session = $client->checkoutSessions->createPayment(new CreatePaymentSessionParams(
+ *     productName: 'Premium access',
+ *     price: 4.99,
+ *     successUrl: 'https://shop.example.com/thanks?session={{UUID}}',
  * ));
- *
- * return redirect($payment->link);
  * ```
  *
- * Acting for one of your users (organization admin/owner keys):
- *
- * ```php
- * $asUser = $client->onBehalfOf(123);   // every service on $asUser sends On-Behalf-Of: 123
- * $asUser->products->getAll();
- * ```
- *
- * @see https://qbitflow.app/docs/api The REST API reference.
+ * Each service is a property (`$client->products`, `$client->webhooks->endpoints`…), and also a
+ * method of the same name for the Laravel facade (`QBitFlow::products()`).
  */
 final class QBitFlow
 {
-	/** Version of this SDK. */
-	public const VERSION = '2.5.0';
+	/** This SDK's version, sent in the `User-Agent` header (`qbitflow-php/3.0.0`). */
+	public const VERSION = '3.0.0';
 
-	private readonly Transport $transport;
+	/** The API root used when no `baseUrl` is given. */
+	public const DEFAULT_BASE_URL = 'https://api.qbitflow.app/v2';
 
-	/** Customers who pay through your platform. */
-	public readonly CustomerRequests $customers;
+	/** Seconds each HTTP attempt may take, by default. */
+	public const DEFAULT_TIMEOUT = 30.0;
 
-	/** Products customers buy or subscribe to. */
-	public readonly ProductRequests $products;
+	/** Retries of a retryable call (a read, or one of the 7 idempotent creates), by default. */
+	public const DEFAULT_MAX_RETRIES = 3;
 
-	/** Users in your organization. */
-	public readonly UserRequests $users;
+	/** Manages the products. */
+	public readonly ProductsService $products;
 
-	/** Read access to API keys. */
-	public readonly ApiKeyRequests $apiKeys;
+	/** Manages the customers. */
+	public readonly CustomersService $customers;
 
-	/** Webhook verification. */
-	public readonly WebhookRequests $webhooks;
+	/** Creates checkout sessions and reads or expires them. */
+	public readonly CheckoutSessionsService $checkoutSessions;
 
-	/** One-time payments. */
-	public readonly PaymentRequests $oneTimePayments;
+	/** Reads the one-time payments and the combined payment feed. */
+	public readonly PaymentsService $payments;
 
-	/** Recurring subscriptions. */
-	public readonly SubscriptionRequests $subscriptions;
+	/** Reads the failed payment attempts. */
+	public readonly FailuresService $failures;
 
-	/** Transaction status lookups. */
-	public readonly TransactionStatusRequests $transactionStatus;
+	/** Reads, bills and cancels subscriptions. */
+	public readonly SubscriptionsService $subscriptions;
 
-	/** Refunds raised against your transactions. */
-	public readonly RefundRequests $refunds;
+	/** Lists and initiates refunds. */
+	public readonly RefundsService $refunds;
 
-	/** Accounting exports. */
-	public readonly AccountingRequests $accounting;
+	/** Manages the organization's members and their held funds (organization key). */
+	public readonly MembersService $members;
 
-	/** Account claims and fund transfers. */
-	public readonly ClaimRequests $claims;
+	/** Invites members (organization key). */
+	public readonly InvitationsService $invitations;
 
-	/** Supported-currency lookups. */
-	public readonly CurrencyRequests $currencies;
+	/** Reads the wallets and the currencies they accept. */
+	public readonly WalletsService $wallets;
+
+	/** Exports the accounting events. */
+	public readonly AccountingService $accounting;
+
+	/** Verifies webhooks, and manages the endpoints (`->endpoints`) and the event log (`->events`). */
+	public readonly WebhooksService $webhooks;
+
+	/** Reads the currency catalog (public). */
+	public readonly CurrenciesService $currencies;
+
+	private readonly Requester $requester;
 
 	/**
-	 * @param string    $apiKey     Your QBitFlow API key, from the dashboard. A test key keeps
-	 *                              every action on testnets, with data fully separate from live.
-	 * @param string|null $baseUrl  API base URL. Rarely worth changing; defaults to the value of
-	 *                              `QBITFLOW_BASE_URL` or the production endpoint.
-	 * @param float|null  $timeout  Request timeout in **seconds** (default 30). Note the
-	 *                              JavaScript SDK uses milliseconds here; PHP clients use seconds.
-	 * @param int|null    $maxRetries Retry attempts for GET requests that hit a server or
-	 *                              network failure (default 3; `0` disables retries).
-	 * @param ClientInterface|null $httpClient Your own PSR-18 client. When given, the SDK does not
-	 *                              apply `$timeout` — configure it on your client instead.
+	 * @param string                       $apiKey         Your API key (sent as `X-API-Key`): non-blank, starting with `sk_`.
+	 * @param string|null                  $baseUrl        The API root (default `https://api.qbitflow.app/v2`): an absolute http(s) URL; a trailing `/` is stripped.
+	 * @param float|null                   $timeout        Seconds per HTTP attempt (default 30), applied to the HTTP client the SDK builds. A retried call may take longer in total.
+	 * @param int|null                     $maxRetries     Retries of a retryable call (default 3); 0 disables them.
+	 * @param string|null                  $onBehalfOf     Acts in a member's space on every request (`On-Behalf-Of`: the member's userUuid).
+	 * @param ClientInterface|null         $httpClient     Your own PSR-18 client (proxies, instrumentation). It must not follow redirects, and its own timeout applies.
+	 * @param RequestFactoryInterface|null $requestFactory Your own PSR-17 request factory.
+	 * @param StreamFactoryInterface|null  $streamFactory  Your own PSR-17 stream factory.
 	 *
-	 * @throws ValidationException If the API key is empty or only whitespace, or `$maxRetries` is negative.
+	 * @throws ValidationException For a bad key or option. Nothing is sent: call {@see QBitFlow::me()} to check the key online.
 	 */
 	public function __construct(
 		string $apiKey,
 		?string $baseUrl = null,
 		?float $timeout = null,
 		?int $maxRetries = null,
+		?string $onBehalfOf = null,
 		?ClientInterface $httpClient = null,
 		?RequestFactoryInterface $requestFactory = null,
 		?StreamFactoryInterface $streamFactory = null,
 	) {
-		if (trim($apiKey) === '') {
-			throw new ValidationException('API key is required');
+		$apiKey = trim($apiKey);
+		if ($apiKey === '') {
+			throw Validator::fieldError('apiKey', 'is required');
+		}
+		if (! str_starts_with($apiKey, 'sk_')) {
+			throw Validator::fieldError('apiKey', 'must be a QBitFlow API key (sk_…)');
 		}
 
-		$baseUrl = $baseUrl === null ? '' : rtrim(trim($baseUrl), '/');
+		$base = self::DEFAULT_BASE_URL;
+		if ($baseUrl !== null) {
+			$base = rtrim(trim($baseUrl), '/');
+			if (! Validator::isHttpUrl($base) || ! in_array(strtolower((string) parse_url($base, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+				throw Validator::fieldError('baseUrl', 'must be an absolute http or https URL');
+			}
+		}
+		if ($timeout !== null && (! is_finite($timeout) || $timeout <= 0)) {
+			throw Validator::fieldError('timeout', 'must be positive');
+		}
+		if ($maxRetries !== null && $maxRetries < 0) {
+			throw Validator::fieldError('maxRetries', 'must not be negative');
+		}
+		if ($onBehalfOf !== null) {
+			Transport::checkOnBehalfOf($onBehalfOf);
+		}
 
-		$this->init(new Transport(
+		$this->init(new Requester(new Transport(
 			$apiKey,
-			$baseUrl !== '' ? $baseUrl : Config::baseUrl(),
-			$timeout ?? (float) Config::DEFAULT_TIMEOUT,
-			$maxRetries ?? Config::DEFAULT_MAX_RETRIES,
-			httpClient: $httpClient,
-			requestFactory: $requestFactory,
-			streamFactory: $streamFactory,
-		));
+			$base,
+			$timeout ?? self::DEFAULT_TIMEOUT,
+			$maxRetries ?? self::DEFAULT_MAX_RETRIES,
+			$httpClient,
+			$requestFactory,
+			$streamFactory,
+		), $onBehalfOf));
 	}
 
 	/**
-	 * Wire every service to one transport.
-	 */
-	private function init(Transport $transport): void
-	{
-		$this->transport = $transport;
-		$this->customers = new CustomerRequests($this->transport);
-		$this->products = new ProductRequests($this->transport);
-		$this->users = new UserRequests($this->transport);
-		$this->apiKeys = new ApiKeyRequests($this->transport);
-		$this->webhooks = new WebhookRequests($this->transport);
-		$this->oneTimePayments = new PaymentRequests($this->transport);
-		$this->subscriptions = new SubscriptionRequests($this->transport);
-		$this->transactionStatus = new TransactionStatusRequests($this->transport);
-		$this->refunds = new RefundRequests($this->transport);
-		$this->accounting = new AccountingRequests($this->transport);
-		$this->claims = new ClaimRequests($this->transport);
-		$this->currencies = new CurrencyRequests($this->transport);
-	}
-
-	/**
-	 * Build a client from an array of options.
-	 *
-	 * Mirrors the object form the JavaScript SDK accepts, and is what the Laravel service
-	 * provider uses to build the client from config.
-	 *
-	 * @param array{
-	 *     apiKey?: string,
-	 *     baseUrl?: string|null,
-	 *     timeout?: float|int|null,
-	 *     maxRetries?: int|null,
-	 *     httpClient?: ClientInterface|null,
-	 *     requestFactory?: RequestFactoryInterface|null,
-	 *     streamFactory?: StreamFactoryInterface|null,
-	 * } $config An empty `baseUrl` means "use the default".
-	 */
-	public static function fromArray(array $config): self
-	{
-		return new self(
-			(string) ($config['apiKey'] ?? ''),
-			isset($config['baseUrl']) ? (string) $config['baseUrl'] : null,
-			isset($config['timeout']) ? (float) $config['timeout'] : null,
-			isset($config['maxRetries']) ? (int) $config['maxRetries'] : null,
-			$config['httpClient'] ?? null,
-			$config['requestFactory'] ?? null,
-			$config['streamFactory'] ?? null,
-		);
-	}
-
-	/**
-	 * A copy of this client whose every service acts on behalf of one of your users.
-	 *
-	 * Every request made through the returned client sends `On-Behalf-Of: <userId>`, so it
-	 * reads and writes that user's resources with that user's role. The copy shares this
-	 * client's configuration and HTTP client; this client is left untouched. Passing `0`
-	 * returns an organization-level copy (the header is omitted).
+	 * A client that acts in a member's space: every request sends `On-Behalf-Of: <userUuid>`
+	 * (a member's userUuid; organization key only). It shares this client's transport and
+	 * configuration; `''` returns one at the organization level. This client is unchanged.
 	 *
 	 * ```php
-	 * $vendor = $client->onBehalfOf(123);
-	 *
-	 * $vendor->products->getAll();                  // user 123's products
-	 * $vendor->oneTimePayments->createSession(...); // credited to user 123
-	 * $client->products->getAll();                  // still organization level
+	 * $seller = $client->onBehalfOf($member->userUuid);
+	 * $seller->products->list();
 	 * ```
 	 *
-	 * Requires an organization-level admin or owner API key. A user outside your
-	 * organization gets a 404 ({@see \QBitFlow\Exceptions\NotFoundException}). Each service
-	 * also has its own `onBehalfOf()`.
-	 *
-	 * @param int $userId ID of the user to act as, or 0 for the organization itself.
-	 *
-	 * @throws ValidationException If the ID is negative.
+	 * @throws ValidationException When `$userUuid` is not a UUID, or is the nil UUID.
 	 */
-	public function onBehalfOf(int $userId): static
+	public function onBehalfOf(string $userUuid): self
 	{
-		if ($userId < 0) {
-			throw new ValidationException('User ID must be zero or positive');
-		}
-
-		$copy = (new \ReflectionClass(static::class))->newInstanceWithoutConstructor();
-		$copy->init($userId === 0
-			? $this->transport->withoutHeader(Transport::ON_BEHALF_OF)
-			: $this->transport->withHeader(Transport::ON_BEHALF_OF, (string) $userId));
-
-		return $copy;
+		return self::fromTransport($this->requester->transport, Transport::checkOnBehalfOf($userUuid));
 	}
 
-	public function getApiKey(): string
+	/**
+	 * What the API key is (`GET /me`): its role, its space (organization or member, test or
+	 * live mode) and the member it acts for. The recommended start-up check, e.g. assert
+	 * `$me->space->test` in a test environment.
+	 */
+	public function me(?RequestOptions $options = null): Me
 	{
-		return $this->transport->getApiKey();
+		return $this->requester->call('GET', '/me', Requester::one(Me::fromArray(...)), options: $options);
 	}
 
+	/** The API root this client calls. */
 	public function getBaseUrl(): string
 	{
-		return $this->transport->getBaseUrl();
+		return $this->requester->transport->baseUrl();
 	}
 
-	/** Customers who pay through your platform. */
-	public function customers(): CustomerRequests
+	/** The client's default `On-Behalf-Of` (a member's userUuid); null at the organization level. */
+	public function getOnBehalfOf(): ?string
 	{
-		return $this->customers;
+		$value = $this->requester->onBehalfOf;
+
+		return $value === '' ? null : $value;
 	}
 
-	/** Products customers buy or subscribe to. */
-	public function products(): ProductRequests
+	/**
+	 * Builds a client on an existing transport.
+	 *
+	 * @internal For the SDK's tests (a transport with an injected sleep and clock).
+	 */
+	public static function fromTransport(Transport $transport, ?string $onBehalfOf = null): self
+	{
+		$client = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+		$client->init(new Requester($transport, $onBehalfOf));
+
+		return $client;
+	}
+
+	public function products(): ProductsService
 	{
 		return $this->products;
 	}
 
-	/** Users in your organization. */
-	public function users(): UserRequests
+	public function customers(): CustomersService
 	{
-		return $this->users;
+		return $this->customers;
 	}
 
-	/** Read access to API keys. */
-	public function apiKeys(): ApiKeyRequests
+	public function checkoutSessions(): CheckoutSessionsService
 	{
-		return $this->apiKeys;
+		return $this->checkoutSessions;
 	}
 
-	/** Webhook verification. */
-	public function webhooks(): WebhookRequests
+	public function payments(): PaymentsService
 	{
-		return $this->webhooks;
+		return $this->payments;
 	}
 
-	/** One-time payments. */
-	public function oneTimePayments(): PaymentRequests
+	public function failures(): FailuresService
 	{
-		return $this->oneTimePayments;
+		return $this->failures;
 	}
 
-	/** Recurring subscriptions. */
-	public function subscriptions(): SubscriptionRequests
+	public function subscriptions(): SubscriptionsService
 	{
 		return $this->subscriptions;
 	}
 
-	/** Transaction status lookups. */
-	public function transactionStatus(): TransactionStatusRequests
-	{
-		return $this->transactionStatus;
-	}
-
-	/** Refunds raised against your transactions. */
-	public function refunds(): RefundRequests
+	public function refunds(): RefundsService
 	{
 		return $this->refunds;
 	}
 
-	/** Accounting exports. */
-	public function accounting(): AccountingRequests
+	public function members(): MembersService
+	{
+		return $this->members;
+	}
+
+	public function invitations(): InvitationsService
+	{
+		return $this->invitations;
+	}
+
+	public function wallets(): WalletsService
+	{
+		return $this->wallets;
+	}
+
+	public function accounting(): AccountingService
 	{
 		return $this->accounting;
 	}
 
-	/** Account claims and fund transfers. */
-	public function claims(): ClaimRequests
+	public function webhooks(): WebhooksService
 	{
-		return $this->claims;
+		return $this->webhooks;
 	}
 
-	/** Supported-currency lookups. */
-	public function currencies(): CurrencyRequests
+	public function currencies(): CurrenciesService
 	{
 		return $this->currencies;
 	}
 
 	/**
-	 * Never expose the API key through debug output.
+	 * Never exposes the API key in debug output.
 	 *
-	 * @return array<string,string>
+	 * @return array<string,mixed>
 	 */
 	public function __debugInfo(): array
 	{
-		$key = $this->transport->getApiKey();
-
 		return [
-			'apiKey' => '***' . substr($key, -4),
-			'baseUrl' => $this->transport->getBaseUrl(),
+			'apiKey' => '***' . substr($this->requester->transport->apiKey(), -4),
+			'baseUrl' => $this->getBaseUrl(),
+			'onBehalfOf' => $this->getOnBehalfOf(),
 		];
+	}
+
+	private function init(Requester $requester): void
+	{
+		$this->requester = $requester;
+		$this->products = new ProductsService($requester);
+		$this->customers = new CustomersService($requester);
+		$this->checkoutSessions = new CheckoutSessionsService($requester);
+		$this->payments = new PaymentsService($requester);
+		$this->failures = new FailuresService($requester);
+		$this->subscriptions = new SubscriptionsService($requester);
+		$this->refunds = new RefundsService($requester);
+		$this->members = new MembersService($requester);
+		$this->invitations = new InvitationsService($requester);
+		$this->wallets = new WalletsService($requester);
+		$this->accounting = new AccountingService($requester);
+		$this->webhooks = new WebhooksService($requester);
+		$this->currencies = new CurrenciesService($requester);
 	}
 }

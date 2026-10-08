@@ -5,17 +5,8 @@ declare(strict_types=1);
 namespace QBitFlow\Exceptions;
 
 /**
- * Thrown when a requested resource does not exist (HTTP 404).
+ * A 404: the resource does not exist, or is outside the request's space.
  */
-class NotFoundException extends QBitFlowException
+class NotFoundException extends ApiException
 {
-	public function __construct(
-		string $message = 'Resource not found',
-		?int $statusCode = null,
-		?array $response = null,
-		?\Throwable $previous = null,
-		array $fields = [],
-	) {
-		parent::__construct($message, $statusCode, $response, $previous, $fields);
-	}
 }

@@ -12,23 +12,26 @@ use Illuminate\Support\Facades\Facade;
  * ```php
  * use QBitFlow\Laravel\Facades\QBitFlow;
  *
- * $products = QBitFlow::products()->getAll();
+ * $me = QBitFlow::me();
+ * $session = QBitFlow::checkoutSessions()->createPayment($params);
  * ```
  *
- * @method static \QBitFlow\Requests\CustomerRequests          customers()
- * @method static \QBitFlow\Requests\ProductRequests           products()
- * @method static \QBitFlow\Requests\UserRequests              users()
- * @method static \QBitFlow\Requests\ApiKeyRequests            apiKeys()
- * @method static \QBitFlow\Requests\WebhookRequests           webhooks()
- * @method static \QBitFlow\Requests\PaymentRequests           oneTimePayments()
- * @method static \QBitFlow\Requests\SubscriptionRequests      subscriptions()
- * @method static \QBitFlow\Requests\TransactionStatusRequests transactionStatus()
- * @method static \QBitFlow\Requests\RefundRequests            refunds()
- * @method static \QBitFlow\Requests\AccountingRequests        accounting()
- * @method static \QBitFlow\Requests\ClaimRequests             claims()
- * @method static \QBitFlow\Requests\CurrencyRequests          currencies()
- * @method static string                                       getApiKey()
- * @method static string                                       getBaseUrl()
+ * @method static \QBitFlow\Models\Me                        me(?\QBitFlow\RequestOptions $options = null)
+ * @method static \QBitFlow\QBitFlow                         onBehalfOf(string $userUuid)
+ * @method static \QBitFlow\Services\ProductsService         products()
+ * @method static \QBitFlow\Services\CustomersService        customers()
+ * @method static \QBitFlow\Services\CheckoutSessionsService checkoutSessions()
+ * @method static \QBitFlow\Services\PaymentsService         payments()
+ * @method static \QBitFlow\Services\FailuresService         failures()
+ * @method static \QBitFlow\Services\SubscriptionsService    subscriptions()
+ * @method static \QBitFlow\Services\RefundsService          refunds()
+ * @method static \QBitFlow\Services\MembersService          members()
+ * @method static \QBitFlow\Services\InvitationsService      invitations()
+ * @method static \QBitFlow\Services\WalletsService          wallets()
+ * @method static \QBitFlow\Services\AccountingService       accounting()
+ * @method static \QBitFlow\Services\WebhooksService         webhooks()
+ * @method static \QBitFlow\Services\CurrenciesService       currencies()
+ * @method static string                                     getBaseUrl()
  *
  * @see \QBitFlow\QBitFlow
  */

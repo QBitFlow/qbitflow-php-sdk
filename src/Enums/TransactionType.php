@@ -5,46 +5,70 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * Transaction types accepted by the status endpoints and reported on webhooks.
+ * A transaction's kind (`checkout.expired`'s `txType`: `payment` or `createSubscription`).
+ *
+ * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
+ * know yet is kept as is, never rejected. Compare against these constants.
  */
-enum TransactionType: string
+final class TransactionType
 {
-	/** One-time payment transaction (native currency). */
-	case ONE_TIME_PAYMENT = 'payment';
+	public const PAYMENT = 'payment';
 
-	/** Transfer transaction (native currency). */
-	case TRANSFER = 'transfer';
+	public const TRANSFER = 'transfer';
 
-	/** Transfer transaction (token). */
-	case TOKEN_TRANSFER = 'tokenTransfer';
+	public const TOKEN_TRANSFER = 'tokenTransfer';
 
-	/** Create-subscription transaction. */
-	case CREATE_SUBSCRIPTION = 'createSubscription';
+	public const CREATE_SUBSCRIPTION = 'createSubscription';
 
-	/** Cancel-subscription transaction. */
-	case CANCEL_SUBSCRIPTION = 'cancelSubscription';
+	public const CANCEL_SUBSCRIPTION = 'cancelSubscription';
 
-	/** Execute a scheduled subscription payment. */
-	case EXECUTE_SUBSCRIPTION_PAYMENT = 'executeSubscription';
+	public const FORCE_CANCEL_SUBSCRIPTION = 'forceCancelSubscription';
 
-	/** Create a pay-as-you-go subscription. */
-	case CREATE_PAYG_SUBSCRIPTION = 'createPAYGSubscription';
+	public const EXECUTE_SUBSCRIPTION = 'executeSubscription';
 
-	/** Cancel a pay-as-you-go subscription. */
-	case CANCEL_PAYG_SUBSCRIPTION = 'cancelPAYGSubscription';
+	public const CREATE_PAYG_SUBSCRIPTION = 'createPaygSubscription';
 
-	/** Increase the on-chain allowance of a subscription. */
-	case INCREASE_ALLOWANCE = 'increaseAllowance';
+	public const CANCEL_PAYG_SUBSCRIPTION = 'cancelPaygSubscription';
 
-	/** Update the maximum amount of a subscription. */
-	case UPDATE_MAX_AMOUNT = 'updateMaxAmount';
+	public const INCREASE_ALLOWANCE = 'increaseAllowance';
 
-	/** Refund transaction. */
-	case REFUND = 'refund';
+	public const UPDATE_MAX_AMOUNT = 'updateMaxAmount';
 
-	/** Faucet transaction (test networks only). */
-	case FAUCET = 'faucet';
+	public const REFUND = 'refund';
 
-	/** Claim-funds transaction. */
-	case CLAIM_FUNDS = 'claimFunds';
+	public const FAUCET = 'faucet';
+
+	public const CLAIM_FUNDS = 'claimFunds';
+
+	public const RELEASE_HELD_FUNDS = 'releaseHeldFunds';
+
+	/**
+	 * Every value this SDK knows.
+	 *
+	 * @return list<string>
+	 */
+	public static function values(): array
+	{
+		return [
+			self::PAYMENT,
+			self::TRANSFER,
+			self::TOKEN_TRANSFER,
+			self::CREATE_SUBSCRIPTION,
+			self::CANCEL_SUBSCRIPTION,
+			self::FORCE_CANCEL_SUBSCRIPTION,
+			self::EXECUTE_SUBSCRIPTION,
+			self::CREATE_PAYG_SUBSCRIPTION,
+			self::CANCEL_PAYG_SUBSCRIPTION,
+			self::INCREASE_ALLOWANCE,
+			self::UPDATE_MAX_AMOUNT,
+			self::REFUND,
+			self::FAUCET,
+			self::CLAIM_FUNDS,
+			self::RELEASE_HELD_FUNDS,
+		];
+	}
+
+	private function __construct()
+	{
+	}
 }
