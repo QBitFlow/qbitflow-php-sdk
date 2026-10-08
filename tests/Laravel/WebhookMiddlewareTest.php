@@ -51,14 +51,15 @@ final class WebhookMiddlewareTest extends TestCase
 	public function a_bad_signature_is_refused(): void
 	{
 		$cases = [
-			'other secret' => [self::signedRequest(self::body(), 'whsec_other'), 'noMatchingSignature'],
-			'stale' => [self::signedRequest(self::body(), self::SECRET, time() - 3600), 'timestampOutsideTolerance'],
-			'missing header' => [Request::create('/', 'POST', [], [], [], [], self::body()), 'missingHeader'],
+			'other secret' => self::signedRequest(self::body(), 'whsec_other'),
+			'stale' => self::signedRequest(self::body(), self::SECRET, time() - 3600),
+			'missing header' => Request::create('/', 'POST', [], [], [], [], self::body()),
 		];
-		foreach ($cases as $name => [$request, $reason]) {
+		foreach ($cases as $name => $request) {
 			$response = (new VerifyQBitFlowWebhook(self::SECRET))->handle($request, self::next());
 			$this->assertSame(400, $response->getStatusCode(), $name);
-			$this->assertSame($reason, json_decode((string) $response->getContent(), true)['reason'], $name);
+			$this->assertSame(['error' => 'invalid signature'], json_decode((string) $response->getContent(), true), $name);
+			$this->assertNull($request->attributes->get(VerifyQBitFlowWebhook::EVENT_ATTRIBUTE), $name);
 		}
 
 		// A tampered body.
@@ -73,7 +74,15 @@ final class WebhookMiddlewareTest extends TestCase
 	{
 		$response = (new VerifyQBitFlowWebhook(self::SECRET))->handle(self::signedRequest(self::body('v1')), self::next());
 		$this->assertSame(400, $response->getStatusCode());
-		$this->assertStringContainsString('v2', (string) $response->getContent());
+		$this->assertSame(['error' => 'invalid event'], json_decode((string) $response->getContent(), true));
+	}
+
+	#[Test]
+	public function a_body_over_1_mib_is_refused(): void
+	{
+		$response = (new VerifyQBitFlowWebhook(self::SECRET))->handle(self::signedRequest(str_repeat(' ', 1048577)), self::next());
+		$this->assertSame(413, $response->getStatusCode());
+		$this->assertSame(['error' => 'body too large'], json_decode((string) $response->getContent(), true));
 	}
 
 	#[Test]

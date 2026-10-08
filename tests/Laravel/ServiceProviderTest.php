@@ -11,12 +11,15 @@ use Illuminate\Routing\Router;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Client\ClientInterface;
+use QBitFlow\Exceptions\QBitFlowException;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
 use QBitFlow\Laravel\Http\Middleware\VerifyQBitFlowWebhook;
 use QBitFlow\Laravel\QBitFlowServiceProvider;
 use QBitFlow\QBitFlow;
 use QBitFlow\Tests\Support\MockHttpClient;
+use QBitFlow\Webhooks\Webhook;
+use QBitFlow\Webhooks\WebhookRouter;
 
 final class ServiceProviderTest extends TestCase
 {
@@ -104,6 +107,31 @@ final class ServiceProviderTest extends TestCase
 	{
 		$this->register(['webhook_secret' => 'whsec_x']);
 		$this->assertInstanceOf(VerifyQBitFlowWebhook::class, $this->app->make(VerifyQBitFlowWebhook::class));
+	}
+
+	#[Test]
+	public function it_binds_a_fresh_webhook_router_on_the_secret(): void
+	{
+		$this->register(['webhook_secret' => 'whsec_x', 'webhook_tolerance' => '600']);
+		$router = $this->app->make(WebhookRouter::class);
+		$this->assertInstanceOf(WebhookRouter::class, $router);
+		$this->assertNotSame($router, $this->app->make(WebhookRouter::class), 'not shared: handlers never leak between users');
+
+		$body = '{"id":"evt_1","type":"webhook.test","version":"v2","createdAt":"2026-10-01T12:00:00Z","test":true,"data":{}}';
+		$this->assertSame(200, $router->handle($body, Webhook::sign($body, 'whsec_x', time() - 500))->status, 'the configured tolerance');
+
+		// The controller is resolved with it.
+		$this->app->singleton(\Illuminate\Contracts\Events\Dispatcher::class, static fn ($app) => new Dispatcher($app));
+		$this->assertInstanceOf(WebhookController::class, $this->app->make(WebhookController::class));
+	}
+
+	#[Test]
+	public function the_webhook_router_needs_the_secret(): void
+	{
+		$this->register();
+		$this->expectException(QBitFlowException::class);
+		$this->expectExceptionMessage('QBITFLOW_WEBHOOK_SECRET');
+		$this->app->make(WebhookRouter::class);
 	}
 
 	#[Test]

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace QBitFlow\Models;
 
+use QBitFlow\Support\Amount;
 use QBitFlow\Support\Cast;
 
 /**
@@ -50,6 +51,17 @@ final readonly class Currency extends Model
 	 * True for a testnet currency.
 	 */
 	public bool $test;
+
+	/**
+	 * An amount in this currency's min units as a decimal string: `"1500000"` → `"1.5"` for
+	 * USDC (6 decimals). Exact (see {@see Amount::format()}).
+	 *
+	 * @throws \QBitFlow\Exceptions\ValidationException When `$minUnits` is not an integer.
+	 */
+	public function formatAmount(string $minUnits): string
+	{
+		return Amount::format($minUnits, $this->decimals);
+	}
 
 	/**
 	 * @param array<string,mixed> $data

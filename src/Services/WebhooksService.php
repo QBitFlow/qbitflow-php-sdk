@@ -13,6 +13,7 @@ use QBitFlow\Http\Requester;
 use QBitFlow\RequestOptions;
 use QBitFlow\Support\Validator;
 use QBitFlow\Webhooks\Webhook;
+use QBitFlow\Webhooks\WebhookRouter;
 
 /**
  * Verifies webhook deliveries; `endpoints` and `events` manage the endpoints and the event log.
@@ -35,6 +36,21 @@ final class WebhooksService extends Service
 		parent::__construct($requester);
 		$this->endpoints = new WebhookEndpointsService($requester);
 		$this->events = new WebhookEventsService($requester);
+	}
+
+	/**
+	 * A webhook router for the endpoint of `$secret` (its `whsec_…` secret): verifies, parses
+	 * and dispatches deliveries, and says what to answer. See {@see WebhookRouter}.
+	 *
+	 * ```php
+	 * $client->webhooks->router(getenv('QBITFLOW_WEBHOOK_SECRET'))
+	 *     ->on(EventType::PAYMENT_COMPLETED, fn (PaymentCompleted $data) => fulfil($data->reference))
+	 *     ->handleGlobals();
+	 * ```
+	 */
+	public function router(#[\SensitiveParameter] string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE): WebhookRouter
+	{
+		return new WebhookRouter($secret, $tolerance);
 	}
 
 	/**

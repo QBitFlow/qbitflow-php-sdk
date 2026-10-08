@@ -19,10 +19,10 @@ use QBitFlow\Params\CreateSubscriptionSessionParams;
 use QBitFlow\Params\SubscriptionListParams;
 use QBitFlow\QBitFlow;
 
-$client = new QBitFlow(apiKey: (string) getenv('QBITFLOW_API_KEY'), baseUrl: getenv('QBITFLOW_BASE_URL') ?: null);
+$client = QBitFlow::fromEnv();
 
 // Grant access while now < currentPeriodEnd, whatever the status.
-$hasAccess = static fn (Subscription $s): bool => $s->currentPeriodEnd !== null && new DateTimeImmutable() < $s->currentPeriodEnd;
+$hasAccess = static fn (Subscription $s): bool => $s->hasAccess();
 
 $session = $client->checkoutSessions->createSubscription(new CreateSubscriptionSessionParams(
 	productName: 'Pro plan',

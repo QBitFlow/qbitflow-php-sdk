@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Models;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use QBitFlow\Support\Cast;
 
 /**
@@ -151,6 +152,16 @@ readonly class Subscription extends Model
 	 * The failing bill's retries, while past due (API reads only).
 	 */
 	public ?DunningStatus $dunning;
+
+	/**
+	 * Whether the subscriber has access at `$at` (default: now): `currentPeriodEnd` is set and
+	 * `$at` is before it, whatever the status (a cancelled subscription keeps access until the
+	 * end of the period paid for).
+	 */
+	public function hasAccess(?DateTimeInterface $at = null): bool
+	{
+		return $this->currentPeriodEnd !== null && ($at ?? new DateTimeImmutable()) < $this->currentPeriodEnd;
+	}
 
 	/**
 	 * @param array<string,mixed> $data

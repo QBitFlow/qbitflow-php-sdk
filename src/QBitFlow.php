@@ -30,13 +30,13 @@ use QBitFlow\Support\Validator;
  * The QBitFlow API client (API v2). Create one per API key and share it.
  *
  * ```php
- * $client = new QBitFlow(apiKey: getenv('QBITFLOW_API_KEY'));
+ * $client = new QBitFlow(apiKey: getenv('QBITFLOW_API_KEY')); // or QBitFlow::fromEnv()
  *
  * $me = $client->me(); // the recommended start-up check
  * $session = $client->checkoutSessions->createPayment(new CreatePaymentSessionParams(
  *     productName: 'Premium access',
  *     price: 4.99,
- *     successUrl: 'https://shop.example.com/thanks?session={{UUID}}',
+ *     successUrl: 'https://shop.example.com/thanks?session=' . Placeholders::UUID,
  * ));
  * ```
  *
@@ -154,6 +154,57 @@ final class QBitFlow
 			$requestFactory,
 			$streamFactory,
 		), $onBehalfOf));
+	}
+
+	/** The environment variable {@see fromEnv()} reads the API key from (required). */
+	public const ENV_API_KEY = 'QBITFLOW_API_KEY';
+
+	/** The environment variable {@see fromEnv()} reads the base URL from (optional). */
+	public const ENV_BASE_URL = 'QBITFLOW_BASE_URL';
+
+	/** The environment variable {@see fromEnv()} reads the default `On-Behalf-Of` from (optional). */
+	public const ENV_ON_BEHALF_OF = 'QBITFLOW_ON_BEHALF_OF';
+
+	/**
+	 * A client configured from the environment (`getenv()`, then `$_ENV`, then `$_SERVER`, so
+	 * a `.env` loaded by phpdotenv works too): the API key from `QBITFLOW_API_KEY` (required),
+	 * the base URL from `QBITFLOW_BASE_URL` when set (else the default), the default
+	 * `On-Behalf-Of` from `QBITFLOW_ON_BEHALF_OF` when set. A named argument overrides its
+	 * variable; the others are the constructor's.
+	 *
+	 * ```php
+	 * $client = QBitFlow::fromEnv();
+	 * $client = QBitFlow::fromEnv(timeout: 10.0, maxRetries: 0);
+	 * ```
+	 *
+	 * @throws ValidationException When `QBITFLOW_API_KEY` is not set (and no `apiKey:`), or as the constructor.
+	 */
+	public static function fromEnv(
+		#[\SensitiveParameter]
+		?string $apiKey = null,
+		?string $baseUrl = null,
+		?float $timeout = null,
+		?int $maxRetries = null,
+		?string $onBehalfOf = null,
+		?ClientInterface $httpClient = null,
+		?RequestFactoryInterface $requestFactory = null,
+		?StreamFactoryInterface $streamFactory = null,
+	): self {
+		$apiKey ??= self::env(self::ENV_API_KEY);
+		if ($apiKey === null) {
+			throw Validator::fieldError(self::ENV_API_KEY, 'is not set: set it in the environment (your sk_… API key), or pass apiKey:');
+		}
+
+		return new self(
+			apiKey: $apiKey,
+			baseUrl: $baseUrl ?? self::env(self::ENV_BASE_URL),
+			timeout: $timeout,
+			maxRetries: $maxRetries,
+			onBehalfOf: $onBehalfOf ?? self::env(self::ENV_ON_BEHALF_OF),
+			httpClient: $httpClient,
+			requestFactory: $requestFactory,
+			streamFactory: $streamFactory,
+		);
 	}
 
 	/**
@@ -287,6 +338,18 @@ final class QBitFlow
 			'baseUrl' => $this->getBaseUrl(),
 			'onBehalfOf' => $this->getOnBehalfOf(),
 		];
+	}
+
+	/** An environment variable's value (`getenv()`, `$_ENV`, `$_SERVER`); null when unset or blank. */
+	private static function env(string $name): ?string
+	{
+		foreach ([getenv($name), $_ENV[$name] ?? null, $_SERVER[$name] ?? null] as $value) {
+			if (is_string($value) && trim($value) !== '') {
+				return trim($value);
+			}
+		}
+
+		return null;
 	}
 
 	private function init(Requester $requester): void

@@ -40,7 +40,7 @@ final class SyncSubscriptionAccess implements ShouldQueue
 	public function handle(SubscriptionStatusChanged $event): void
 	{
 		$subscription = $event->data;
-		$hasAccess = $subscription->currentPeriodEnd !== null && now() < $subscription->currentPeriodEnd;
+		$hasAccess = $subscription->hasAccess();
 		Log::info('subscription', ['uuid' => $subscription->uuid, 'from' => $subscription->previousStatus, 'to' => $subscription->status, 'access' => $hasAccess]);
 	}
 }

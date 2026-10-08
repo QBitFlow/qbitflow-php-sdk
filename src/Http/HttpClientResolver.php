@@ -6,6 +6,7 @@ namespace QBitFlow\Http;
 
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use QBitFlow\Exceptions\QBitFlowException;
 
@@ -123,6 +124,22 @@ final class HttpClientResolver
 	}
 
 	/**
+	 * Resolve a PSR-17 response factory (for the webhook router's PSR-7/PSR-15 adapters).
+	 *
+	 * @throws QBitFlowException If no known implementation is installed.
+	 */
+	public static function responseFactory(): ResponseFactoryInterface
+	{
+		$factory = self::findFactory(ResponseFactoryInterface::class);
+
+		if ($factory instanceof ResponseFactoryInterface) {
+			return $factory;
+		}
+
+		throw self::missingPsr17();
+	}
+
+	/**
 	 * Instantiate the first known factory implementing the given interface.
 	 *
 	 * @param class-string $interface
@@ -144,9 +161,11 @@ final class HttpClientResolver
 
 		if (class_exists(\Http\Discovery\Psr17FactoryDiscovery::class)) {
 			try {
-				return $interface === RequestFactoryInterface::class
-					? \Http\Discovery\Psr17FactoryDiscovery::findRequestFactory()
-					: \Http\Discovery\Psr17FactoryDiscovery::findStreamFactory();
+				return match ($interface) {
+					RequestFactoryInterface::class => \Http\Discovery\Psr17FactoryDiscovery::findRequestFactory(),
+					ResponseFactoryInterface::class => \Http\Discovery\Psr17FactoryDiscovery::findResponseFactory(),
+					default => \Http\Discovery\Psr17FactoryDiscovery::findStreamFactory(),
+				};
 			} catch (\Throwable) {
 				return null;
 			}
@@ -164,9 +183,11 @@ final class HttpClientResolver
 	 */
 	private static function splitFactories(string $interface): array
 	{
-		return $interface === RequestFactoryInterface::class
-			? [\Laminas\Diactoros\RequestFactory::class, \Slim\Psr7\Factory\RequestFactory::class]
-			: [\Laminas\Diactoros\StreamFactory::class, \Slim\Psr7\Factory\StreamFactory::class];
+		return match ($interface) {
+			RequestFactoryInterface::class => [\Laminas\Diactoros\RequestFactory::class, \Slim\Psr7\Factory\RequestFactory::class],
+			ResponseFactoryInterface::class => [\Laminas\Diactoros\ResponseFactory::class, \Slim\Psr7\Factory\ResponseFactory::class],
+			default => [\Laminas\Diactoros\StreamFactory::class, \Slim\Psr7\Factory\StreamFactory::class],
+		};
 	}
 
 	private static function missingPsr17(): QBitFlowException
@@ -174,7 +195,7 @@ final class HttpClientResolver
 		return new QBitFlowException(
 			'No PSR-17 HTTP factory found. Install one (for example "composer require nyholm/psr7") '
 				. 'or pass your own factories to the QBitFlow constructor via the $requestFactory '
-				. 'and $streamFactory arguments.',
+				. 'and $streamFactory arguments (to a webhook router: withResponseFactory()).',
 		);
 	}
 }
