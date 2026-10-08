@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace QBitFlow\Tests\Integration;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use QBitFlow\Enums\CheckoutSessionStatusValue;
 use QBitFlow\Enums\EventType;
 use QBitFlow\Enums\Role;
+use QBitFlow\Events\Event;
 use QBitFlow\Exceptions\ConflictException;
 use QBitFlow\Exceptions\NotFoundException;
 use QBitFlow\Models\Me;
 use QBitFlow\Params;
 use QBitFlow\QBitFlow;
+use QBitFlow\Webhooks\Webhook;
 
 /**
  * Live checks against a QBitFlow API (the Go SDK's integration suite). Never part of an
@@ -150,6 +156,67 @@ final class LiveApiTest extends TestCase
 	}
 
 	#[Test]
+	public function the_integration_helpers_work_against_the_api(): void
+	{
+		$c = $this->client;
+
+		// H6: a range over 95 days is split (two requests here) and concatenated.
+		$to = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+		$from = $to->modify('-120 days');
+		$c->accounting->exportJsonRange($from->format('Y-m-d'), $to->format('Y-m-d'));
+		$csv = $c->accounting->exportCsvRange($from->format('Y-m-d'), $to->format('Y-m-d'));
+		$this->assertNotSame('', $csv, 'a header line is expected');
+
+		// H1 smoke: an event of the log, exactly as the API serializes it, signed locally, goes
+		// through the router to its typed handler.
+		$raw = new class () implements ClientInterface {
+			public string $lastBody = '';
+
+			private ClientInterface $inner;
+
+			public function __construct()
+			{
+				$this->inner = new \GuzzleHttp\Client(['http_errors' => false, 'allow_redirects' => false, 'timeout' => 30]);
+			}
+
+			public function sendRequest(RequestInterface $request): ResponseInterface
+			{
+				$response = $this->inner->sendRequest($request);
+				$this->lastBody = (string) $response->getBody();
+
+				return $response;
+			}
+		};
+		$recording = new QBitFlow(apiKey: (string) getenv('QBITFLOW_API_KEY'), baseUrl: (string) getenv('QBITFLOW_BASE_URL'), httpClient: $raw);
+		$page = $recording->webhooks->events->list(new Params\EventListParams(limit: 1));
+		if ($page->items === []) {
+			$this->markTestSkipped('the event log is empty: no event to route');
+		}
+		$wire = json_decode($raw->lastBody, false, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+		$body = json_encode($wire->items[0], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+		$secret = 'whsec_live_smoke_' . self::suffix();
+		$seen = [];
+		$router = $c->webhooks->router($secret)
+			->onUnknown(static function (Event $e) use (&$seen): void {
+				$seen[] = 'unknown';
+			})
+			->onAny(static function (Event $e) use (&$seen): void {
+				$seen[] = $e->id;
+			});
+		foreach (EventType::values() as $type) {
+			$router->on($type, static function (mixed $data, Event $e) use (&$seen): void {
+				$seen[] = is_object($data) ? $data::class : get_debug_type($data);
+			});
+		}
+		$result = $router->handle($body, Webhook::sign($body, $secret));
+		$this->assertSame(200, $result->status, (string) $result->error?->getMessage());
+		$this->assertSame($page->items[0]->id, $result->event?->id);
+		$this->assertCount(2, $seen);
+		$this->assertSame($page->items[0]->id, $seen[1]);
+		$this->assertSame(400, $router->handle($body, Webhook::sign($body, 'whsec_other'))->status);
+	}
+
+	#[Test]
 	public function writes_a_product(): void
 	{
 		$this->requireWrites();
@@ -199,6 +266,7 @@ final class LiveApiTest extends TestCase
 		$this->assertNotNull($session->expiresAt);
 
 		$this->assertSame(CheckoutSessionStatusValue::CREATED, $this->client->checkoutSessions->getStatus($session->uuid)->status);
+		$this->assertSame(CheckoutSessionStatusValue::CREATED, $this->client->checkoutSessions->waitForCompletion($session->uuid, timeout: 1, interval: 1)->status, 'H3: the last status seen');
 		$this->assertSame(CheckoutSessionStatusValue::EXPIRED, $this->client->checkoutSessions->expire($session->uuid)->status);
 	}
 

@@ -17,7 +17,10 @@ Base and Solana, straight to yours.
   sends an `Idempotency-Key`, so a retry never charges or creates twice.
 - **Iterators**: `foreach ($client->payments->iterate() as $payment)` walks every page lazily.
 - **Webhooks** verified locally (`QBitFlow-Signature`, secret rotation included) and parsed into
-  typed events, with or without a client.
+  typed events, with or without a client; a **webhook router** turns a delivery into your typed
+  handler and the right HTTP answer (plain PHP, PSR-7/PSR-15, Laravel).
+- **Integration helpers**: `QBitFlow::fromEnv()`, `waitForCompletion()`, `hasAccess()`, exact
+  amount formatting, accounting exports over any range, `Webhook::sign()` for your tests.
 - **PSR-18 / PSR-17**: any HTTP client; **Laravel** service provider, facade, middleware, events
   and Artisan commands included.
 
@@ -28,6 +31,7 @@ Base and Solana, straight to yours.
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
+- [Integration recipes](#integration-recipes)
 - [Authentication and acting for a member](#authentication-and-acting-for-a-member)
 - [Checkout sessions](#checkout-sessions)
 - [Products and customers](#products-and-customers)
@@ -68,7 +72,7 @@ use QBitFlow\Params\CreatePaymentSessionParams;
 use QBitFlow\QBitFlow;
 
 // One client per API key, shared by the whole application.
-$client = new QBitFlow(apiKey: getenv('QBITFLOW_API_KEY'));
+$client = new QBitFlow(apiKey: getenv('QBITFLOW_API_KEY')); // or QBitFlow::fromEnv()
 
 // The recommended start-up check: what is this key, and which mode is it in?
 $me = $client->me(); // an AuthenticationException for an unknown or revoked key
@@ -108,6 +112,183 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
 - **Enums** are plain strings with a constants class (`QBitFlow\Enums\SubscriptionStatus::ACTIVE`).
   A value this SDK does not know yet is kept as is: give every `match` a `default` arm.
 - **Times** are `DateTimeImmutable`, with the offset the API sent and microseconds.
+
+## Integration recipes
+
+The usual integration in a few lines: a client from the environment, a checkout, the webhook that
+fulfils the order, and access control.
+
+### A client from the environment
+
+```php
+use QBitFlow\QBitFlow;
+
+// QBITFLOW_API_KEY (required), QBITFLOW_BASE_URL and QBITFLOW_ON_BEHALF_OF (optional), read from
+// getenv(), $_ENV or $_SERVER (a .env loaded by phpdotenv works). Named arguments win.
+$client = QBitFlow::fromEnv();
+$client = QBitFlow::fromEnv(timeout: 10.0, maxRetries: 5);
+```
+
+A missing `QBITFLOW_API_KEY` is a `ValidationException` naming it; nothing is sent.
+
+### The webhook endpoint
+
+A `WebhookRouter` verifies the signature over the raw body, parses the event, runs the handler of
+its type with the **typed data**, and says what to answer: 200 when handled or ignored, 400 for a
+bad signature or a body that is not a v2 event, 500 when your handler throws (QBitFlow retries).
+Deliveries are at least once: make the handlers idempotent, deduplicating on `$event->id`.
+
+```php
+// public/webhooks/qbitflow.php: plain PHP
+use QBitFlow\Enums\EventType;
+use QBitFlow\Events\Event;
+use QBitFlow\Models\CheckoutSessionStatus;
+use QBitFlow\Models\PaymentCompleted;
+use QBitFlow\Models\SubscriptionStatusChanged;
+use QBitFlow\Webhooks\WebhookRouter;
+
+require __DIR__ . '/../../vendor/autoload.php';
+
+$router = (new WebhookRouter((string) getenv('QBITFLOW_WEBHOOK_SECRET')))
+	->on(EventType::PAYMENT_COMPLETED, function (PaymentCompleted $payment, Event $event): void {
+		fulfilOnce($event->id, $payment->reference, $payment->uuid); // your code
+	})
+	->on(EventType::SUBSCRIPTION_STATUS_CHANGED, function (SubscriptionStatusChanged $subscription): void {
+		setAccess($subscription->reference, $subscription->hasAccess());
+	})
+	->onError(function (?Event $event, Throwable $error): void {
+		error_log("QBitFlow {$event?->type} {$event?->id} refused or failed: {$error->getMessage()}");
+	});
+
+$router->handleGlobals(); // reads php://input and the header, sends the status and a JSON body
+```
+
+`handleGlobals()` answers 405 to anything but a POST and 413 to a body over 1 MiB, and returns the
+`WebhookResult` (`status`, `event`, `error`). Types without a handler (and the types added after
+this SDK: `onUnknown()`) are answered 200; `onAny()` runs for every event.
+
+**Laravel**: one route, and listeners for the Laravel events (see [Laravel](#laravel)):
+
+```php
+// routes/api.php
+Route::qbitflowWebhooks('webhooks/qbitflow'); // verified with QBITFLOW_WEBHOOK_SECRET, dispatched as events
+```
+
+or the router on a route of your own (the container's router is built on `QBITFLOW_WEBHOOK_SECRET`):
+
+```php
+use Illuminate\Http\Request;
+use QBitFlow\Enums\EventType;
+use QBitFlow\Models\PaymentCompleted;
+use QBitFlow\Webhooks\WebhookRouter;
+
+Route::post('/hooks/qbitflow', function (Request $request, WebhookRouter $router) {
+	$result = $router
+		->on(EventType::PAYMENT_COMPLETED, fn (PaymentCompleted $payment) => FulfilOrder::dispatch($payment->reference))
+		->handle($request->getContent(), (string) $request->header('QBitFlow-Signature'));
+
+	return response($result->responseBody(), $result->status)->header('Content-Type', 'application/json');
+});
+```
+
+**PSR-7 / PSR-15 frameworks** (Slim, Mezzio, Symfony with its PSR-7 bridge): `handleRequest()`
+takes a PSR-7 request and returns the PSR-7 response, and `psr15()` is the router as a
+`Psr\Http\Server\RequestHandlerInterface`. Responses are built with the PSR-17 factory found
+(Guzzle, Nyholm, Laminas, Slim…) or the one given to `withResponseFactory()`.
+
+```php
+// Slim 4 and Mezzio: a request handler is a route handler
+$app->post('/webhooks/qbitflow', $router->psr15());
+
+// Symfony: $this->router is a WebhookRouter service (services.yaml:
+// QBitFlow\Webhooks\WebhookRouter: { arguments: ['%env(QBITFLOW_WEBHOOK_SECRET)%'] })
+// with symfony/psr-http-message-bridge, controllers take and return PSR-7 messages:
+#[Route('/webhooks/qbitflow', methods: ['POST'])]
+public function qbitflow(ServerRequestInterface $request): ResponseInterface
+{
+	return $this->router->handleRequest($request);
+}
+
+// Symfony without the bridge: the raw body and the header are all it needs
+#[Route('/webhooks/qbitflow', methods: ['POST'])]
+public function qbitflow(Request $request): Response
+{
+	$result = $this->router->handle($request->getContent(), (string) $request->headers->get('QBitFlow-Signature'));
+
+	return new Response($result->responseBody(), $result->status, ['Content-Type' => 'application/json']);
+}
+```
+
+**Test your handlers** with a body signed like QBitFlow does:
+
+```php
+use QBitFlow\Webhooks\Webhook;
+
+$body = '{"id":"evt_1","type":"payment.completed","version":"v2","createdAt":"2026-10-01T12:00:00Z","test":true,"data":{"uuid":"pay@1","reference":"order-1042"}}';
+$result = $router->handle($body, Webhook::sign($body, 'whsec_test_secret')); // the router's secret
+assert($result->status === 200);
+```
+
+### Checkout, success page, and scripts
+
+```php
+use QBitFlow\Enums\CheckoutSessionStatusValue;
+use QBitFlow\Params\CreatePaymentSessionParams;
+use QBitFlow\Placeholders;
+
+$session = $client->checkoutSessions->createPayment(new CreatePaymentSessionParams(
+	productName: 'Premium access',
+	price: 4.99,
+	reference: 'order-1042',
+	successUrl: 'https://shop.example.com/thanks?session=' . Placeholders::UUID, // QBitFlow fills it in
+));
+// Send the customer to $session->link. Fulfil on payment.completed (above).
+
+// The success page: show where the payment stands (a redirect proves nothing).
+$status = $client->checkoutSessions->getStatus($_GET['session']);
+
+// A script, a test or a back-office job: wait until it is completed or expired.
+$status = $client->checkoutSessions->waitForCompletion($session->uuid, timeout: 600, interval: 3);
+if ($status->status === CheckoutSessionStatusValue::COMPLETED) {
+	echo "paid: {$status->txHash}\n";
+} // else expired, or still pending when the timeout elapsed: check $status->status
+```
+
+`waitForCompletion()` polls `getStatus()` (at most every second) and returns the final status, or
+the last one seen when `timeout` (seconds) elapses; errors (a 404 included) are thrown. Webhooks
+remain the way to fulfil orders.
+
+### Access control
+
+```php
+$subscription = $client->subscriptions->get($subscriptionUuid);
+if ($subscription->hasAccess()) { // currentPeriodEnd is set and now < currentPeriodEnd, whatever the status
+	// serve the content
+}
+$subscription->hasAccess(new DateTimeImmutable('+1 day')); // at another time
+```
+
+### Showing amounts
+
+Exact amounts in a token's smallest unit are decimal strings (`allowance`, `amountMinUnits`,
+`maxAmountPerPeriod`…). Convert them exactly, never through floats:
+
+```php
+use QBitFlow\Support\Amount;
+
+echo $subscription->currency?->formatAmount($subscription->allowance), " {$subscription->currency?->symbol}\n"; // "110 USDC"
+Amount::format('10004200', 6); // "10.0042"
+Amount::parse('1.5', 6);       // "1500000"
+```
+
+### A yearly accounting export
+
+The API exports at most 95 days at a time; the range helpers split any range and join the parts:
+
+```php
+$events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31'); // 4 requests, one list
+file_put_contents('qbitflow-2026.csv', $client->accounting->exportCsvRange('2026-01-01', '2026-12-31')); // one header line
+```
 
 ## Authentication and acting for a member
 
@@ -198,7 +379,8 @@ echo "subscribe at {$session->link}\n";
 ```
 
 - **Redirect placeholders.** In `successUrl` and `cancelUrl`, QBitFlow replaces `{{UUID}}` with the
-  session's id and `{{TRANSACTION_TYPE}}` with `payment` or `createSubscription`. In live mode both
+  session's id and `{{TRANSACTION_TYPE}}` with `payment` or `createSubscription`
+  (`QBitFlow\Placeholders::UUID`, `::TRANSACTION_TYPE`; the SDK sends them as they are). In live mode both
   URLs must be `https`. A redirect proves nothing (anyone can open the URL): fulfil on the
   webhook, or on `getStatus()`.
 - **Errors to expect:** `409 merchant_not_ready` (`details['reason']`) when the space's wallets
@@ -228,6 +410,9 @@ match ($status->status) {
 | `waitingConfirmation` | A transaction was sent; waiting for the network. It may last: the transaction can still land | no |
 | `completed` | Confirmed and recorded: the `Payment` or `Subscription` exists, with the session's id | yes |
 | `expired` | Expired unpaid (`checkout.expired` was sent). Read some days later, an expired session is a 404 | yes |
+
+In a script, a test or a back-office job, `waitForCompletion($uuid, timeout: 600, interval: 3)`
+polls until the session is `completed` or `expired` (see [the recipe](#checkout-success-page-and-scripts)).
 
 **Never cancel an order on `lastAttempt`:** a failed attempt is not final, and the customer can pay
 from the same checkout until it expires. Release what the order holds on `checkout.expired`.
@@ -356,13 +541,12 @@ the free trial. It keeps the checkout's `sub@…` id for life.
 `paused` subscription has paid for its period; a `pastDue` one's period has ended.
 
 ```php
-use QBitFlow\Models\Subscription;
-
-function hasAccess(Subscription $subscription): bool
-{
-	return $subscription->currentPeriodEnd !== null && new DateTimeImmutable() < $subscription->currentPeriodEnd;
-}
+$subscription->hasAccess();                                   // now
+$subscription->hasAccess(new DateTimeImmutable('2026-12-01')); // at another time
 ```
+
+The subscription webhooks' data (`SubscriptionStatusChanged`, …) are subscriptions too:
+`$data->hasAccess()` works there.
 
 `actionRequired` says what the customer must do (`topUpAllowance`, `raiseMaximum`,
 `confirmTrial`; `null`: nothing): point them to the `managementPageLink` the subscription webhooks
@@ -596,7 +780,15 @@ file_put_contents('qbitflow-2026-09.csv', $client->accounting->exportCsv('2026-0
 ```
 
 The SDK checks the dates and `from <= to` before sending. **The API allows at most 95 days per
-export** and answers 400 beyond: split longer ranges. Rows are typed `payment`,
+export** and answers 400 beyond: `exportJsonRange()` and `exportCsvRange()` take any range, split
+it into windows of at most 95 days (`[from, from+95d]`, the next starting the day after), request
+them in order and join them (the CSV header once):
+
+```php
+$events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31'); // 4 requests
+$csv = $client->accounting->exportCsvRange('2026-01-01', '2026-12-31');
+```
+ Rows are typed `payment`,
 `subscriptionHistory`, `refund`, `organizationFee` or `referralFee`; amounts in a token's smallest
 unit are decimal strings, and the empty fields of a row are `null`.
 
@@ -630,22 +822,69 @@ organization endpoint also receives its members' events unless created with
 `true` enables it again) and `delete()` manage them. An endpoint's secret is shown and rotated in
 the dashboard only.
 
-### 2. Verify and handle the deliveries
+### 2. Handle the deliveries with a router
 
-Verify the `QBitFlow-Signature` header over the **raw body**, then act on the typed event. No
-client (and no API key) is needed: `QBitFlow\Webhooks\Webhook` works on its own.
+A `QBitFlow\Webhooks\WebhookRouter` does the whole job: it verifies the `QBitFlow-Signature`
+header over the **raw body**, parses the event, runs the handlers registered for its type with
+the typed data, and tells you what to answer. No client (and no API key) is needed;
+`$client->webhooks->router($secret)` builds the same router.
 
 ```php
-use QBitFlow\Events\CheckoutExpiredEvent;
+use QBitFlow\Enums\EventType;
+use QBitFlow\Events\Event;
+use QBitFlow\Models\PaymentCompleted;
+use QBitFlow\Models\PaymentSessionData;
+use QBitFlow\Models\SubscriptionSessionData;
+use QBitFlow\Models\SubscriptionStatusChanged;
+use QBitFlow\Webhooks\WebhookRouter;
+
+$router = (new WebhookRouter((string) getenv('QBITFLOW_WEBHOOK_SECRET')))
+	->on(EventType::PAYMENT_COMPLETED, function (PaymentCompleted $payment, Event $event): void {
+		if (alreadyProcessed($event->id)) { // your database: deliveries are at least once
+			return;
+		}
+		fulfil($payment->reference, $payment->uuid, $payment->amount);
+	})
+	->on(EventType::CHECKOUT_EXPIRED, function (PaymentSessionData|SubscriptionSessionData $session): void {
+		release($session->reference);
+	})
+	->on(EventType::SUBSCRIPTION_STATUS_CHANGED, function (SubscriptionStatusChanged $subscription): void {
+		syncAccess($subscription->uuid, $subscription->previousStatus, $subscription->status, $subscription->hasAccess());
+	})
+	->onUnknown(fn (Event $event) => error_log("a type this SDK does not know: {$event->type}"))
+	->onAny(fn (Event $event) => storeForAudit($event->id, $event->type))
+	->onError(fn (?Event $event, Throwable $error) => error_log("webhook {$event?->id}: {$error->getMessage()}"));
+
+$result = $router->handleGlobals(); // plain PHP; or handleRequest($psr7Request), psr15(), handle($rawBody, $header)
+```
+
+| Delivery | `WebhookResult::$status` | Body the adapters send |
+|---|---|---|
+| handled, or no handler for its type (unknown types included) | 200 | `{"received":true}` |
+| bad, missing or stale signature (no handler runs) | 400 | `{"error":"invalid signature"}` |
+| not a v2 event: not JSON, an endpoint still on v1, data not fitting its type | 400 | `{"error":"invalid event"}` |
+| a handler threw: the handlers after it are skipped, QBitFlow retries | 500 | `{"error":"internal error"}` |
+| adapters: not a POST / a body over 1 MiB / an unreadable body | 405 (`Allow: POST`) / 413 / 400 | `method not allowed` / `body too large` / `cannot read the body` |
+
+Per event the handlers run in this order: those of its type (several per type, in registration
+order), then `onUnknown()` (types this SDK does not know only), then `onAny()`. `on()` refuses a
+type this SDK does not know (a `ValidationException`: catch typos early), and so does an empty
+secret. `onError()` sees every result carrying an error (the 400s, with a null event when parsing
+failed, and the 500s); the bodies never echo the secret nor a stack trace. `$router->dispatch($event)`
+runs the handlers for an event you verified yourself. The [recipes](#the-webhook-endpoint) show
+the router in Laravel, Slim, Mezzio and Symfony, and `Webhook::sign()` for your tests.
+
+#### The lower level: verify and parse yourself
+
+```php
 use QBitFlow\Events\PaymentCompletedEvent;
-use QBitFlow\Events\SubscriptionStatusChangedEvent;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Exceptions\WebhookSignatureException;
 use QBitFlow\Webhooks\Webhook;
 
 $rawBody = file_get_contents('php://input'); // the bytes as received: never re-serialize
 try {
-	$event = Webhook::constructEvent($rawBody, $_SERVER['HTTP_QBITFLOW_SIGNATURE'] ?? '', getenv('QBITFLOW_WEBHOOK_SECRET'));
+	$event = Webhook::constructEvent($rawBody, $_SERVER['HTTP_QBITFLOW_SIGNATURE'] ?? '', (string) getenv('QBITFLOW_WEBHOOK_SECRET'));
 } catch (WebhookSignatureException $e) {
 	http_response_code(400); // $e->reason: noMatchingSignature, timestampOutsideTolerance, …
 	exit;
@@ -653,22 +892,10 @@ try {
 	http_response_code(400); // not a v2 event: an endpoint still on payload version v1
 	exit;
 }
-
-if (alreadyProcessed($event->id)) { // your database: deliveries are at least once
-	http_response_code(200);
-	exit;
-}
-
 if ($event instanceof PaymentCompletedEvent) {
 	fulfil($event->data->reference, $event->data->uuid, $event->data->amount);
-} elseif ($event instanceof CheckoutExpiredEvent) {
-	release($event->data->reference);
-} elseif ($event instanceof SubscriptionStatusChangedEvent) {
-	$access = $event->data->currentPeriodEnd !== null && new DateTimeImmutable() < $event->data->currentPeriodEnd;
-	syncAccess($event->data->uuid, $event->data->previousStatus, $event->data->status, $access);
 }
-// Any other type, or one added after this SDK (an UnknownEvent): acknowledge it.
-http_response_code(200);
+http_response_code(200); // to every type, the ignored ones too
 ```
 
 `Webhook::verify()` checks a signature without parsing (it throws, or returns nothing),
@@ -717,7 +944,7 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 Every event also has `id`, `type`, `version`, `createdAt`, `test`, `userUuid` and `rawData`;
 `$event->decodeData(Subscription::fromArray(...))` reads the data as another model. Webhook data
 never carries what only API reads return (`customer`, `refund`/`refundable`, `dunning`,
-`approval`, `productName`). In Laravel, the [middleware and events](#laravel) do all of this.
+`approval`, `productName`). In Laravel, the [route, middleware and events](#laravel) do all of this.
 
 ### The event log
 
@@ -931,10 +1158,14 @@ $client = new QBitFlow(
 | `idempotencyKey` | the 7 creates only: your own `Idempotency-Key` |
 | `requestId` | sends `X-Request-Id` (1 to 128 of `A-Z a-z 0-9 - _ . :`) |
 
-| Webhook arguments (`Webhook::verify()`, `verifyRequest()`, `constructEvent()`) | Default |
+| Webhook arguments (`new WebhookRouter()`, `Webhook::verify()`, `verifyRequest()`, `constructEvent()`) | Default |
 |---|---|
 | `tolerance` (seconds; 0 or less keeps the default) | 300 (`Webhook::DEFAULT_TOLERANCE`) |
-| `now` (`Closure(): int\|DateTimeInterface`) | `time()` |
+| `now` (`Closure(): int\|DateTimeInterface`; not on the router) | `time()` |
+
+`QBitFlow::fromEnv()` builds the client from `QBITFLOW_API_KEY`, `QBITFLOW_BASE_URL` and
+`QBITFLOW_ON_BEHALF_OF` (blank = unset); it takes the constructor's named arguments, which win
+over the environment.
 
 A bad argument makes the constructor throw a `ValidationException`. A client's configuration never
 changes; `$client->onBehalfOf()` derives clients that share it. Every request sends
@@ -976,10 +1207,13 @@ $session = QBitFlow::checkoutSessions()->createPayment(new CreatePaymentSessionP
 Route::qbitflowWebhooks('webhooks/qbitflow'); // POST, verified, answered 200
 ```
 
-The middleware verifies the `QBitFlow-Signature` with `QBITFLOW_WEBHOOK_SECRET` (400 for a bad
-signature or a v1 body); the controller then dispatches the Laravel event of the webhook's type,
-followed by `WebhookReceived` for every delivery (unknown types included). Handle them in queued
-listeners, deduplicating on `$event->event->id`:
+The middleware verifies the `QBitFlow-Signature` with `QBITFLOW_WEBHOOK_SECRET` (400
+`{"error":"invalid signature"}` or `{"error":"invalid event"}` for a v1 body, 413 over 1 MiB);
+the controller then dispatches, through a [`WebhookRouter`](#2-handle-the-deliveries-with-a-router),
+the Laravel event of the webhook's type, followed by `WebhookReceived` for every delivery
+(unknown types included). A listener that throws makes it answer 500 `{"error":"internal error"}`
+(reported to your exception handler; QBitFlow retries). Handle them in queued listeners,
+deduplicating on `$event->event->id`:
 
 | Webhook | Laravel event (`QBitFlow\Laravel\Events\…`) |
 |---|---|
@@ -1009,7 +1243,9 @@ final class FulfilPaidOrder implements ShouldQueue
 ```
 
 To verify on a route of your own, use the `qbitflow.webhook` middleware: the verified event is on
-`$request->attributes->get('qbitflow.event')`. A PSR-18 client bound in the container
+`$request->attributes->get('qbitflow.event')`. Or resolve a `QBitFlow\Webhooks\WebhookRouter`
+from the container (a fresh one per resolution, on `QBITFLOW_WEBHOOK_SECRET` and
+`QBITFLOW_WEBHOOK_TOLERANCE`) and register your own handlers ([recipe](#the-webhook-endpoint)). A PSR-18 client bound in the container
 (`Psr\Http\Client\ClientInterface`) is used by the singleton client (proxies, logging, fakes in
 tests).
 
@@ -1030,7 +1266,7 @@ Runnable scripts in [`examples/`](examples) (`QBITFLOW_API_KEY=sk_… php exampl
 | [`checkout.php`](examples/checkout.php) | a payment checkout, its status, expiry |
 | [`subscriptions.php`](examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, bills, cancel at period end |
 | [`marketplace.php`](examples/marketplace.php) | invite a seller, sell `onBehalfOf`, held funds, trust |
-| [`webhook-handler.php`](examples/webhook-handler.php) | a verified plain-PHP receiver with deduplication and typed events |
+| [`webhook-handler.php`](examples/webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, deduplication, the right answers |
 | [`errors-and-retries.php`](examples/errors-and-retries.php) | exception types, `isRetryable()`, idempotency keys across processes |
 | [`laravel/`](examples/laravel) | the webhook route, a checkout controller with the facade, queued listeners |
 

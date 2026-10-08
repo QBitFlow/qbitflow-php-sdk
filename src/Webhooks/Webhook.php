@@ -8,6 +8,7 @@ use Closure;
 use DateTimeInterface;
 use JsonException;
 use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\StreamInterface;
 use QBitFlow\Events\Event;
 use QBitFlow\Exceptions\FieldError;
 use QBitFlow\Exceptions\ServerException;
@@ -19,6 +20,7 @@ use stdClass;
 /**
  * Verifies and parses webhook deliveries, without a client (a webhook receiver may not hold an
  * API key). `$client->webhooks->verify()`, `constructEvent()` and `parseEvent()` delegate here.
+ * The lower level of {@see WebhookRouter}, which also dispatches the event and answers.
  *
  * ```php
  * $event = Webhook::constructEvent(
@@ -125,22 +127,8 @@ final class Webhook
 	 */
 	public static function verifyRequest(RequestInterface $request, string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): string
 	{
-		$stream = $request->getBody();
-		if ($stream->isSeekable()) {
-			$stream->rewind();
-		}
-		$body = '';
-		while (! $stream->eof() && strlen($body) <= self::MAX_BODY_BYTES) {
-			$chunk = $stream->read(self::MAX_BODY_BYTES + 1 - strlen($body));
-			if ($chunk === '') {
-				break;
-			}
-			$body .= $chunk;
-		}
-		if ($stream->isSeekable()) {
-			$stream->rewind();
-		}
-		if (strlen($body) > self::MAX_BODY_BYTES) {
+		$body = self::readBody($request->getBody());
+		if ($body === null) {
 			throw Validator::fieldError('body', 'must be at most 1 MiB');
 		}
 
@@ -207,6 +195,59 @@ final class Webhook
 		self::verify($rawBody, $signatureHeader, $secret, $tolerance, $now);
 
 		return self::parseEvent($rawBody);
+	}
+
+	/**
+	 * The `QBitFlow-Signature` header QBitFlow would send for `$rawBody`: `t=<timestamp>,v1=<hex>`
+	 * with `hex(HMAC-SHA256(secret, t + "." + rawBody))`. For your tests: a body signed with it
+	 * passes {@see Webhook::verify()} (and a {@see WebhookRouter}) with the same secret.
+	 *
+	 * ```php
+	 * $header = Webhook::sign($body, 'whsec_test');
+	 * $result = $router->handle($body, $header); // status 200
+	 * ```
+	 *
+	 * @param int|null $timestamp Unix seconds (default: now).
+	 *
+	 * @throws ValidationException For an empty secret or a negative timestamp.
+	 */
+	public static function sign(string $rawBody, string $secret, ?int $timestamp = null): string
+	{
+		if ($secret === '') {
+			throw Validator::fieldError('secret', "is required (the endpoint's whsec_… secret)");
+		}
+		$timestamp ??= time();
+		if ($timestamp < 0) {
+			throw Validator::fieldError('timestamp', 'must not be negative');
+		}
+
+		return 't=' . $timestamp . ',v1=' . hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
+	}
+
+	/**
+	 * Reads a body stream, at most 1 MiB; null when it is larger. The stream is rewound before
+	 * and after when it can be.
+	 *
+	 * @internal
+	 */
+	public static function readBody(StreamInterface $stream): ?string
+	{
+		if ($stream->isSeekable()) {
+			$stream->rewind();
+		}
+		$body = '';
+		while (! $stream->eof() && strlen($body) <= self::MAX_BODY_BYTES) {
+			$chunk = $stream->read(self::MAX_BODY_BYTES + 1 - strlen($body));
+			if ($chunk === '') {
+				break;
+			}
+			$body .= $chunk;
+		}
+		if ($stream->isSeekable()) {
+			$stream->rewind();
+		}
+
+		return strlen($body) > self::MAX_BODY_BYTES ? null : $body;
 	}
 
 	/**

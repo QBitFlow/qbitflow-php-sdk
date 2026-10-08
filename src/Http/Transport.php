@@ -132,6 +132,14 @@ final class Transport
 		return $this->maxRetries;
 	}
 
+	/** Waits `$seconds` with the transport's (injectable) sleep: the polling helpers use it. */
+	public function sleep(float $seconds): void
+	{
+		if ($seconds > 0) {
+			($this->sleep)($seconds);
+		}
+	}
+
 	/**
 	 * Performs one API call: applies the request options, builds the headers, encodes the body
 	 * and runs the retry policy. Returns any 2xx response, else throws the typed error.

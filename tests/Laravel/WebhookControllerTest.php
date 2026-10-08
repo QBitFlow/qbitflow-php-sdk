@@ -6,7 +6,7 @@ namespace QBitFlow\Tests\Laravel;
 
 use Illuminate\Events\Dispatcher;
 use Illuminate\Http\Request;
-use LogicException;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use QBitFlow\Enums\EventType;
@@ -15,21 +15,36 @@ use QBitFlow\Laravel\Events;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
 use QBitFlow\Laravel\Http\Middleware\VerifyQBitFlowWebhook;
 use QBitFlow\Webhooks\Webhook;
+use QBitFlow\Webhooks\WebhookRouter;
+use RuntimeException;
 
 final class WebhookControllerTest extends TestCase
 {
 	/** @var list<object> */
 	private array $dispatched = [];
 
-	private function controller(): WebhookController
+	private const SECRET = 'whsec_test_secret';
+
+	/** @var list<\Throwable> */
+	private array $reported = [];
+
+	private function controller(?\Closure $listener = null): WebhookController
 	{
 		$this->dispatched = [];
+		$this->reported = [];
 		$dispatcher = new Dispatcher();
 		$dispatcher->listen('*', function (string $name, array $payload): void {
 			$this->dispatched[] = $payload[0];
 		});
+		if ($listener !== null) {
+			$dispatcher->listen(Events\PaymentCompleted::class, $listener);
+		}
+		$exceptions = $this->createMock(ExceptionHandler::class);
+		$exceptions->method('report')->willReturnCallback(function (\Throwable $e): void {
+			$this->reported[] = $e;
+		});
 
-		return new WebhookController($dispatcher);
+		return new WebhookController($dispatcher, new WebhookRouter(self::SECRET), $exceptions);
 	}
 
 	private static function verified(string $type, string $data = '{}'): Request
@@ -95,9 +110,35 @@ final class WebhookControllerTest extends TestCase
 	}
 
 	#[Test]
-	public function an_unverified_request_is_never_handled(): void
+	public function without_the_middleware_it_verifies_the_delivery_itself(): void
 	{
-		$this->expectException(LogicException::class);
-		$this->controller()(Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], '{"type":"payment.completed"}'));
+		$controller = $this->controller();
+		$response = $controller(Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], '{"type":"payment.completed"}'));
+		$this->assertSame(400, $response->getStatusCode(), 'never acts on an unverified body');
+		$this->assertSame(['error' => 'invalid signature'], $response->getData(true));
+		$this->assertSame([], $this->dispatched);
+
+		$response = $controller(WebhookMiddlewareTest::signedRequest(WebhookMiddlewareTest::body(), self::SECRET));
+		$this->assertSame(200, $response->getStatusCode());
+		$this->assertCount(2, $this->dispatched);
+		$this->assertInstanceOf(Events\PaymentCompleted::class, $this->dispatched[0]);
+
+		$big = Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], str_repeat('a', Webhook::MAX_BODY_BYTES + 1));
+		$this->assertSame(413, $controller($big)->getStatusCode());
+	}
+
+	#[Test]
+	public function a_failing_listener_answers_500_and_is_reported(): void
+	{
+		$boom = new RuntimeException('database down');
+		$controller = $this->controller(static function () use ($boom): void {
+			throw $boom;
+		});
+		$response = $controller(self::verified(EventType::PAYMENT_COMPLETED));
+
+		$this->assertSame(500, $response->getStatusCode());
+		$this->assertSame(['error' => 'internal error'], $response->getData(true), 'never the exception message');
+		$this->assertSame([$boom], $this->reported);
+		$this->assertNotContains(true, array_map(static fn (object $e): bool => $e instanceof Events\WebhookReceived, $this->dispatched), 'later handlers skipped');
 	}
 }

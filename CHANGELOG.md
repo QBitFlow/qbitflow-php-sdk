@@ -147,6 +147,38 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `QBITFLOW_WEBHOOK_TOLERANCE`); the verified event on `$request->attributes`
     (`qbitflow.event`); facade methods for every service and `me()`.
 -   `User-Agent: qbitflow-php/3.0.0` and `QBitFlow::VERSION`.
+-   **Integration helpers** (the same in the Go, JavaScript, Python and PHP SDKs):
+    -   `Webhooks\WebhookRouter` (also `$client->webhooks->router($secret)`): verifies, parses and
+        dispatches a delivery to the handlers of its type with typed data (`on(EventType::…,
+        fn (PaymentCompleted $data, Event $event) => …)`, several per type, chaining),
+        `onUnknown()`, `onAny()`, `onError()`; `handle($rawBody, $header)` returns a
+        `WebhookResult` (`status`, `event`, `error`, `responseBody()`): 200 handled or ignored,
+        400 bad signature or not a v2 event, 500 when a handler throws (the later ones skipped).
+        Adapters: `handleGlobals()` (plain PHP), `handleRequest()` (PSR-7 in and out, PSR-17
+        factories auto-detected or `withResponseFactory()`), `psr15()` (a PSR-15
+        `Psr15WebhookHandler`); 405 unless POST, 413 over 1 MiB (also from `Content-Length`),
+        bodies `{"received":true}` / `{"error":"…"}`. `dispatch($event)` for an event verified
+        elsewhere. New dependency: `psr/http-server-handler` ^1.0 (the PSR-15 interface).
+    -   `Webhook::sign($rawBody, $secret, $timestamp = now)`: the `QBitFlow-Signature` header
+        QBitFlow would send, to test your handlers.
+    -   `checkoutSessions->waitForCompletion($uuid, timeout: 600, interval: 3)`: polls until
+        `completed` or `expired`, or returns the last status seen at the timeout; uses the
+        client's sleep.
+    -   `Subscription::hasAccess(?DateTimeInterface $at = null)` (also on the subscription
+        webhook data): `currentPeriodEnd` set and `$at` before it.
+    -   `Support\Amount::format()` / `parse()`: exact min units ↔ decimal strings by string
+        arithmetic (no extension needed); `Currency::formatAmount($minUnits)`.
+    -   `accounting->exportJsonRange()` / `exportCsvRange()`: any date range, split into windows
+        of at most 95 days and joined (the CSV header once).
+    -   `QBitFlow::fromEnv(...)`: `QBITFLOW_API_KEY` (required), `QBITFLOW_BASE_URL`,
+        `QBITFLOW_ON_BEHALF_OF` from `getenv()` / `$_ENV` / `$_SERVER`; named arguments win.
+    -   `Placeholders::UUID` and `Placeholders::TRANSACTION_TYPE` for the redirect URLs.
+    -   Laravel: the `WebhookController` dispatches through a `WebhookRouter` (bound in the
+        container on `QBITFLOW_WEBHOOK_SECRET`), still one Laravel event per type then
+        `WebhookReceived`; it also verifies on its own when used without the middleware, and a
+        throwing listener is a 500 `{"error":"internal error"}` reported to the exception
+        handler. The middleware answers `{"error":"invalid signature"}` /
+        `{"error":"invalid event"}` (400) and 413 over 1 MiB.
 -   Examples: `checkout.php`, `subscriptions.php`, `marketplace.php`, `webhook-handler.php`,
     `errors-and-retries.php`, `laravel/`; `MIGRATION-v3.md`.
 

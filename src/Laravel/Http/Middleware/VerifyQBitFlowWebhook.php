@@ -8,9 +8,9 @@ use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use QBitFlow\Exceptions\QBitFlowException;
-use QBitFlow\Exceptions\ValidationException;
-use QBitFlow\Exceptions\WebhookSignatureException;
 use QBitFlow\Webhooks\Webhook;
+use QBitFlow\Webhooks\WebhookResult;
+use QBitFlow\Webhooks\WebhookRouter;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -28,9 +28,10 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * It verifies the `QBitFlow-Signature` header over the raw body with `QBITFLOW_WEBHOOK_SECRET`
  * (the endpoint's `whsec_…` secret), then parses the event and puts it on the request
- * (`$request->attributes->get('qbitflow.event')`, a {@see \QBitFlow\Events\Event}). A bad
- * signature, or a body that is not a v2 event, is answered 400; a missing secret is a
- * configuration error (500, so QBitFlow retries once it is fixed).
+ * (`$request->attributes->get('qbitflow.event')`, a {@see \QBitFlow\Events\Event}), with a
+ * {@see WebhookRouter}. A bad signature, or a body that is not a v2 event, is answered 400
+ * (`{"error":"invalid signature"}`, `{"error":"invalid event"}`), a body over 1 MiB 413; a
+ * missing secret is a configuration error (500, so QBitFlow retries once it is fixed).
  */
 final class VerifyQBitFlowWebhook
 {
@@ -49,21 +50,16 @@ final class VerifyQBitFlowWebhook
 			throw new QBitFlowException('QBitFlow webhook secret is not configured: set QBITFLOW_WEBHOOK_SECRET (the endpoint\'s whsec_… secret).');
 		}
 
-		try {
-			$event = Webhook::constructEvent(
-				$request->getContent(),
-				(string) $request->headers->get(Webhook::SIGNATURE_HEADER, ''),
-				$this->secret,
-				$this->tolerance,
-			);
-		} catch (WebhookSignatureException $e) {
-			return new JsonResponse(['message' => 'Invalid webhook signature', 'reason' => $e->reason], 400);
-		} catch (ValidationException $e) {
-			// Signed, but not a v2 event (an endpoint still on payload version v1, or a bad body).
-			return new JsonResponse(['message' => 'Invalid webhook body: ' . $e->getMessage()], 400);
+		$body = $request->getContent();
+		// A router with no handler only verifies and parses: 200 with the event, or the 400.
+		$result = (int) $request->headers->get('Content-Length', '0') > Webhook::MAX_BODY_BYTES || strlen($body) > Webhook::MAX_BODY_BYTES
+			? new WebhookResult(413)
+			: (new WebhookRouter($this->secret, $this->tolerance))->handle($body, (string) $request->headers->get(Webhook::SIGNATURE_HEADER, ''));
+		if (! $result->ok() || $result->event === null) {
+			return new JsonResponse(['error' => $result->reason()], $result->status);
 		}
 
-		$request->attributes->set(self::EVENT_ATTRIBUTE, $event);
+		$request->attributes->set(self::EVENT_ATTRIBUTE, $result->event);
 
 		return $next($request);
 	}
