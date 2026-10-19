@@ -407,9 +407,9 @@ echo "Subscribe at {$session->link}\n";
 
 ### Fees
 
-A payment checkout can add amounts to its product's price: a tax, shipping, a service fee, and
-QBitFlow's processing fee when you have the customer pay it. The customer sees them line by line
-and pays them with the price:
+A checkout, a payment's or a subscription's, can add amounts to its product's price: a tax,
+shipping, a service fee, and QBitFlow's processing fee when you have the customer pay it. The
+customer sees them line by line and pays them with the price (a subscription: with every bill):
 
 <!-- docs:snippet checkout-create-payment-fees -->
 ```php
@@ -439,15 +439,25 @@ echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping a
 - **The processing fee** (`processingFee: true`) is a last line (`Processing fee`) that QBitFlow
   computes on the price and your lines at your platform fee, grossed up (its fee is also taken on
   that line) and rounded up to the cent: you keep at least the price and your lines, as if no fee
-  were taken ($100 + $20 VAT at 1.5 % → a $1.83 processing fee, $121.83 charged, $120.00 kept). Left
-  `null`, the space's **`checkout.customerPaysProcessingFee`** setting decides (set in the dashboard,
-  off by default; it also applies to product links); `false` turns it off for this checkout.
+  were taken ($100 + $20 VAT at 0.99 % → a $1.20 processing fee, $121.20 charged, $120.00 kept).
+  The rate is the checkout's: QBitFlow's fee for your space when the checkout is created (a
+  schedule by volume, unless QBitFlow set you a custom rate). Left `null`, the space's
+  **`checkout.customerPaysProcessingFee`** setting decides (set in the dashboard, off by default;
+  members may set their own; it also applies to product links); `false` turns it off for this
+  checkout.
 - **What the customer pays** is the checkout's `amount` = the price + every line; the network fee
   comes on top, once they pick a currency. QBitFlow's fee (and a marketplace's organization fee) is
   taken on that amount. Test mode caps it, fees included, at 5 USD (`400` on `fees`).
-- One-time payments only: `createSubscription()` takes no fees. The lines are fixed when the
-  session is created; `checkout.expired` carries them (`$event->data->fees`, `->amount`), and the
-  payment keeps them (`price`, `fees`: see [Payments](#payments-and-failures)).
+- The lines are fixed when the session is created; `checkout.expired` carries them
+  (`$event->data->fees`, `->amount`), and the payment keeps them (`price`, `fees`: see
+  [Payments](#payments-and-failures)).
+- **Subscriptions** take the same `fees` (`CreateSubscriptionSessionParams`, the same rules),
+  locked with the price: every bill, the first one and each next one, charges the price plus every
+  line, whatever the product's price or your fee becomes. The `Subscription` keeps them as `fees`
+  next to `priceUsd` (which stays the price); a bill's `amount` and `subscription.upcomingBill`'s
+  `amountUsd` include them, and the maximum and allowance the subscriber signs are sized on that
+  amount. A trial's upgrade keeps the trial's lines. `checkout.customerPaysProcessingFee` applies
+  to subscription checkouts too.
 
 ### Status
 
@@ -517,7 +527,9 @@ foreach ($client->products->list() as $product) {
 
 The reference is generated when null. A subscription product carries its terms, an update changes
 only the arguments given (a new price applies to new checkouts and subscribers only), and the list
-can include the hidden products:
+can include the hidden products. A member's key gives a product terms (on `create()` or `update()`)
+only while the organization's `members.subscriptions` policy allows it (`403 policy_disabled`
+otherwise); with the policy off, the links of the member's subscription products open nothing:
 
 ```php
 use QBitFlow\Models\Duration;
@@ -972,7 +984,7 @@ or as CSV text:
 // The API exports at most 95 days at a time: the range helpers split any range and join the parts.
 $events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31');
 foreach ($events as $event) {
-	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->tokenSymbol}\n";
+	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->currency}\n";
 }
 
 $csv = $client->accounting->exportCsvRange('2026-01-01', '2026-12-31'); // one header line, then the rows
@@ -984,8 +996,25 @@ export** and answers 400 beyond: `exportJsonRange()` and `exportCsvRange()` take
 it into windows of at most 95 days (`[from, from+95d]`, the next starting the day after), request
 them in order and join them (the CSV header once): a year is 4 requests. `exportJson()` and
 `exportCsv()` make one request for a window of at most 95 days. Rows are typed `payment`,
-`subscriptionHistory`, `refund`, `organizationFee` or `referralFee`; amounts in a token's smallest
-unit are decimal strings, and the empty fields of a row are `null`.
+`subscriptionHistory`, `refund`, `organizationFee` or `referralFee`, and the empty fields of a row
+are `null`.
+
+- **Dates** are the transactions' (the day their block was mined, in UTC: `txTimeUtc`), so
+  consecutive exports never miss nor repeat an event. Rows are ordered by `txTimeUtc`, `type`,
+  then `paymentUuid`.
+- **Amounts** are in the currency's units (`"7.5"` USDC, not `7500000`), as decimal strings, next
+  to `currencyDecimals`. `currency` names what was paid as markets do (`USDC`, or the chain's
+  native currency: `ETH`, `SOL`), and `currencyPriceUsd` is the USD price the amounts were
+  converted at. `grossAmount = platformFee + organizationFee + netAmount` exactly; a refund's net
+  is the refunded amount, negative.
+- **Network fees are never part of the net.** `networkFeesPaidBy` (`Enums\NetworkFeesPayer`) says
+  whose wallet paid them: `payer` (a payment or a bill: on top of the amount, in its currency),
+  `merchant` (a refund your space sent) or `organization` (a refund of a payment the organization
+  held for its member). Book `networkFees` (in `networkFeesCurrency`, the chain's native currency
+  on a refund) apart for `merchant` and `organization`.
+- **CSV columns** follow `AccountingEvent`'s property order (what happened, the USD amounts, the
+  same amounts in the currency, the network fees, the rates, the on-chain proof, the ids): read
+  them by header name, not position.
 
 ## Webhooks
 

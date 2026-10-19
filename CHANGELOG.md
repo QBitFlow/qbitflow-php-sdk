@@ -112,7 +112,7 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `$client->onBehalfOf()`: a client acting in a member's space, sharing the transport.
 -   `checkoutSessions`: `createPayment`, `createSubscription` (with `expiresInMinutes` and the
     `{{UUID}}` / `{{TRANSACTION_TYPE}}` redirect placeholders), `getStatus`, `expire`.
--   **Checkout fees** (one-time payments): `CreatePaymentSessionParams(fees: new CheckoutFees(…))`
+-   **Checkout fees**: `CreatePaymentSessionParams(fees: new CheckoutFees(…))`
     adds your lines (`FeeItem`: `label`, `amountUsd` as a number or a string sent as typed,
     optional `description`; at most 10) and QBitFlow's processing fee (`processingFee: true`,
     grossed up so you keep the price and your lines; `null` follows the dashboard setting
@@ -123,6 +123,17 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `Models\FeeLine` (`amountUsd` a decimal string) and `Enums\FeeLineType` (`custom`,
     `processingFee`). The network fee stays on top of `amount`; test mode caps it, fees included,
     at 5 USD.
+-   Checkout fees on subscriptions: `CreateSubscriptionSessionParams(fees: …)` (the same
+    `CheckoutFees` and rules, errors on `fees.items[<i>].<field>` after the terms'), locked with
+    the price: every bill charges the price plus every line. `Subscription::$fees` (the lines,
+    next to `priceUsd`, which stays the price; also on every `subscription.*` webhook); the
+    session's `fees` and `amount` on a subscription checkout too.
+-   `AccountingEvent` follows the API's export: amounts in the currency's units (not min units),
+    `currency` (was `tokenSymbol`), `currencyPriceUsd`, and the network fees apart from the net:
+    `networkFeesPaidBy` (the open enum `Enums\NetworkFeesPayer`: `PAYER`, `MERCHANT`,
+    `ORGANIZATION`), `networkFees`, `networkFeesCurrency`, `networkFeesCurrencyDecimals`,
+    `networkFeesCurrencyPriceUsd`, `networkFeesUsd`. Its properties are in the CSV's column order;
+    the always-empty `userName`, `userLastName`, `customerName` and `customerLastName` are gone.
 -   `payments->list()` / `listCombined()` with filters (customer, product, dates, `refunded`,
     `includeMembers` / `userUuid`, `source`, `subscriptionUuid`); `payments->get()` with
     `ReadParams`. `failures->list()`: the failed payment attempts.

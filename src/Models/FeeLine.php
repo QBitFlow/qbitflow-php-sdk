@@ -7,8 +7,9 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * An amount a one-time payment's checkout added to its product's price, shown to the customer
- * and paid with it (on {@see Payment::$fees} and {@see PaymentSessionData::$fees}).
+ * An amount a checkout adds to its product's price, shown to the customer and paid with it, a
+ * subscription's with every bill (on {@see Payment::$fees}, {@see PaymentSessionData::$fees} and
+ * {@see Subscription::$fees}).
  */
 final readonly class FeeLine extends Model
 {

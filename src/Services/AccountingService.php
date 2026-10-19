@@ -21,8 +21,10 @@ final class AccountingService extends Service
 
 	/**
 	 * The accounting events between two dates, both `YYYY-MM-DD` and included
-	 * (`GET /accounting/export?format=json`). The API allows at most 95 days (400 beyond); the
-	 * SDK checks the dates and `from <= to` before sending. Longer ranges: {@see exportJsonRange()}.
+	 * (`GET /accounting/export?format=json`). The dates are the transactions' (their block's day,
+	 * in UTC), so consecutive exports never miss nor repeat an event. Events are ordered by
+	 * `txTimeUtc`, then `type`, then `paymentUuid`. The API allows at most 95 days (400 beyond);
+	 * the SDK checks the dates and `from <= to` before sending. Longer ranges: {@see exportJsonRange()}.
 	 *
 	 * @return list<AccountingEvent>
 	 */
@@ -32,8 +34,9 @@ final class AccountingService extends Service
 	}
 
 	/**
-	 * The same export as CSV text (`GET /accounting/export?format=csv`). Errors are still JSON,
-	 * and typed as usual.
+	 * The same export as CSV text (`GET /accounting/export?format=csv`). Its columns follow
+	 * {@see AccountingEvent}'s properties: read them by header name, not position. Errors are
+	 * still JSON, and typed as usual.
 	 */
 	public function exportCsv(string $from, string $to, ?RequestOptions $options = null): string
 	{

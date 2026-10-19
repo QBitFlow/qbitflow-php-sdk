@@ -18,7 +18,8 @@ final readonly class SubscriptionUpcomingBill extends Subscription
 	public DateTimeImmutable $billingDate;
 
 	/**
-	 * The bill, in USD (a number, unlike SubscriptionBillingFailed's).
+	 * The bill, in USD (a number, unlike SubscriptionBillingFailed's): its `priceUsd` plus its
+	 * `fees` lines.
 	 */
 	public float $amountUsd;
 

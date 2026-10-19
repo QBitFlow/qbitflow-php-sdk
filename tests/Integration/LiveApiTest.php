@@ -18,6 +18,8 @@ use QBitFlow\Enums\Role;
 use QBitFlow\Events\Event;
 use QBitFlow\Exceptions\ConflictException;
 use QBitFlow\Exceptions\NotFoundException;
+use QBitFlow\Exceptions\PermissionDeniedException;
+use QBitFlow\Models\Duration;
 use QBitFlow\Models\Me;
 use QBitFlow\Params;
 use QBitFlow\QBitFlow;
@@ -294,6 +296,24 @@ final class LiveApiTest extends TestCase
 
 		// No API-key route reads a session's fees or amount back (the checkout page's read is frontend-only): the round trip only.
 		$this->assertSame(CheckoutSessionStatusValue::CREATED, $this->client->checkoutSessions->getStatus($session->uuid)->status);
+
+		// A subscription checkout takes the same fees, charged with every bill.
+		try {
+			$sub = $this->client->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(productName: 'Pro', description: 'Monthly plan',
+				price: 3.99, reference: 'sub-1044-' . self::suffix(), successUrl: 'https://shop.example.com/orders/success?uuid={{UUID}}',
+				cancelUrl: 'https://shop.example.com/orders/cancel', frequency: Duration::months(1), fees: new Params\CheckoutFees(processingFee: true, items: [
+					new Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+				])));
+		} catch (PermissionDeniedException $e) {
+			if ($e->apiCode === 'policy_disabled') {
+				$this->markTestSkipped('subscriptions are off for this member (members.subscriptions)');
+			}
+
+			throw $e;
+		}
+		$this->cleanups[] = fn () => $this->client->checkoutSessions->expire($sub->uuid);
+		$this->assertNotSame('', $sub->link);
+		$this->assertStringStartsWith('sub@', $sub->uuid);
 	}
 
 	#[Test]

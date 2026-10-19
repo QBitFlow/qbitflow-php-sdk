@@ -35,7 +35,9 @@ final class ProductsService extends Service
 	 * transient failures. A subscription product needs `subscription->frequency`.
 	 *
 	 * Errors: 400 validation_failed (e.g. a price above 5 USD in test mode, `details.max`); 409
-	 * `unique_violation` on reference; a member's key needs the `members.products` policy (403).
+	 * `unique_violation` on reference; a member's key needs the organization's `members.products`
+	 * policy, and `members.subscriptions` to give the product subscription terms (403
+	 * `policy_disabled`, `details.policy` names it).
 	 */
 	public function create(CreateProductParams $params, ?RequestOptions $options = null): Product
 	{
@@ -63,6 +65,10 @@ final class ProductsService extends Service
 	/**
 	 * Changes a product in place (`PUT /product/:uuid`): only the fields set change. A new price
 	 * applies to new checkouts and new subscribers only. Not retried.
+	 *
+	 * A member's key gives a product subscription terms only with the organization's
+	 * `members.subscriptions` policy (403 `policy_disabled`); `removeSubscription` and other edits
+	 * never need it.
 	 */
 	public function update(string $uuid, UpdateProductParams $params, ?RequestOptions $options = null): Product
 	{
