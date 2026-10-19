@@ -18,7 +18,7 @@ $client = QBitFlow::fromEnv();
 // The API exports at most 95 days at a time: the range helpers split any range and join the parts.
 $events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31');
 foreach ($events as $event) {
-	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->tokenSymbol}\n";
+	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->currency}\n";
 }
 
 $csv = $client->accounting->exportCsvRange('2026-01-01', '2026-12-31'); // one header line, then the rows

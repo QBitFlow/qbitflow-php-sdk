@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace QBitFlow\Params;
 
 /**
- * A line of your own on a payment checkout (a tax, shipping, a service fee), shown to the
- * customer in the order given and paid with the price ({@see CheckoutFees}).
+ * A line of your own on a checkout (a tax, shipping, a service fee), shown to the customer in
+ * the order given and paid with the price, a subscription's with every bill ({@see CheckoutFees}).
  */
 final readonly class FeeItem
 {

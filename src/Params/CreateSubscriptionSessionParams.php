@@ -9,7 +9,9 @@ use QBitFlow\Support\Validator;
 
 /**
  * Opens a subscription checkout session (`checkoutSessions->createSubscription()`): the payment
- * session's fields, plus the terms, each optional over a subscription product's.
+ * session's fields, plus the terms, each optional over a subscription product's. `fees` adds
+ * lines to the price, as for a payment ({@see CheckoutFees}), locked with it: every bill charges
+ * the price plus every line.
  */
 final readonly class CreateSubscriptionSessionParams
 {
@@ -42,10 +44,24 @@ final readonly class CreateSubscriptionSessionParams
 		public ?Duration $trialPeriod = null,
 		/** The periods the customer commits to before cancelling, at most 1000 (0: none). */
 		public ?int $minPeriods = null,
+		/**
+		 * Amounts added to the price (a tax, shipping, QBitFlow's processing fee), shown to the
+		 * customer line by line and locked with the price: every bill (the first one, at creation,
+		 * and each next one) charges the price plus every line; null for none. The subscription
+		 * keeps them as `Subscription::$fees`, its `priceUsd` staying the price. The maximum per
+		 * period and the allowance the subscriber signs are sized on that amount, and QBitFlow's
+		 * fee is taken on it. The test-mode cap (5 USD) applies to that amount, fees included (400
+		 * `validation_failed` on `fees`).
+		 */
+		public ?CheckoutFees $fees = null,
 	) {
 	}
 
-	/** @throws \QBitFlow\Exceptions\ValidationException */
+	/**
+	 * Checks the params: the payment session's rules, the terms, then the fees.
+	 *
+	 * @throws \QBitFlow\Exceptions\ValidationException
+	 */
 	public function validate(): void
 	{
 		$v = new Validator();
@@ -53,15 +69,21 @@ final readonly class CreateSubscriptionSessionParams
 			$this->price, $this->reference, $this->successUrl, $this->cancelUrl, $this->customerUuid, $this->customerReference,
 			$this->expiresInMinutes);
 		$this->terms()->check($v, '', false);
+		$this->fees?->check($v);
 		$v->throwIfAny();
 	}
 
 	/** @return array<string,mixed> */
 	public function toArray(): array
 	{
-		return CreatePaymentSessionParams::body($this->productUuid, $this->productReference, $this->productName,
+		$out = CreatePaymentSessionParams::body($this->productUuid, $this->productReference, $this->productName,
 			$this->description, $this->price, $this->reference, $this->successUrl, $this->cancelUrl, $this->customerUuid,
 			$this->customerReference, $this->expiresInMinutes) + $this->terms()->toArray();
+		if ($this->fees !== null) {
+			$out['fees'] = $this->fees->toObject();
+		}
+
+		return $out;
 	}
 
 	private function terms(): SubscriptionTermsParams

@@ -8,9 +8,11 @@ use QBitFlow\Support\Validator;
 use stdClass;
 
 /**
- * What a one-time payment checkout adds to its product's price (`CreatePaymentSessionParams::$fees`):
- * your own lines and QBitFlow's processing fee. The customer sees them line by line and pays them
- * with the price: the session's and the payment's `amount` is the price plus every line, and
+ * What a checkout adds to its product's price: a one-time payment's
+ * (`CreatePaymentSessionParams::$fees`) or a subscription's (`CreateSubscriptionSessionParams::$fees`,
+ * each of its bills then charging the price and the same lines). Your own lines and QBitFlow's
+ * processing fee: the customer sees them line by line and pays them with the price. The session's
+ * and the payment's `amount` (a subscription's: each bill's) is the price plus every line, and
  * QBitFlow's fee (and a marketplace's organization fee) is taken on that amount. The network fee
  * comes on top, once the customer picks a currency. Test mode caps the amount, fees included, at
  * 5 USD (the API answers 400 `validation_failed` on `fees`).
@@ -32,9 +34,11 @@ final readonly class CheckoutFees
 		 * QBitFlow computes it on the price and your lines at your platform fee `p` (never below
 		 * 0.5 %) and grosses it up, `base × p / (1 − p)` rounded up to the cent, since its fee is
 		 * also taken on the line itself: you keep at least the price and your lines, as if no fee
-		 * were taken ($100 + $20 VAT at 1.5 % → a $1.83 processing fee, $121.83 charged, $120.00
-		 * kept). Null: the space's `checkout.customerPaysProcessingFee` setting decides (set in the
-		 * dashboard, off by default); `false` turns it off for this checkout.
+		 * were taken ($100 + $20 VAT at 0.99 % → a $1.20 processing fee, $121.20 charged, $120.00
+		 * kept). `p` is the checkout's rate: QBitFlow's fee for your space when the checkout is
+		 * created (a volume schedule, unless QBitFlow set you a custom rate). Null: the space's
+		 * `checkout.customerPaysProcessingFee` setting decides (set in the dashboard, off by
+		 * default); `false` turns it off for this checkout.
 		 */
 		public ?bool $processingFee = null,
 		/** Up to 10 lines of your own, shown in this order before the processing fee. */

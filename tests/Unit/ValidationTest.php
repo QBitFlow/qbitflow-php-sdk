@@ -282,6 +282,17 @@ final class ValidationTest extends TestCase
 		} catch (\QBitFlow\Exceptions\ValidationException $e) {
 			$this->assertSame('fees.items[0].amountUsd must be an amount in USD above 0 and at most 1000000, with at most 2 decimals', $e->fieldErrors[0]->message);
 		}
+
+		// A subscription checkout's fees follow the same rules, reported with (after) the terms.
+		$sub = static fn (?CheckoutFees $fees): CreateSubscriptionSessionParams => new CreateSubscriptionSessionParams(productUuid: self::UUID, fees: $fees);
+		$this->check('subscription no fees', $sub(null));
+		$this->check('subscription processing fee only', $sub(new CheckoutFees(true)));
+		$this->check('subscription 10 lines', $sub(new CheckoutFees(false, array_fill(0, 10, $line(1)))));
+		$this->check('subscription 11 lines', $sub(new CheckoutFees(items: array_fill(0, 11, $line(1)))), ['fees.items']);
+		$this->check('subscription bad line', $sub(new CheckoutFees(items: [$line(0.001, 'a|b', ' ')])),
+			['fees.items[0].label', 'fees.items[0].description', 'fees.items[0].amountUsd']);
+		$this->check('subscription fees and terms', new CreateSubscriptionSessionParams(productUuid: self::UUID, frequency: new Duration(1),
+			fees: new CheckoutFees(items: [$line(-1, 'Tax')])), ['frequency.unit', 'fees.items[0].amountUsd']);
 	}
 
 	#[Test]
@@ -303,7 +314,15 @@ final class ValidationTest extends TestCase
 		foreach ($cases as $name => [$params, $want]) {
 			$this->assertSame($want, Transport::encodeBody($params->toArray()), $name);
 		}
-		$this->assertFalse((new \ReflectionClass(CreateSubscriptionSessionParams::class))->hasProperty('fees'), 'subscriptions take no fees');
+
+		// A subscription checkout sends the same fees object, after the terms.
+		$this->assertSame('{"productName":"Pro","price":9.99,"frequency":{"value":1,"unit":"months"},'
+			. '"fees":{"processingFee":true,"items":[{"label":"VAT (20%)","description":"French VAT","amountUsd":2}]}}',
+			Transport::encodeBody((new CreateSubscriptionSessionParams(productName: 'Pro', price: 9.99, frequency: Duration::months(1),
+				fees: new CheckoutFees(true, [new FeeItem('VAT (20%)', 2, 'French VAT')])))->toArray()), 'subscription with fees');
+		$this->assertSame($base . ',"fees":{"processingFee":false}}',
+			Transport::encodeBody((new CreateSubscriptionSessionParams(productUuid: self::UUID, fees: new CheckoutFees(false)))->toArray()), 'subscription processing fee off');
+		$this->assertSame($base . '}', Transport::encodeBody((new CreateSubscriptionSessionParams(productUuid: self::UUID))->toArray()), 'subscription without fees: omitted');
 	}
 
 	#[Test]

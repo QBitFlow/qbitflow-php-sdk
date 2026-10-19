@@ -102,7 +102,7 @@ methods; 3.0.0 takes the params class only.
 | 2.x | 3.0.0 | Notes |
 |---|---|---|
 | `oneTimePayments->createSession(CreatePaymentSessionDto\|array)` | `checkoutSessions->createPayment(CreatePaymentSessionParams)` | `productId: int` → `productUuid: string`; `customerUUID` → `customerUuid`; new `expiresInMinutes` and `fees` (`CheckoutFees`); returns a `Models\CheckoutSession` (`uuid`, `link`, `expiresAt`) |
-| `subscriptions->createSession(CreateSubscriptionSessionDto\|array)` | `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)` | `frequency`, `trialPeriod` (`Models\Duration`) and `minPeriods` are optional over a subscription product's terms |
+| `subscriptions->createSession(CreateSubscriptionSessionDto\|array)` | `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)` | `frequency`, `trialPeriod` (`Models\Duration`) and `minPeriods` are optional over a subscription product's terms; new `fees` (`CheckoutFees`, charged with every bill) |
 | `transactionStatus->get($uuid, TransactionType $type)` | `checkoutSessions->getStatus($uuid)` | no type argument; four statuses (§ 9) |
 | `oneTimePayments->getSession($uuid)`, `subscriptions->getSession($uuid)` | removed | `getStatus()` for the state; the session's data comes with `checkout.expired` |
 | — | `checkoutSessions->expire($uuid)` | new: end an unpaid session |
@@ -269,13 +269,13 @@ properties named exactly as the JSON keys, built by `Model::fromArray()`.
 | `Session\SessionCheckout`, `OneTimePaymentSession`, `SubscriptionSession`, `PaygSubscriptionSession`, `StatusLinkResponse` | removed | `PaymentSessionData` / `SubscriptionSessionData` in `checkout.expired` |
 | `Payment` | `Payment` | `transactionHash` → `txHash`; `productId` → `productUuid`; `userId` → `userUuid`; `metadata` always set; + `chain`, `explorerUrl`, `customerReference`, `customer`, `refund`, `refundable`, `paidMinUnits`, `paidUsd`, `confirmedAt`, `price`, `fees` (checkout fees) |
 | `CombinedPayment` | `CombinedPayment` | `source` `subscription_history` → `subscriptionHistory`; + `currency`, `refund`, `reference`, `subscriptionReference` |
-| `Subscription` | `Subscription` | `subscriptionStatus` → `status` (a string); `frequency` is a `Duration` (was an `int` of seconds); `stopped` → the status `stopped`; `productId` → `productUuid`; `nextBillingDate` nullable (null once cancelled); + `currentPeriodEnd`, `actionRequired`, `priceUsd`, `maxAmountPerPeriod`, `cancelledAt`, `cancellationReason`, `customer`, `dunning` |
+| `Subscription` | `Subscription` | `subscriptionStatus` → `status` (a string); `frequency` is a `Duration` (was an `int` of seconds); `stopped` → the status `stopped`; `productId` → `productUuid`; `nextBillingDate` nullable (null once cancelled); + `currentPeriodEnd`, `actionRequired`, `priceUsd`, `fees`, `maxAmountPerPeriod`, `cancelledAt`, `cancellationReason`, `customer`, `dunning` |
 | `SubscriptionHistory` | `Bill` | the `Payment` renames; + `periodStart`, `periodEnd` |
 | `RefundEntry` | `Refund` | `txId` → `txUuid`; + `initiatedBy`, `refundPercent`, `paidMinUnits`, `paidUsd`, `amountUsd`, `currencyId`, `held`, `chain`, `explorerUrl`, `customer` |
 | `Customer` | `Customer` | + `verified` |
 | `Product` | `Product` | `id` → `uuid`; + `subscription`, `paymentLink` |
 | `User` | `Member` (or `Me`) | `id` → `userUuid`; `organizationFeeBps` → `organizationFeePercent`; `claimedAt` → `trustedAt`; `role` moves to `Me`; + `joinedAt`, `acceptedCurrencyIds`, `spaceUuid` |
-| `AccountingEvent` | `AccountingEvent` | `paymentId` → `paymentUuid`; `relatedPaymentId` → `relatedPaymentUuid`; `productId` → `productUuid`; + `userUuid`, member and customer names |
+| `AccountingEvent` | `AccountingEvent` | `paymentId` → `paymentUuid`; `relatedPaymentId` → `relatedPaymentUuid`; `productId` → `productUuid`; `tokenSymbol` → `currency` (always set, a native currency's too); amounts (`grossAmount`, `platformFee`, `organizationFee`, `netAmount`, `networkFees`) are in the currency's units, not its min units (`"7.5"`, not `"7500000"`); network fees are never part of `netAmount` (a refund's net is the refunded amount); properties in the CSV's column order; + `userUuid`, `referralFee*`, `currencyPriceUsd`, `networkFeesPaidBy` (`Enums\NetworkFeesPayer`), `networkFeesCurrency`, `networkFeesCurrencyDecimals`, `networkFeesCurrencyPriceUsd` |
 | `Metadata\PaymentMetadata`, `OrganizationFee`, `ReferralFee`, `TxMetadata`, `BlockData`, `NetworkFees`, `TxAmountsMinUnits` | `PaymentMetadata`, `OrganizationFee`, `ReferralFee`, `TxMetadata`, `BlockData`, `NetworkFees`, `TxAmountsMinUnits` | `feeBps` → `feePercent`; `organizationId`, `referralId` removed |
 | `Metadata\TxAmountsFull`, `Metadata\TxAmountsUSD` | `TxAmounts`, `TxAmountsUsd` | |
 | `Currency` | `Currency` | `address` is a string (`''` for a native coin) |

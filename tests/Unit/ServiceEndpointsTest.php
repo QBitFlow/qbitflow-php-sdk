@@ -151,6 +151,17 @@ final class ServiceEndpointsTest extends TestCase
 				'POST', '/transaction/session-checkout/new/subscription', $m('CheckoutSession'),
 				body: '{"productUuid":"' . self::UUID_A . '","customerUuid":"' . self::UUID_B . '","frequency":{"value":1,"unit":"weeks"},"trialPeriod":{"value":14,"unit":"days"},"minPeriods":0}',
 				idempotent: true, status: 201),
+			'checkoutSessions.createSubscription with fees' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(
+				productName: 'Pro', price: 9.99, frequency: Models\Duration::months(1), fees: new Params\CheckoutFees(
+					processingFee: true, items: [new Params\FeeItem('VAT (20%)', 2, 'French VAT')])), $o),
+				'POST', '/transaction/session-checkout/new/subscription', $m('CheckoutSession'),
+				body: '{"productName":"Pro","price":9.99,"frequency":{"value":1,"unit":"months"},"fees":{"processingFee":true,"items":[{"label":"VAT (20%)","description":"French VAT","amountUsd":2}]}}',
+				idempotent: true, status: 201),
+			'checkoutSessions.createSubscription processing fee off' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(
+				productUuid: self::UUID_A, fees: new Params\CheckoutFees(processingFee: false)), $o),
+				'POST', '/transaction/session-checkout/new/subscription', $m('CheckoutSession'),
+				body: '{"productUuid":"' . self::UUID_A . '","fees":{"processingFee":false}}',
+				idempotent: true, status: 201),
 			'checkoutSessions.getStatus' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->checkoutSessions->getStatus(self::PAY_ID, $o),
 				'GET', '/transaction/session-checkout/' . self::PAY_ID . '/status', $m('CheckoutSessionStatus'),
 				check: static function (self $t, Models\CheckoutSessionStatus $v): void {
@@ -417,8 +428,9 @@ final class ServiceEndpointsTest extends TestCase
 	#[Test]
 	public function exactly_seven_methods_are_idempotent(): void
 	{
-		$idempotent = array_filter(self::routes(), static fn (array $route, string $name): bool => $route[5] && ! str_ends_with($name, 'minimal'), ARRAY_FILTER_USE_BOTH);
-		$this->assertCount(7, $idempotent);
+		$idempotent = array_filter(self::routes(), static fn (array $route): bool => $route[5]);
+		$methods = array_unique(array_map(static fn (string $name): string => explode(' ', $name)[0], array_keys($idempotent)));
+		$this->assertCount(7, $methods, 'variants of a method count once');
 	}
 
 	#[Test]
@@ -505,6 +517,8 @@ final class ServiceEndpointsTest extends TestCase
 			'checkoutSessions.createPayment mixed' => ['productUuid', static fn (QBitFlow $c) => $c->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productUuid: self::UUID_A, productReference: 'pro'))],
 			'checkoutSessions.createPayment fees' => ['fees.items[0].amountUsd', static fn (QBitFlow $c) => $c->checkoutSessions->createPayment(new Params\CreatePaymentSessionParams(productUuid: self::UUID_A,
 				fees: new Params\CheckoutFees(items: [new Params\FeeItem('Shipping', 1.999)])))],
+			'checkoutSessions.createSubscription fee label' => ['fees.items[0].label', static fn (QBitFlow $c) => $c->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(productUuid: self::UUID_A,
+				fees: new Params\CheckoutFees(items: [new Params\FeeItem('', 2)])))],
 			'checkoutSessions.createSubscription frequency' => ['frequency.unit', static fn (QBitFlow $c) => $c->checkoutSessions->createSubscription(new Params\CreateSubscriptionSessionParams(productUuid: self::UUID_A, frequency: new Models\Duration(1)))],
 			'payments.list exclusive' => ['userUuid', static fn (QBitFlow $c) => $c->payments->list(new Params\PaymentListParams(includeMembers: true, userUuid: self::MEMBER_UUID))],
 			'payments.listCombined source' => ['source', static fn (QBitFlow $c) => $c->payments->listCombined(new Params\CombinedPaymentListParams(source: 'bills'))],

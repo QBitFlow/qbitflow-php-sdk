@@ -8,7 +8,9 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use QBitFlow\Enums\AccountingEventType;
 use QBitFlow\Enums\FeeLineType;
+use QBitFlow\Enums\NetworkFeesPayer;
 use QBitFlow\Enums\NotRefundableReason;
 use QBitFlow\Enums\Role;
 use QBitFlow\Exceptions\ServerException;
@@ -145,6 +147,72 @@ final class HydrationTest extends TestCase
 		foreach (['{"fees":{}}', '{"fees":[{"amountUsd":0.75}]}', '{"price":"3.99"}'] as $bad) {
 			try {
 				$decode(Models\Payment::class, $bad);
+				$this->fail('want a ServerException for ' . $bad);
+			} catch (ServerException) {
+				$this->addToAssertionCount(1);
+			}
+		}
+	}
+
+	#[Test]
+	public function subscription_fees(): void
+	{
+		$decode = static fn (string $class, string $json): object => Transport::decode(new RawResponse(200, [], $json), Requester::one($class::fromArray(...)));
+
+		$sub = $decode(Models\Subscription::class, Fixtures::model('Subscription'));
+		$this->assertSame('9.99', $sub->priceUsd, 'priceUsd stays the price');
+		$this->assertCount(2, $sub->fees);
+		$this->assertInstanceOf(Models\FeeLine::class, $sub->fees[0]);
+		$this->assertSame([FeeLineType::CUSTOM, 'VAT (20%)', 'French VAT', '2.00'],
+			[$sub->fees[0]->type, $sub->fees[0]->label, $sub->fees[0]->description, $sub->fees[0]->amountUsd]);
+		$this->assertSame(FeeLineType::PROCESSING_FEE, $sub->fees[1]->type);
+
+		$this->assertSame([], $decode(Models\Subscription::class, '{"uuid":"sub@1","priceUsd":"9.99"}')->fees, 'absent fees: []');
+		$this->assertSame([], $decode(Models\Subscription::class, '{"fees":null}')->fees);
+
+		// Every subscription.* event's data is a Subscription: the fees come along.
+		$upcoming = Models\SubscriptionUpcomingBill::fromArray(['priceUsd' => '9.99', 'amountUsd' => 12.12,
+			'fees' => [['type' => 'custom', 'label' => 'VAT (20%)', 'amountUsd' => '2.00'], ['type' => 'processingFee', 'label' => 'Processing fee', 'amountUsd' => '0.13']]]);
+		$this->assertSame(['2.00', '0.13'], array_map(static fn (Models\FeeLine $f): string => $f->amountUsd, $upcoming->fees));
+		$this->assertNull($upcoming->fees[1]->description, 'no description: null');
+
+		try {
+			$decode(Models\Subscription::class, '{"fees":{"type":"custom"}}');
+			$this->fail('want a ServerException for fees as an object');
+		} catch (ServerException) {
+			$this->addToAssertionCount(1);
+		}
+	}
+
+	#[Test]
+	public function accounting_event(): void
+	{
+		$decode = static fn (string $json): Models\AccountingEvent => Transport::decode(new RawResponse(200, [], $json), Requester::one(Models\AccountingEvent::fromArray(...)));
+
+		$event = $decode(Fixtures::model('AccountingEvent'));
+		$this->assertSame(AccountingEventType::REFUND, $event->type);
+		$this->assertSame('USDC', $event->currency);
+		$this->assertSame(1.0, $event->currencyPriceUsd);
+		$this->assertSame(['-10.0042', '-10.0042'], [$event->grossAmount, $event->netAmount], 'amounts in the currency\'s units, decimal strings');
+		$this->assertSame(NetworkFeesPayer::MERCHANT, $event->networkFeesPaidBy);
+		$this->assertSame(['0.0000012', 'ETH', 18, 4512.37], [$event->networkFees, $event->networkFeesCurrency, $event->networkFeesCurrencyDecimals, $event->networkFeesCurrencyPriceUsd]);
+		$this->assertSame('2026-09-13T19:23:26.620071', $event->txTimeUtc->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.u'));
+
+		// A referralFee row: only what the referrer earned; no network fees, no payer.
+		$referral = $decode('{"txTimeUtc":"2026-09-13T19:23:26Z","type":"referralFee","referralFeeUsd":0.02,"chain":"SOL",'
+			. '"currency":"SOL","currencyDecimals":9,"currencyPriceUsd":150.5,"referralFee":"0.000132","referralFeePercent":20,"blockNumberOrSlot":"1","tokenContractOrMint":""}');
+		$this->assertSame(AccountingEventType::REFERRAL_FEE, $referral->type);
+		$this->assertNull($referral->networkFeesPaidBy);
+		$this->assertNull($referral->networkFeesCurrencyDecimals);
+		$this->assertNull($referral->networkFees);
+		$this->assertNull($referral->grossAmountUsd);
+		$this->assertSame(['0.000132', 'SOL'], [$referral->referralFee, $referral->currency]);
+
+		$this->assertSame('somebodyElse', $decode('{"networkFeesPaidBy":"somebodyElse"}')->networkFeesPaidBy, 'an unknown payer is kept');
+		$this->assertSame(['payer', 'merchant', 'organization'], NetworkFeesPayer::values());
+		foreach (['{"networkFeesCurrencyDecimals":"18"}', '{"grossAmount":10}'] as $bad) {
+			try {
+				$decode($bad);
 				$this->fail('want a ServerException for ' . $bad);
 			} catch (ServerException) {
 				$this->addToAssertionCount(1);

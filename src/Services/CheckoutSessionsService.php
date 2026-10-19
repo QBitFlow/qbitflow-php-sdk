@@ -48,7 +48,15 @@ final class CheckoutSessionsService extends Service
 	/**
 	 * Opens a subscription checkout (`POST /transaction/session-checkout/new/subscription`, 201).
 	 * The subscription exists, with the same `sub@…` id, once the customer signed (a trial) or
-	 * paid: act on `subscription.created`.
+	 * paid: act on `subscription.created`. Terms left unset come from a subscription product.
+	 *
+	 * `fees` (optional) adds lines to the price, as for {@see createPayment()}, locked with it:
+	 * every bill charges the price plus every line (the session's `amount`, the subscription's
+	 * `priceUsd` plus its `fees`), and the network fee on top of that.
+	 *
+	 * Errors as {@see createPayment()}, plus 400 on `frequency` / `trialPeriod` (the frequency
+	 * minimum is 1 hour live, 5 minutes test); a member's key needs the `members.subscriptions`
+	 * policy (403 `policy_disabled`).
 	 */
 	public function createSubscription(CreateSubscriptionSessionParams $params, ?RequestOptions $options = null): CheckoutSession
 	{

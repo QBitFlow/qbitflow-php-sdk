@@ -49,7 +49,8 @@ readonly class PaymentSessionData extends Model
 
 	/**
 	 * What the checkout adds to the price, line by line, in the order shown: the merchant's lines,
-	 * then the processing fee (when the customer pays it); `[]` without any.
+	 * then the processing fee (when the customer pays it). A subscription's are charged with every
+	 * bill. `[]` without any.
 	 *
 	 * @var list<FeeLine>
 	 */
@@ -57,7 +58,7 @@ readonly class PaymentSessionData extends Model
 
 	/**
 	 * What the customer pays in USD before the network fee: the price plus every line of `fees`
-	 * (the payment's `amount`); null when absent.
+	 * (the payment's `amount`, or each bill's of a subscription); null when absent.
 	 */
 	public ?float $amount;
 

@@ -12,7 +12,7 @@ namespace QBitFlow\Enums;
  */
 final class EndpointDisabledReason
 {
-	/** Every delivery failing for too long. */
+	/** Every delivery failing for too long (live mode only: a test-mode endpoint is never disabled for failing). */
 	public const FAILING = 'failing';
 
 	/** Disabled by its owner. */

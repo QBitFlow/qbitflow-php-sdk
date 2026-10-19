@@ -89,9 +89,19 @@ readonly class Subscription extends Model
 	public ?DateTimeImmutable $currentPeriodEnd;
 
 	/**
-	 * The price per period the customer subscribed at, in USD (a decimal string; `"0"` for old v1 subscriptions).
+	 * The price per period the customer subscribed at, in USD (a decimal string; `"0"` for old v1
+	 * subscriptions). Every bill charges it plus `fees`.
 	 */
 	public string $priceUsd;
+
+	/**
+	 * What its checkout added to the price, line by line, as the customer saw them (a tax,
+	 * shipping, the processing fee when the customer pays it), locked at signup with the price:
+	 * every bill charges `priceUsd` plus these lines. `[]` without any.
+	 *
+	 * @var list<FeeLine>
+	 */
+	public array $fees;
 
 	/**
 	 * The customer's maximum per period, in min units (a decimal string); null on trials and old subscriptions.
@@ -184,6 +194,7 @@ readonly class Subscription extends Model
 		$this->actionRequired = Cast::nullableString($data, 'actionRequired');
 		$this->currentPeriodEnd = Cast::nullableDate($data, 'currentPeriodEnd');
 		$this->priceUsd = Cast::string($data, 'priceUsd');
+		$this->fees = Cast::listOf($data, 'fees', FeeLine::fromArray(...));
 		$this->maxAmountPerPeriod = Cast::nullableString($data, 'maxAmountPerPeriod');
 		$this->lastBillingDate = Cast::date($data, 'lastBillingDate');
 		$this->nextBillingDate = Cast::nullableDate($data, 'nextBillingDate');

@@ -65,12 +65,13 @@ readonly class WebhookEndpoint extends Model
 	public ?DateTimeImmutable $disabledAt;
 
 	/**
-	 * Why: `failing`, `owner` or `closed` ({@see \QBitFlow\Enums\EndpointDisabledReason}).
+	 * Why: `failing` (live mode only: a test-mode endpoint is never disabled for failing), `owner`
+	 * or `closed` ({@see \QBitFlow\Enums\EndpointDisabledReason}).
 	 */
 	public ?string $disabledReason;
 
 	/**
-	 * When its deliveries started failing.
+	 * When its deliveries started failing (live mode: failing for 3 days, it is disabled).
 	 */
 	public ?DateTimeImmutable $failingSince;
 
