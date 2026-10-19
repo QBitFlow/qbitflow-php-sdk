@@ -218,16 +218,12 @@ final class Validator
 
 	/**
 	 * A rate in percent sent as a decimal string: digits with at most 2 decimals, at most 16
-	 * characters, from 0 (above 0 when `$positive`) to `$max`, compared exactly.
+	 * characters, from 0 to `$max`, compared exactly.
 	 */
-	public function percent(string $field, string $value, int $max, bool $positive): void
+	public function percent(string $field, string $value, int $max): void
 	{
-		if (strlen($value) > 16 || preg_match(self::DECIMAL, $value) !== 1 || ($positive && self::isZeroDecimal($value)) || self::compareDecimal($value, $max) > 0) {
-			$this->add($field, sprintf(
-				'must be a percentage as a decimal string (e.g. "7.5"): from %s to %d, with at most 2 decimals',
-				$positive ? 'above 0' : '0',
-				$max,
-			));
+		if (strlen($value) > 16 || preg_match(self::DECIMAL, $value) !== 1 || self::compareDecimal($value, $max) > 0) {
+			$this->add($field, sprintf('must be a percentage as a decimal string (e.g. "7.5"): from 0 to %d, with at most 2 decimals', $max));
 		}
 	}
 

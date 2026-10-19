@@ -65,7 +65,7 @@ final class QBitFlow
 	/** Seconds each HTTP attempt may take, by default. */
 	public const DEFAULT_TIMEOUT = 30.0;
 
-	/** Retries of a retryable call (a read, or one of the 7 idempotent creates), by default. */
+	/** Retries of a retryable call (a read, or one of the 6 idempotent creates), by default. */
 	public const DEFAULT_MAX_RETRIES = 3;
 
 	/** Manages the products. */
@@ -89,7 +89,7 @@ final class QBitFlow
 	/** Reads, updates, bills and cancels subscriptions (`/subscriptions…`, `/bills…`). */
 	public readonly SubscriptionsService $subscriptions;
 
-	/** Lists, reads and creates refunds (`/refunds…`). */
+	/** Lists and reads refunds (`/refunds…`). */
 	public readonly RefundsService $refunds;
 
 	/** Manages the organization's members and their held funds (organization key). */

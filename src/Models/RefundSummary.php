@@ -19,7 +19,7 @@ final readonly class RefundSummary extends Model
 	public string $uuid;
 
 	/**
-	 * `pending`, `approved`, `rejected` or `cancelled` ({@see \QBitFlow\Enums\RefundStatus}).
+	 * `pending`, `approved` or `rejected` ({@see \QBitFlow\Enums\RefundStatus}).
 	 */
 	public string $status;
 
@@ -50,12 +50,12 @@ final readonly class RefundSummary extends Model
 	public ?string $amountUsd;
 
 	/**
-	 * When it was requested or started.
+	 * When it was requested or prepared.
 	 */
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * When it was approved (confirmed), rejected or cancelled; null while pending.
+	 * When it was approved (confirmed) or rejected; null while pending.
 	 */
 	public ?DateTimeImmutable $respondedAt;
 

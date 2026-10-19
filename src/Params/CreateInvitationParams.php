@@ -42,7 +42,7 @@ final readonly class CreateInvitationParams
 			$v->email('email', $this->email);
 		}
 		if ($this->organizationFeePercent !== null && $this->organizationFeePercent !== '') {
-			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50, false);
+			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50);
 		}
 		$v->url('redirectUrl', $this->redirectUrl);
 		$v->throwIfAny();

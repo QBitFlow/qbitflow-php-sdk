@@ -26,7 +26,7 @@ final readonly class UpdateMemberParams
 	{
 		$v = new Validator();
 		if ($v->required('organizationFeePercent', $this->organizationFeePercent)) {
-			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50, false);
+			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50);
 		}
 		$v->throwIfAny();
 	}

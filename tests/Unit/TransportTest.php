@@ -232,7 +232,7 @@ final class TransportTest extends TestCase
 			[403, 'forbidden', PermissionDeniedException::class], [403, 'policy_disabled', PermissionDeniedException::class],
 			[403, 'plan_required', PermissionDeniedException::class], [404, 'not_found', NotFoundException::class],
 			[409, 'unique_violation', ConflictException::class], [409, 'tx_already_sent', ConflictException::class],
-			[409, 'merchant_not_ready', ConflictException::class], [409, 'refund_already_exists', ConflictException::class],
+			[409, 'merchant_not_ready', ConflictException::class], [409, 'already_joined', ConflictException::class],
 			[409, 'held_funds_pending', ConflictException::class], [409, 'idempotency_key_in_use', ConflictException::class],
 			[410, 'merchant_closed', GoneException::class], [422, 'idempotency_key_reused', IdempotencyException::class],
 			[422, 'something_else', ApiException::class], [413, 'request_too_large', ApiException::class], [405, '', ApiException::class],

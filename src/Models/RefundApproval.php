@@ -7,7 +7,7 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * Where a pending refund's transfer stands once sent (`Refund::$approval`).
+ * Where a pending request's refund transfer stands once sent (`Refund::$approval`).
  */
 final readonly class RefundApproval extends Model
 {

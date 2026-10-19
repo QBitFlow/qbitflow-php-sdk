@@ -8,13 +8,13 @@ use Generator;
 use QBitFlow\Http\Requester;
 use QBitFlow\Models\Refund;
 use QBitFlow\Page;
-use QBitFlow\Params\CreateRefundParams;
 use QBitFlow\Params\RefundListParams;
 use QBitFlow\RequestOptions;
 use QBitFlow\Support\Validator;
 
 /**
- * Lists, reads and creates refunds (`/refunds…`).
+ * Lists and reads refunds (`/refunds…`). Refunds are read only here: a customer's request is
+ * answered, and a merchant's own refund sent, from the dashboard.
  */
 final class RefundsService extends Service
 {
@@ -56,26 +56,5 @@ final class RefundsService extends Service
 		Validator::pathTxId('uuid', $uuid);
 
 		return $this->requester->call('GET', Requester::path('/refunds/%s', $uuid), Requester::one(Refund::fromArray(...)), options: $options);
-	}
-
-	/**
-	 * Starts a refund of a payment (`pay@…`) or a bill (`sub-hist@…`) of the space
-	 * (`POST /refunds`, 201). Sends an Idempotency-Key and is retried on transient failures. It
-	 * creates a pending refund, a draft that blocks nothing: no money moves until the merchant
-	 * signs the transfer in the dashboard, and a new refund of the same transaction replaces it.
-	 * `refundPercent` (default `"100"`) applies to everything the customer paid, network fee
-	 * included, rounded down.
-	 *
-	 * Errors: 404 for a transaction outside the space; 400 validation_failed (`refundPercent`, or a
-	 * refund rounding to nothing); 409 `refund_already_exists` (`details.refundUuid`: one refund
-	 * per transaction, whatever it became; only an unsent draft gives way) or
-	 * `held_funds_released` (a held payment already released to its member); a member's key needs
-	 * the `members.refunds` policy (403 `policy_disabled`).
-	 */
-	public function create(CreateRefundParams $params, ?RequestOptions $options = null): Refund
-	{
-		$params->validate();
-
-		return $this->requester->call('POST', '/refunds', Requester::one(Refund::fromArray(...)), body: $params->toArray(), idempotent: true, options: $options);
 	}
 }

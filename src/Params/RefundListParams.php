@@ -28,7 +28,7 @@ final readonly class RefundListParams
 		public ?string $cursor = null,
 		/**
 		 * Keeps only the refunds in one of these statuses (at most 5 of `pending`, `approved`,
-		 * `rejected`, `cancelled`, `failed`; {@see RefundStatus}), sent as a repeated `?status=`;
+		 * `rejected`, `failed`; {@see RefundStatus}), sent as a repeated `?status=`;
 		 * `[]`: every status. `[RefundStatus::PENDING]` lists the ones awaiting an answer.
 		 */
 		public array $status = [],

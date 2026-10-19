@@ -46,7 +46,7 @@ return [
 	| Retries
 	|--------------------------------------------------------------------------
 	|
-	| How many times a read or one of the 7 idempotent creates is retried after a
+	| How many times a read or one of the 6 idempotent creates is retried after a
 	| network error, a 5xx, a 429 or a 409 idempotency_key_in_use (with an
 	| exponential back-off). Other writes are never retried. 0 disables retries.
 	|

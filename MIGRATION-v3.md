@@ -66,7 +66,7 @@ implements).
 | `QBitFlow::fromArray([...])` | removed: use the constructor's named arguments, or `QBitFlow::fromEnv(...)` |
 | `Config::DEFAULT_BASE_URL`, `DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES` | `QBitFlow::DEFAULT_BASE_URL` (`/v2`), `QBitFlow::DEFAULT_TIMEOUT` (`30.0`), `QBitFlow::DEFAULT_MAX_RETRIES` (`3`); `Config` is gone |
 | `$timeout` (the whole request) | `timeout:` seconds **per attempt** (applied to the HTTP client the SDK builds; an injected client keeps its own) |
-| `$maxRetries` (GET only) | `maxRetries:` covers reads and the 7 idempotent creates; `0` disables retries; a negative value is refused |
+| `$maxRetries` (GET only) | `maxRetries:` covers reads and the 6 idempotent creates; `0` disables retries; a negative value is refused |
 | — | `onBehalfOf:` a member's userUuid, sent as `On-Behalf-Of` on every request (checked at construction) |
 | `$client->onBehalfOf(int $userId)`, `$client->products->onBehalfOf(int $userId)` (each service) | `$client->onBehalfOf(string $userUuid)` returns a new client for every service (a non-UUID or the nil UUID is a `ValidationException` at once); `''` returns one at the organization level (the header is then omitted, never sent blank); or `new RequestOptions(onBehalfOf: …)` for one call |
 | `$client->users->get()` | `$client->me()`: what the key is (role, space, mode) |
@@ -94,7 +94,7 @@ $payment = $client->payments->get('pay@0192f1c2-2222-7c4d-9e5f-6a7b8c9d0e1f', nu
 echo $payment->amountUsd, PHP_EOL; // a decimal string
 ```
 
-`idempotencyKey:` sets the `Idempotency-Key` of one of the 7 creates (see the README); other
+`idempotencyKey:` sets the `Idempotency-Key` of one of the 6 creates (see the README); other
 methods ignore it.
 
 ## 5. Method map
@@ -145,7 +145,6 @@ methods; 3.0.0 takes the params class only. Updates are `PATCH`, and every delet
 | `refunds->getAllInactive($limit, $cursor)` | `refunds->list(new RefundListParams(status: [RefundStatus::APPROVED, RefundStatus::REJECTED]))`, `refunds->iterate()` | one list, filtered by `status` (a list, sent as a repeated `?status=`, up to 5) |
 | `refunds->getByTransaction($txUuid)` | `refunds->list(new RefundListParams(txUuid: $txUuid))` | or `$payment->refund` / `$bill->refund` (a `RefundSummary`) |
 | — | `refunds->get($refundUuid)` | new: `GET /refunds/:uuid` |
-| — | `refunds->create(CreateRefundParams)` | new: `POST /refunds`, a pending refund you sign in the dashboard (`refundPercent` a string, `'50'`) |
 
 ### Customers and products
 
@@ -361,7 +360,7 @@ the session expires, so never cancel an order on it.
 | `TransactionType::EXECUTE_SUBSCRIPTION_PAYMENT` | `TransactionType::EXECUTE_SUBSCRIPTION` |
 | `TransactionType::CREATE_PAYG_SUBSCRIPTION`, `CANCEL_PAYG_SUBSCRIPTION` (`createPAYGSubscription`…) | `CREATE_PAYG_SUBSCRIPTION`, `CANCEL_PAYG_SUBSCRIPTION` (`createPaygSubscription`…) |
 | — | `TransactionType::FORCE_CANCEL_SUBSCRIPTION`, `RELEASE_HELD_FUNDS` |
-| `RefundStatus::REFUSED` (`refused`), `RefundStatus::FAILED` | `RefundStatus::REJECTED` (`rejected`), + `CANCELLED` (your draft dropped before it was sent); `FAILED` is declared, never set |
+| `RefundStatus::REFUSED` (`refused`), `RefundStatus::FAILED` | `RefundStatus::REJECTED` (`rejected`); `PENDING` is a customer's request; `FAILED` is declared, never set |
 | `CombinedPaymentSource::SUBSCRIPTION_HISTORY` (`subscription_history`) | `TransactionKind::BILL` (`bill`) on `Transaction::$type` |
 | `AccountingEventType::SUBSCRIPTION_HISTORY` | `AccountingEventType::BILL` (`bill`) |
 | ledger lines `subscription_history` | `LedgerEntryType::BILL` (`bill`) |
@@ -630,7 +629,7 @@ build, these names changed: `checkoutSessions->getStatus()` → `get()`;
 (`CombinedPayment` → `Transaction`, `CombinedPaymentListParams` → `TransactionListParams`,
 `source` → `type`, `CombinedPaymentSource` → `TransactionKind`);
 `subscriptions->executeTestBilling()` → `testBill()` (`BillingState` → `TestBill`);
-`refunds->initiate()` → `create()` (`InitiateRefundParams` → `CreateRefundParams`);
+`refunds->initiate()` is removed (refunds are read only: a merchant's refund is sent from the dashboard);
 `refunds->listInactive()` / `iterateInactive()` → `refunds->list()` / `iterate()` with `status`;
 `wallets->listSupportedCurrencies()` → `listAcceptedCurrencies()` (`SupportedCurrenciesParams` →
 `AcceptedCurrenciesParams`); `currencies->listAvailable()` / `listMain()` →

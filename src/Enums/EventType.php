@@ -33,7 +33,7 @@ final class EventType
 	/** A bill (or a trial's end) is near. */
 	public const SUBSCRIPTION_UPCOMING_BILL = 'subscription.upcomingBill';
 
-	/** A refund was requested, or started by the merchant. */
+	/** A customer requested a refund. */
 	public const REFUND_REQUESTED = 'refund.requested';
 
 	/** A refund was approved, its transfer confirmed (was `refund.completed`). */

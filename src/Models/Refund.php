@@ -9,7 +9,8 @@ use QBitFlow\Support\Cast;
 
 /**
  * A refund of a payment (`pay@…`) or a subscription bill (`sub-hist@…`): a customer's request
- * the merchant approves or rejects, or a refund the merchant starts (`refunds->create()`). It is
+ * the merchant approves or rejects, or a refund the merchant sent from the dashboard (recorded
+ * once its transfer confirmed: `approved`, nothing before). Refunds are read only here. It is
  * also the data of the `refund.requested`, `refund.approved` and `refund.rejected` events.
  */
 final readonly class Refund extends Model
@@ -31,14 +32,13 @@ final readonly class Refund extends Model
 	public ?string $reason;
 
 	/**
-	 * `pending` (not answered yet: a request, or a merchant's refund not sent), `approved` (its
-	 * transfer confirmed), `rejected` or `cancelled` (a merchant's refund dropped before it was
-	 * sent); `failed` is declared but never set ({@see \QBitFlow\Enums\RefundStatus}).
+	 * `pending` (a customer's request not answered yet), `approved` (its transfer confirmed) or
+	 * `rejected`; `failed` is declared but never set ({@see \QBitFlow\Enums\RefundStatus}).
 	 */
 	public string $status;
 
 	/**
-	 * When it was requested (or started by the merchant).
+	 * When it was requested (or prepared by the merchant).
 	 */
 	public DateTimeImmutable $createdAt;
 
@@ -70,7 +70,7 @@ final readonly class Refund extends Model
 
 	/**
 	 * `customer` (requested by the customer, the merchant answers) or `merchant` (sent by the
-	 * merchant without a request; until it is sent, a draft that blocks nothing); see
+	 * merchant without a request, from the dashboard: recorded once confirmed, `approved`); see
 	 * {@see \QBitFlow\Enums\RefundInitiator}.
 	 */
 	public string $initiatedBy;
@@ -142,8 +142,9 @@ final readonly class Refund extends Model
 	public ?string $explorerUrl;
 
 	/**
-	 * Where the refund transfer stands while the refund is pending and it was sent: being
-	 * confirmed, or its last attempt failed (API reads only, never in webhooks).
+	 * Where the refund transfer stands while the request is pending and it was sent (approved,
+	 * or answered by the merchant's own refund): being confirmed, or its last attempt failed
+	 * (API reads only, never in webhooks).
 	 */
 	public ?RefundApproval $approval;
 
