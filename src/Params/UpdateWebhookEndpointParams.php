@@ -14,8 +14,9 @@ use QBitFlow\Support\Validator;
 final readonly class UpdateWebhookEndpointParams
 {
 	/**
-	 * @param list<string>|null $events Replaces the event types ({@see EventType}): null leaves them
-	 *                                  unchanged, `[]` means every type.
+	 * @param list<string>|null $events Replaces the event types ({@see EventType}; at most 20, not
+	 *                                  `webhook.test`): null leaves them unchanged, `[]` means
+	 *                                  every type.
 	 */
 	public function __construct(
 		/** The new URL (null or `''`: unchanged). */
@@ -25,9 +26,15 @@ final readonly class UpdateWebhookEndpointParams
 		public ?bool $includeMembers = null,
 		/** The new note; `''` clears it, null leaves it unchanged. */
 		public ?string $description = null,
-		/** `v2` moves an endpoint migrated from v1 to the event envelope (never back), see {@see WebhookPayloadVersion}. */
+		/**
+		 * The payload it receives: `v2`, the only version today (anything else is refused); null
+		 * leaves it unchanged ({@see WebhookPayloadVersion}).
+		 */
 		public ?string $payloadVersion = null,
-		/** False pauses the endpoint; true enables it again. */
+		/**
+		 * False pauses the endpoint (it receives nothing, deliveries in progress stop); true
+		 * enables it again, also after it was disabled for failing.
+		 */
 		public ?bool $enabled = null,
 	) {
 	}

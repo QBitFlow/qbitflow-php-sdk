@@ -12,7 +12,11 @@ use QBitFlow\Support\Query;
 final readonly class CancelSubscriptionParams
 {
 	public function __construct(
-		/** Cancels now (null or true, the default); false stops it at the end of the current period. */
+		/**
+		 * Cancels now (null or true, the default: status `cancelled`); false stops it now (status
+		 * `stopped`, never billed again) and cancels it when its paid period ends (`nextBillingAt`).
+		 * A trial is cancelled immediately only (false: 400).
+		 */
 		public ?bool $immediate = null,
 	) {
 	}
@@ -22,7 +26,7 @@ final readonly class CancelSubscriptionParams
 	{
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->bool('immediate', $this->immediate)->toArray();

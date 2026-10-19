@@ -8,7 +8,9 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A refund of a payment or a bill.
+ * A refund of a payment (`pay@…`) or a subscription bill (`sub-hist@…`): a customer's request
+ * the merchant approves or rejects, or a refund the merchant starts (`refunds->create()`). It is
+ * also the data of the `refund.requested`, `refund.approved` and `refund.rejected` events.
  */
 final readonly class Refund extends Model
 {
@@ -23,27 +25,31 @@ final readonly class Refund extends Model
 	public string $txUuid;
 
 	/**
-	 * The customer's reason, or the merchant's when it started the refund.
+	 * Why the refund: the customer's reason, or the merchant's when it started the refund; null
+	 * (absent) when it gave none.
 	 */
-	public string $reason;
+	public ?string $reason;
 
 	/**
-	 * `pending`, `approved` or `rejected` ({@see \QBitFlow\Enums\RefundStatus}).
+	 * `pending` (not answered yet: a request, or a merchant's refund not sent), `approved` (its
+	 * transfer confirmed), `rejected` or `cancelled` (a merchant's refund dropped before it was
+	 * sent); `failed` is declared but never set ({@see \QBitFlow\Enums\RefundStatus}).
 	 */
 	public string $status;
 
 	/**
-	 * When it was requested or started.
+	 * When it was requested (or started by the merchant).
 	 */
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * The merchant's message to the customer (`''` until set).
+	 * The merchant's message to the customer (why it rejected the request, or a note on a refund
+	 * it started); null (absent) when none.
 	 */
-	public string $merchantMessage;
+	public ?string $merchantMessage;
 
 	/**
-	 * When the merchant answered; null while pending.
+	 * When the refund was answered (rejected, or its transfer confirmed); null while pending.
 	 */
 	public ?DateTimeImmutable $respondedAt;
 
@@ -53,59 +59,77 @@ final readonly class Refund extends Model
 	public bool $test;
 
 	/**
-	 * The member whose space it is in; null for the organization's own.
+	 * The member whose space the refunded transaction is in; null for the organization's own.
 	 */
 	public ?string $userUuid;
 
 	/**
-	 * The refund transfer's hash (`''` until sent).
+	 * The refund transfer's transaction, once approved; null before.
 	 */
-	public string $txHash;
+	public ?string $txHash;
 
 	/**
-	 * `customer` (a request the merchant answers) or `merchant`.
+	 * `customer` (requested by the customer, the merchant answers) or `merchant` (sent by the
+	 * merchant without a request; until it is sent, a draft that blocks nothing); see
+	 * {@see \QBitFlow\Enums\RefundInitiator}.
 	 */
 	public string $initiatedBy;
 
 	/**
-	 * True when the refunded transaction's funds are held by the organization.
+	 * True when the refunded payment or bill was paid to the organization's wallet, which holds
+	 * the seller's funds: the organization decides the refund and sends it from its wallet. Once
+	 * sent, it is a negative line of the seller's held funds.
 	 */
 	public bool $held;
 
 	/**
-	 * What the customer paid for the refunded transaction, in min units.
+	 * What the customer paid for the refunded transaction (its amount, fees included, and the
+	 * network fee they paid on top), in the currency's units: the base of `refundPercent`.
+	 */
+	public string $paid;
+
+	/**
+	 * The same in the currency's smallest unit, a string of digits.
 	 */
 	public string $paidMinUnits;
 
 	/**
-	 * The same in USD.
+	 * The same in USD at the refunded transaction's time; null (absent) when unknown (a request
+	 * made before it was recorded).
 	 */
-	public float $paidUsd;
+	public ?string $paidUsd;
 
 	/**
-	 * The share of what the customer paid it sends back, in percent.
+	 * The share of `paid` the refund sends back, a percent string (`"100"`: all of it). A
+	 * customer requests `"100"`; the merchant sets it when it approves, or when it starts the refund.
 	 */
-	public float $refundPercent;
+	public string $refundPercent;
 
 	/**
-	 * What it sends back, in min units (a decimal string).
+	 * What the refund sends back: `refundPercent` of `paid`, rounded down to a whole min unit, in
+	 * the currency's units.
+	 */
+	public string $amount;
+
+	/**
+	 * The same in the currency's smallest unit, a string of digits.
 	 */
 	public string $amountMinUnits;
 
 	/**
-	 * The same in USD, at the refunded transaction's time.
+	 * The same in USD at the refunded transaction's time; null (absent) when unknown.
 	 */
-	public float $amountUsd;
+	public ?string $amountUsd;
 
 	/**
 	 * The currency paid, and sent back.
 	 */
-	public int $currencyId;
+	public Currency $currency;
 
 	/**
-	 * The refund transfer's network fees and block, once approved; null before.
+	 * The refund transfer's transaction (its block, what it cost), once approved; null before.
 	 */
-	public ?TxMetadata $metadata;
+	public ?TransferSettlement $settlement;
 
 	/**
 	 * The currency's chain.
@@ -118,9 +142,15 @@ final readonly class Refund extends Model
 	public ?string $explorerUrl;
 
 	/**
-	 * The approval being confirmed, or its failed attempt (API reads only).
+	 * Where the refund transfer stands while the refund is pending and it was sent: being
+	 * confirmed, or its last attempt failed (API reads only, never in webhooks).
 	 */
 	public ?RefundApproval $approval;
+
+	/**
+	 * The refunded transaction's customer (API reads only).
+	 */
+	public ?string $customerUuid;
 
 	/**
 	 * What the refunded transaction paid for (API reads only).
@@ -128,7 +158,7 @@ final readonly class Refund extends Model
 	public ?string $productName;
 
 	/**
-	 * Names the refunded transaction's customer (API reads only).
+	 * Names the refunded transaction's customer, even once deleted (API reads only).
 	 */
 	public ?CustomerSummary $customer;
 
@@ -139,26 +169,29 @@ final readonly class Refund extends Model
 	{
 		$this->uuid = Cast::string($data, 'uuid');
 		$this->txUuid = Cast::string($data, 'txUuid');
-		$this->reason = Cast::string($data, 'reason');
+		$this->reason = Cast::nullableString($data, 'reason');
 		$this->status = Cast::string($data, 'status');
 		$this->createdAt = Cast::date($data, 'createdAt');
-		$this->merchantMessage = Cast::string($data, 'merchantMessage');
+		$this->merchantMessage = Cast::nullableString($data, 'merchantMessage');
 		$this->respondedAt = Cast::nullableDate($data, 'respondedAt');
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
-		$this->txHash = Cast::string($data, 'txHash');
+		$this->txHash = Cast::nullableString($data, 'txHash');
 		$this->initiatedBy = Cast::string($data, 'initiatedBy');
 		$this->held = Cast::bool($data, 'held');
+		$this->paid = Cast::string($data, 'paid');
 		$this->paidMinUnits = Cast::string($data, 'paidMinUnits');
-		$this->paidUsd = Cast::float($data, 'paidUsd');
-		$this->refundPercent = Cast::float($data, 'refundPercent');
+		$this->paidUsd = Cast::nullableString($data, 'paidUsd');
+		$this->refundPercent = Cast::string($data, 'refundPercent');
+		$this->amount = Cast::string($data, 'amount');
 		$this->amountMinUnits = Cast::string($data, 'amountMinUnits');
-		$this->amountUsd = Cast::float($data, 'amountUsd');
-		$this->currencyId = Cast::uint($data, 'currencyId');
-		$this->metadata = Cast::nullableObject($data, 'metadata', TxMetadata::fromArray(...));
+		$this->amountUsd = Cast::nullableString($data, 'amountUsd');
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
+		$this->settlement = Cast::nullableObject($data, 'settlement', TransferSettlement::fromArray(...));
 		$this->chain = Cast::nullableString($data, 'chain');
 		$this->explorerUrl = Cast::nullableString($data, 'explorerUrl');
 		$this->approval = Cast::nullableObject($data, 'approval', RefundApproval::fromArray(...));
+		$this->customerUuid = Cast::nullableString($data, 'customerUuid');
 		$this->productName = Cast::nullableString($data, 'productName');
 		$this->customer = Cast::nullableObject($data, 'customer', CustomerSummary::fromArray(...));
 	}

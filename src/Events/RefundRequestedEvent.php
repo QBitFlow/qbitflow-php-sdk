@@ -8,7 +8,8 @@ use QBitFlow\Models\Refund;
 use QBitFlow\Support\Cast;
 
 /**
- * `refund.requested`: A refund was requested or started (a pending refund).
+ * `refund.requested`: A new pending refund: a customer's request (`data->initiatedBy` `customer`)
+ * or a merchant's own (`refunds->create()`).
  */
 final readonly class RefundRequestedEvent extends Event
 {

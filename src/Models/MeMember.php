@@ -7,7 +7,7 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * Names the member whose space a request acts in.
+ * Names the member whose space a request acts in (`MeSpace::$member`).
  */
 final readonly class MeMember extends Model
 {
@@ -19,12 +19,12 @@ final readonly class MeMember extends Model
 	/**
 	 * The first name.
 	 */
-	public string $name;
+	public string $firstName;
 
 	/**
-	 * The last name.
+	 * The last name; null (absent) when the account has none.
 	 */
-	public string $lastName;
+	public ?string $lastName;
 
 	/**
 	 * The email.
@@ -37,8 +37,8 @@ final readonly class MeMember extends Model
 	protected function __construct(array $data)
 	{
 		$this->userUuid = Cast::string($data, 'userUuid');
-		$this->name = Cast::string($data, 'name');
-		$this->lastName = Cast::string($data, 'lastName');
+		$this->firstName = Cast::string($data, 'firstName');
+		$this->lastName = Cast::nullableString($data, 'lastName');
 		$this->email = Cast::string($data, 'email');
 	}
 }

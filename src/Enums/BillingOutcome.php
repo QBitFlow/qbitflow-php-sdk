@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * How a finished billing run ended (`BillingState::$outcome`).
+ * How a bill ended (`TestBill::$outcome`).
  *
  * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
  * know yet is kept as is, never rejected. Compare against these constants.
@@ -20,7 +20,7 @@ final class BillingOutcome
 	/** Below the minimum amount: the period moved on without a charge. */
 	public const SKIPPED = 'skipped';
 
-	/** The subscription was cancelled. */
+	/** The subscription was cancelled (stopped, its trial over, its merchant closed, inactive on-chain, or its last attempt failed). */
 	public const CANCELLED = 'cancelled';
 
 	/** Its customer paused the subscription: not charged. */

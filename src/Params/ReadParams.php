@@ -23,7 +23,7 @@ final readonly class ReadParams
 	{
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->flag('includeMembers', $this->includeMembers)->toArray();

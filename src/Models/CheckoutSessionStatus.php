@@ -4,20 +4,24 @@ declare(strict_types=1);
 
 namespace QBitFlow\Models;
 
+use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A checkout session's status.
+ * Where a checkout session stands, for the merchant that created it
+ * (`checkoutSessions->get()` and `expire()`).
  */
 final readonly class CheckoutSessionStatus extends Model
 {
 	/**
-	 * The session's id (`pay@…`, `sub@…`).
+	 * The session's id (`pay@…`, `sub@…`), also the id of the payment or subscription it creates.
 	 */
 	public string $uuid;
 
 	/**
-	 * `created` (waiting for the customer; lastAttempt: their last attempt failed), `waitingConfirmation`, `completed` or `expired` ({@see \QBitFlow\Enums\CheckoutSessionStatusValue}).
+	 * `created` (waiting for the customer; with `lastAttempt`: their last attempt failed, they
+	 * may try again until the session expires), `waitingConfirmation` (a transaction was sent),
+	 * or the final `completed` and `expired` ({@see \QBitFlow\Enums\CheckoutSessionStatusValue}).
 	 */
 	public string $status;
 
@@ -32,9 +36,17 @@ final readonly class CheckoutSessionStatus extends Model
 	public ?string $message;
 
 	/**
-	 * The customer's last failed attempt: never final, don't cancel the order on it.
+	 * The customer's last failed attempt (its code, reason and time): never final, don't cancel
+	 * the order on it; wait for `completed` (`payment.completed`, `subscription.created`) or
+	 * `expired` (`checkout.expired`).
 	 */
 	public ?Attempt $lastAttempt;
+
+	/**
+	 * When the checkout can no longer be paid, while it is open (on `expire()`'s answer: when it
+	 * was expired); null once completed, or expired at its time.
+	 */
+	public ?DateTimeImmutable $expiresAt;
 
 	/**
 	 * @param array<string,mixed> $data
@@ -46,5 +58,6 @@ final readonly class CheckoutSessionStatus extends Model
 		$this->txHash = Cast::nullableString($data, 'txHash');
 		$this->message = Cast::nullableString($data, 'message');
 		$this->lastAttempt = Cast::nullableObject($data, 'lastAttempt', Attempt::fromArray(...));
+		$this->expiresAt = Cast::nullableDate($data, 'expiresAt');
 	}
 }

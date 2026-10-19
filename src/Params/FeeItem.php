@@ -14,10 +14,10 @@ final readonly class FeeItem
 		/** The line's name, as the checkout shows it: one line, 1 to 40 characters ("VAT (20%)", "Shipping"). */
 		public string $label,
 		/**
-		 * The line's amount in USD: above 0, at most 1,000,000, with at most 2 decimals. A number
-		 * is sent as a JSON number; a string (`"4.99"`) is sent as typed, so no float rounds it.
+		 * The line's amount in USD, a decimal string (`"4.99"`): above 0, at most 1,000,000, with
+		 * at most 2 decimals. Sent as typed, so no float rounds it.
 		 */
-		public int|float|string $amountUsd,
+		public string $amountUsd,
 		/** More about the line, at most 200 characters (optional). */
 		public ?string $description = null,
 	) {

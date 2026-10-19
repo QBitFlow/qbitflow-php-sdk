@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\RedirectResponse;
 use QBitFlow\Laravel\Facades\QBitFlow;
 use QBitFlow\Params\CreatePaymentSessionParams;
+use QBitFlow\Placeholders;
 use QBitFlow\RequestOptions;
 
 /**
@@ -19,9 +20,9 @@ final class CheckoutController
 		$session = QBitFlow::checkoutSessions()->createPayment(
 			new CreatePaymentSessionParams(
 				productName: 'Order ' . $order,
-				price: 19.99,
+				priceUsd: '19.99', // a decimal string, never a float
 				reference: 'order-' . $order,
-				successUrl: url('/orders/' . $order . '?session={{UUID}}'),
+				successUrl: url('/orders/' . $order . '?session=' . Placeholders::UUID),
 				cancelUrl: url('/cart'),
 			),
 			// Retrying the request (a double click, a queue job) returns the same session.

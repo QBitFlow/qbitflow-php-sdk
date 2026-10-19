@@ -8,22 +8,22 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A referrer's share of QBitFlow's fee.
+ * The referrer's share of QBitFlow's fee on a payment or bill.
  */
 final readonly class ReferralFee extends Model
 {
 	/**
-	 * The address receiving the fee.
+	 * The referrer's wallet that receives the fee.
 	 */
-	public string $referrer;
+	public string $address;
 
 	/**
-	 * The referrer's share of the platform fee, in percent (20 = 20 % of it).
+	 * The referrer's share of the platform fee, a percent string (`"20"` = 20 % of it).
 	 */
-	public float $feePercent;
+	public string $feePercent;
 
 	/**
-	 * When the referral stops being paid.
+	 * Until when the referrer earns its share.
 	 */
 	public DateTimeImmutable $deadline;
 
@@ -32,8 +32,8 @@ final readonly class ReferralFee extends Model
 	 */
 	protected function __construct(array $data)
 	{
-		$this->referrer = Cast::string($data, 'referrer');
-		$this->feePercent = Cast::float($data, 'feePercent');
+		$this->address = Cast::string($data, 'address');
+		$this->feePercent = Cast::string($data, 'feePercent');
 		$this->deadline = Cast::date($data, 'deadline');
 	}
 }

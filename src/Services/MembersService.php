@@ -8,7 +8,7 @@ use Generator;
 use QBitFlow\Http\Requester;
 use QBitFlow\Models\HeldFunds;
 use QBitFlow\Models\Member;
-use QBitFlow\Models\MemberHeldFundsSummary;
+use QBitFlow\Models\MemberHeldFunds;
 use QBitFlow\Page;
 use QBitFlow\Params\MemberListParams;
 use QBitFlow\Params\UpdateMemberParams;
@@ -21,8 +21,9 @@ use QBitFlow\Support\Validator;
 final class MembersService extends Service
 {
 	/**
-	 * One page of the organization's members in the key's mode (`GET /members`; page size 20 by
-	 * default, at most 100). Organization key only.
+	 * One page of the organization's members in the key's mode (`GET /members`; by when they
+	 * joined, page size 20 by default, at most 100). Organization key only (403 otherwise, also
+	 * with On-Behalf-Of).
 	 *
 	 * @return Page<Member>
 	 */
@@ -34,7 +35,7 @@ final class MembersService extends Service
 	}
 
 	/**
-	 * Every member `list()` returns, the pages fetched lazily.
+	 * Every member `list()` returns, the pages fetched lazily, the page size kept.
 	 *
 	 * @return Generator<int,Member>
 	 */
@@ -45,7 +46,10 @@ final class MembersService extends Service
 		return Requester::walk($params->cursor, fn (?string $cursor): Page => $this->list($params->withCursor($cursor), $options));
 	}
 
-	/** A member by their user UUID (`GET /members/:userUuid`; the value `onBehalfOf` takes). */
+	/**
+	 * A member by their user UUID (`GET /members/:userUuid`; the value `onBehalfOf` takes).
+	 * Someone who is not a member in the key's mode is a {@see \QBitFlow\Exceptions\NotFoundException}.
+	 */
 	public function get(string $userUuid, ?RequestOptions $options = null): Member
 	{
 		Validator::pathUuid('userUuid', $userUuid);
@@ -54,21 +58,23 @@ final class MembersService extends Service
 	}
 
 	/**
-	 * Changes a member's organization fee in the key's mode (`PUT /members/:userUuid`). A checkout
-	 * already created keeps its fee. Not retried.
+	 * Changes a member's organization fee in the key's mode (`PATCH /members/:userUuid`). A
+	 * checkout already created keeps the fee it was created with; a running subscription's next
+	 * bills take the new one. Organization key only. Not retried.
 	 */
 	public function update(string $userUuid, UpdateMemberParams $params, ?RequestOptions $options = null): Member
 	{
 		Validator::pathUuid('userUuid', $userUuid);
 		$params->validate();
 
-		return $this->requester->call('PUT', Requester::path('/members/%s', $userUuid), Requester::one(Member::fromArray(...)), body: $params->toArray(), options: $options);
+		return $this->requester->call('PATCH', Requester::path('/members/%s', $userUuid), Requester::one(Member::fromArray(...)), body: $params->toArray(), options: $options);
 	}
 
 	/**
-	 * Removes a member from the key's mode (`DELETE /members/:userUuid`): their API keys stop
-	 * working and their checkouts close. 409 `held_funds_pending` while the organization holds
-	 * their live funds. Not retried.
+	 * Removes a member from the key's mode (`DELETE /members/:userUuid`, 204): their API keys stop
+	 * working at once and their checkouts stop taking payments; their data stays with the
+	 * organization. Organization key only. Not retried. 409 `held_funds_pending` while the
+	 * organization holds live funds for them (release them in the dashboard first).
 	 */
 	public function remove(string $userUuid, ?RequestOptions $options = null): void
 	{
@@ -88,13 +94,14 @@ final class MembersService extends Service
 	}
 
 	/**
-	 * What the organization holds for each member in the key's mode (`GET /members/held-funds`).
+	 * What the organization holds for each member in the key's mode, the longest held first
+	 * (`GET /members/held-funds`; a bounded list). Organization key only.
 	 *
-	 * @return list<MemberHeldFundsSummary>
+	 * @return list<MemberHeldFunds>
 	 */
 	public function listHeldFunds(?RequestOptions $options = null): array
 	{
-		return $this->requester->call('GET', '/members/held-funds', Requester::list(MemberHeldFundsSummary::fromArray(...)), options: $options);
+		return $this->requester->items('/members/held-funds', MemberHeldFunds::fromArray(...), options: $options);
 	}
 
 	/** What the organization holds for one member (`GET /members/:userUuid/held-funds`). */
@@ -106,11 +113,12 @@ final class MembersService extends Service
 	}
 
 	/**
-	 * What the organization holds for the request's space (`GET /user/held-funds`): call it with
-	 * a member's key, or `onBehalfOf` a member. Empty for the organization's own space.
+	 * What the organization holds for the request's space (`GET /held-funds`): call it with a
+	 * member's key, or `onBehalfOf` a member. Empty for the organization's own space (no ledgers,
+	 * `totalUsd` `"0"`).
 	 */
 	public function getOwnHeldFunds(?RequestOptions $options = null): HeldFunds
 	{
-		return $this->requester->call('GET', '/user/held-funds', Requester::one(HeldFunds::fromArray(...)), options: $options);
+		return $this->requester->call('GET', '/held-funds', Requester::one(HeldFunds::fromArray(...)), options: $options);
 	}
 }

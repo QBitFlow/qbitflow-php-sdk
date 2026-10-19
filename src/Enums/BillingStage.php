@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * Where a billing run is (`BillingState::$stage`).
+ * Where a bill stands (`TestBill::$stage`).
  *
  * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
  * know yet is kept as is, never rejected. Compare against these constants.

@@ -8,12 +8,12 @@ use QBitFlow\Support\Query;
 use QBitFlow\Support\Validator;
 
 /**
- * `wallets->listSupportedCurrencies()`'s options.
+ * `wallets->listAcceptedCurrencies()`'s options.
  */
-final readonly class SupportedCurrenciesParams
+final readonly class AcceptedCurrenciesParams
 {
 	public function __construct(
-		/** Reads a member's (organization key); null for the request's space. */
+		/** Reads a member's (an organization key; 403 otherwise, also with On-Behalf-Of); null for the request's space. */
 		public ?string $userUuid = null,
 	) {
 	}
@@ -26,7 +26,7 @@ final readonly class SupportedCurrenciesParams
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->string('userUuid', $this->userUuid)->toArray();

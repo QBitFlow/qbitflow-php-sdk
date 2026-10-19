@@ -6,8 +6,8 @@ namespace QBitFlow\Services;
 
 use Generator;
 use QBitFlow\Http\Requester;
+use QBitFlow\Models\CreatedInvitation;
 use QBitFlow\Models\Invitation;
-use QBitFlow\Models\InvitationCreated;
 use QBitFlow\Page;
 use QBitFlow\Params\CreateInvitationParams;
 use QBitFlow\Params\InvitationListParams;
@@ -20,20 +20,28 @@ use QBitFlow\Support\Validator;
 final class InvitationsService extends Service
 {
 	/**
-	 * Invites someone to join as a member in the key's mode (`POST /invitations`, 201): the
-	 * invitation and its link (also emailed). The SDK always sends role `user`. Sends an
-	 * Idempotency-Key and is retried on transient failures. The person exists once they accepted:
-	 * act on `member.joined`. 409 `already_joined`; 429 beyond 50 an hour.
+	 * Invites someone to join the organization as a member in the key's mode
+	 * (`POST /invitations`, 201) and returns the invitation with its link (also emailed). The SDK
+	 * always sends role `user`: the team is invited from the dashboard. Sends an Idempotency-Key
+	 * and is retried on transient failures. Organization key only; rate limited (50 an hour per
+	 * organization: beyond, a {@see \QBitFlow\Exceptions\RateLimitException} at once, the wait
+	 * being over the SDK's 60 s retry cap).
+	 *
+	 * The person exists in the organization once they accepted: act on the `member.joined`
+	 * webhook (`MemberJoined::$invitationUuid`). Errors: 409 `already_joined` for someone already
+	 * a member in that mode.
 	 */
-	public function create(CreateInvitationParams $params, ?RequestOptions $options = null): InvitationCreated
+	public function create(CreateInvitationParams $params, ?RequestOptions $options = null): CreatedInvitation
 	{
 		$params->validate();
 
-		return $this->requester->call('POST', '/invitations', Requester::one(InvitationCreated::fromArray(...)), body: $params->toArray(), idempotent: true, options: $options);
+		return $this->requester->call('POST', '/invitations', Requester::one(CreatedInvitation::fromArray(...)), body: $params->toArray(), idempotent: true, options: $options);
 	}
 
 	/**
-	 * One page of the organization's invitations (`GET /invitations`; page size 20 by default, at most 100).
+	 * One page of the organization's invitations (`GET /invitations`; newest first, page size 20
+	 * by default, at most 100), its team's (role `admin`) included, optionally filtered by
+	 * `status`. Organization key only.
 	 *
 	 * @return Page<Invitation>
 	 */
@@ -56,11 +64,13 @@ final class InvitationsService extends Service
 		return Requester::walk($params->cursor, fn (?string $cursor): Page => $this->list($params->withCursor($cursor), $options));
 	}
 
-	/** Revokes an invitation (`DELETE /invitations/:uuid`) and returns it. Not retried. */
-	public function revoke(string $uuid, ?RequestOptions $options = null): Invitation
+	/**
+	 * Revokes an invitation (`DELETE /invitations/:uuid`, 204): its link no longer works.
+	 * Organization key only. Not retried.
+	 */
+	public function revoke(string $uuid, ?RequestOptions $options = null): void
 	{
 		Validator::pathUuid('uuid', $uuid);
-
-		return $this->requester->call('DELETE', Requester::path('/invitations/%s', $uuid), Requester::one(Invitation::fromArray(...)), options: $options);
+		$this->requester->void('DELETE', Requester::path('/invitations/%s', $uuid), options: $options);
 	}
 }

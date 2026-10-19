@@ -23,7 +23,7 @@ try {
 	$session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
 		productName: 'T-shirt',
 		description: 'Blue, size M',
-		price: 4.99,
+		priceUsd: '4.99', // a decimal string, never a float
 		reference: 'order-1042', // your order id: unique per space
 		successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 		cancelUrl: 'https://shop.example.com/orders/cancel',
@@ -41,7 +41,7 @@ try {
 
 	throw $e;
 }
-printf("Send the customer to %s (session %s, expires %s)\n", $session->link, $session->uuid, $session->expiresAt?->format(DATE_ATOM) ?? '?');
+printf("Send the customer to %s (session %s, expires %s)\n", $session->link, $session->uuid, $session->expiresAt->format(DATE_ATOM));
 
 $sessionUuid = $session->uuid;
 
@@ -50,13 +50,13 @@ try {
 	$session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
 		productName: 'T-shirt',
 		description: 'Blue, size M',
-		price: 3.99,
+		priceUsd: '3.99',
 		reference: 'order-1044',
 		successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 		cancelUrl: 'https://shop.example.com/orders/cancel',
 		fees: new \QBitFlow\Params\CheckoutFees(
 			items: [
-				new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+				new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: '0.75', description: 'Standard, 3 to 5 days'),
 			],
 			processingFee: true, // the customer pays QBitFlow's fee: you keep 3.99 + 0.75
 		),
@@ -81,7 +81,7 @@ if (in_array('--wait', $argv, true)) {
 }
 
 // docs:start checkout-status
-$status = $client->checkoutSessions->getStatus($sessionUuid); // pay@… or sub@…
+$status = $client->checkoutSessions->get($sessionUuid); // pay@… or sub@…
 echo match ($status->status) {
 	\QBitFlow\Enums\CheckoutSessionStatusValue::COMPLETED => "Paid, tx {$status->txHash}\n",
 	\QBitFlow\Enums\CheckoutSessionStatusValue::EXPIRED => "Expired unpaid: {$status->message}\n",
@@ -94,7 +94,7 @@ echo match ($status->status) {
 
 if ($status->status === CheckoutSessionStatusValue::COMPLETED) {
 	$payment = $client->payments->get($sessionUuid); // the payment has the session's id
-	printf("Paid: %.2f USD, tx %s\n", $payment->amount, $payment->txHash);
+	echo "Paid: {$payment->amount} {$payment->currency->symbol} ({$payment->amountUsd} USD), tx {$payment->txHash}\n";
 	exit(0);
 }
 if ($status->status === CheckoutSessionStatusValue::EXPIRED) {

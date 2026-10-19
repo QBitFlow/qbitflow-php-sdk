@@ -15,13 +15,21 @@ final readonly class CustomerListParams
 	use WithCursor;
 
 	public function __construct(
-		/** The page size (server default 10, max 100). */
+		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor`; null for the first page. */
+		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
-		/** Keeps only the customers with this email, whatever its casing. */
+		/** Keeps only the customers with this email, whatever its casing (several may share one). */
 		public ?string $email = null,
-		/** Keeps only the customers the merchant created (true) or those created at checkout (false). */
+		/**
+		 * Keeps only the customer with this reference (a page of 0 or 1 customer;
+		 * `customers->getByReference()` reads it).
+		 */
+		public ?string $reference = null,
+		/**
+		 * Keeps only the customers the merchant created (true) or those created from an email a
+		 * payer typed at checkout (false).
+		 */
 		public ?bool $verified = null,
 	) {
 	}
@@ -30,13 +38,19 @@ final readonly class CustomerListParams
 	public function validate(): void
 	{
 		$v = new Validator();
+		$v->cursor($this->cursor);
 		$v->email('email', $this->email);
+		$v->reference('reference', $this->reference);
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
-		return (new Query())->page($this->limit, $this->cursor)->string('email', $this->email)->bool('verified', $this->verified)->toArray();
+		return (new Query())->page($this->limit, $this->cursor)
+			->string('email', $this->email)
+			->string('reference', $this->reference)
+			->bool('verified', $this->verified)
+			->toArray();
 	}
 }

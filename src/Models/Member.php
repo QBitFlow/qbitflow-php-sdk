@@ -8,24 +8,24 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A member of the organization (a seller of a marketplace), in one mode.
+ * A member of the organization (a seller of a marketplace), in one mode: their personal space there.
  */
 readonly class Member extends Model
 {
 	/**
-	 * The member's id: what On-Behalf-Of takes.
+	 * The member's id: what On-Behalf-Of (`$client->onBehalfOf()`, `RequestOptions::$onBehalfOf`) takes.
 	 */
 	public string $userUuid;
 
 	/**
 	 * The first name.
 	 */
-	public string $name;
+	public string $firstName;
 
 	/**
-	 * The last name.
+	 * The last name; null (absent) when the account has none.
 	 */
-	public string $lastName;
+	public ?string $lastName;
 
 	/**
 	 * The email.
@@ -38,12 +38,13 @@ readonly class Member extends Model
 	public bool $test;
 
 	/**
-	 * The organization's fee on the member's payments, in percent.
+	 * The organization's fee on the member's payments in this mode, a percent string (`"0"`: none).
 	 */
-	public float $organizationFeePercent;
+	public string $organizationFeePercent;
 
 	/**
-	 * When the organization started paying them directly; null while it holds their funds (trust layer).
+	 * When the organization started paying them directly; null (absent) while it holds their
+	 * funds (held funds).
 	 */
 	public ?DateTimeImmutable $trustedAt;
 
@@ -53,11 +54,13 @@ readonly class Member extends Model
 	public DateTimeImmutable $joinedAt;
 
 	/**
-	 * The currencies their wallets accept.
+	 * The currencies a checkout of the member can be paid in now: those their wallets accept,
+	 * always within the organization's (the organization's own while it holds their funds).
+	 * Empty: a checkout of theirs answers 409 `merchant_not_ready`.
 	 *
-	 * @var list<int>
+	 * @var list<Currency>
 	 */
-	public array $acceptedCurrencyIds;
+	public array $acceptedCurrencies;
 
 	/**
 	 * Their personal space in this mode.
@@ -70,14 +73,14 @@ readonly class Member extends Model
 	protected function __construct(array $data)
 	{
 		$this->userUuid = Cast::string($data, 'userUuid');
-		$this->name = Cast::string($data, 'name');
-		$this->lastName = Cast::string($data, 'lastName');
+		$this->firstName = Cast::string($data, 'firstName');
+		$this->lastName = Cast::nullableString($data, 'lastName');
 		$this->email = Cast::string($data, 'email');
 		$this->test = Cast::bool($data, 'test');
-		$this->organizationFeePercent = Cast::float($data, 'organizationFeePercent');
+		$this->organizationFeePercent = Cast::string($data, 'organizationFeePercent');
 		$this->trustedAt = Cast::nullableDate($data, 'trustedAt');
 		$this->joinedAt = Cast::date($data, 'joinedAt');
-		$this->acceptedCurrencyIds = Cast::uintList($data, 'acceptedCurrencyIds');
+		$this->acceptedCurrencies = Cast::listOf($data, 'acceptedCurrencies', Currency::fromArray(...));
 		$this->spaceUuid = Cast::string($data, 'spaceUuid');
 	}
 }

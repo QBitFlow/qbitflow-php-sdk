@@ -43,9 +43,11 @@ final readonly class DeliveryAttempt extends Model
 	public bool $delivered;
 
 	/**
-	 * True when it was not posted (a member's endpoint with members.webhooks off).
+	 * True when it was not posted: a member's endpoint while the organization's
+	 * `members.webhooks` policy was off for them (never retried; not counted against the
+	 * endpoint's health). False (absent) otherwise.
 	 */
-	public ?bool $skipped;
+	public bool $skipped;
 
 	/**
 	 * The endpoint's answer; null when it didn't answer.
@@ -78,7 +80,7 @@ final readonly class DeliveryAttempt extends Model
 		$this->endpointUuid = Cast::string($data, 'endpointUuid');
 		$this->attempt = Cast::int($data, 'attempt');
 		$this->delivered = Cast::bool($data, 'delivered');
-		$this->skipped = Cast::nullableBool($data, 'skipped');
+		$this->skipped = Cast::bool($data, 'skipped');
 		$this->statusCode = Cast::nullableInt($data, 'statusCode');
 		$this->error = Cast::nullableString($data, 'error');
 		$this->durationMs = Cast::int($data, 'durationMs');

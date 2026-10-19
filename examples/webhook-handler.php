@@ -25,7 +25,7 @@ $router = (new \QBitFlow\Webhooks\WebhookRouter((string) getenv('QBITFLOW_WEBHOO
 		\QBitFlow\Events\Event $event,
 	): void {
 		// Deliveries are at least once: skip an $event->id you already processed.
-		error_log("event {$event->id}: fulfil order {$payment->reference} ({$payment->uuid}), {$payment->amount} USD");
+		error_log("event {$event->id}: fulfil order {$payment->reference} ({$payment->uuid}), {$payment->amountUsd} USD");
 	})
 	->on(\QBitFlow\Enums\EventType::SUBSCRIPTION_STATUS_CHANGED, function (
 		\QBitFlow\Models\SubscriptionStatusChanged $subscription,

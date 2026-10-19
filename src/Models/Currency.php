@@ -8,47 +8,57 @@ use QBitFlow\Support\Amount;
 use QBitFlow\Support\Cast;
 
 /**
- * A currency (token or native coin) of the catalog.
+ * A currency of the catalog: a chain's native coin (ETH, SOL; its chain is itself) or a token on
+ * a chain (USDC on Base). It is the one currency object of every response
+ * (`currencies->list()`, `Payment::$currency`, `Member::$acceptedCurrencies`, …).
  */
 final readonly class Currency extends Model
 {
 	/**
-	 * The currency's id (`$client->currencies->get($id)`).
+	 * The currency's id (`$client->currencies->get($id)`): a public catalog, unique across test
+	 * and live.
 	 */
 	public int $id;
 
 	/**
-	 * Its full name (e.g. "USD Coin").
+	 * What requests name it by: `CHAIN:TOKEN` for a token (`"BASE:USDC"`), the chain's symbol for
+	 * its native coin (`"ETH"`).
 	 */
-	public string $name;
+	public string $code;
 
 	/**
-	 * Its symbol (e.g. "USDC").
+	 * Its symbol (`"USDC"`, `"ETH"`).
 	 */
 	public string $symbol;
 
 	/**
-	 * Its number of decimals (6 for USDC).
+	 * Its full name (`"USD Coin"`, `"Ethereum"`).
+	 */
+	public string $name;
+
+	/**
+	 * The chain it is on, by its native coin's symbol: `ETH`, `BASE` or `SOL` ({@see \QBitFlow\Enums\Chain}).
+	 */
+	public string $chain;
+
+	/**
+	 * The decimals of its on-chain amounts: min units = amount × 10^decimals (6 for USDC).
+	 * {@see formatAmount()} converts with it.
 	 */
 	public int $decimals;
 
 	/**
-	 * The token's contract address (or mint); `''` for a chain's native coin.
+	 * A token's contract address (EVM) or mint (Solana); null (absent) on a native coin.
 	 */
-	public string $address;
+	public ?string $address;
 
 	/**
-	 * The chain's native coin, for a token; null for a native coin.
+	 * A token's chain, by its native coin's id (`currencies->get()`); null (absent) on a native coin.
 	 */
 	public ?int $mainCurrencyId;
 
 	/**
-	 * That native coin; null for a native coin.
-	 */
-	public ?Currency $mainCurrency;
-
-	/**
-	 * True for a testnet currency.
+	 * True for a test network's currency, false for a live one.
 	 */
 	public bool $test;
 
@@ -69,12 +79,13 @@ final readonly class Currency extends Model
 	protected function __construct(array $data)
 	{
 		$this->id = Cast::uint($data, 'id');
-		$this->name = Cast::string($data, 'name');
+		$this->code = Cast::string($data, 'code');
 		$this->symbol = Cast::string($data, 'symbol');
+		$this->name = Cast::string($data, 'name');
+		$this->chain = Cast::string($data, 'chain');
 		$this->decimals = Cast::uint($data, 'decimals', 255);
-		$this->address = Cast::string($data, 'address');
+		$this->address = Cast::nullableString($data, 'address');
 		$this->mainCurrencyId = Cast::nullableUint($data, 'mainCurrencyId');
-		$this->mainCurrency = Cast::nullableObject($data, 'mainCurrency', Currency::fromArray(...));
 		$this->test = Cast::bool($data, 'test');
 	}
 }

@@ -21,7 +21,7 @@ final class CheckoutSessionStatusValue
 	/** Confirmed and recorded. Final. */
 	public const COMPLETED = 'completed';
 
-	/** Expired unpaid. Final. */
+	/** Expired unpaid (at its `expiresAt`, or expired by its merchant). Final. */
 	public const EXPIRED = 'expired';
 
 	/**

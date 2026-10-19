@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static \QBitFlow\Services\CustomersService        customers()
  * @method static \QBitFlow\Services\CheckoutSessionsService checkoutSessions()
  * @method static \QBitFlow\Services\PaymentsService         payments()
+ * @method static \QBitFlow\Services\TransactionsService     transactions()
  * @method static \QBitFlow\Services\FailuresService         failures()
  * @method static \QBitFlow\Services\SubscriptionsService    subscriptions()
  * @method static \QBitFlow\Services\RefundsService          refunds()

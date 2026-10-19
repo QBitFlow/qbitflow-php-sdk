@@ -8,7 +8,8 @@ use QBitFlow\Events\SubscriptionCreatedEvent;
 use QBitFlow\Models;
 
 /**
- * Dispatched for a verified `subscription.created` webhook: A subscription started (active, or in its trial).
+ * Dispatched for a verified `subscription.created` webhook: A subscription started (active, or in
+ * its trial).
  *
  * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
  * listener; the webhook is answered 200 as soon as the events are dispatched.
@@ -16,7 +17,7 @@ use QBitFlow\Models;
 final class SubscriptionCreated
 {
 	/** The event's data. */
-	public readonly Models\SubscriptionCreated $data;
+	public readonly Models\Subscription $data;
 
 	public function __construct(
 		/** The verified webhook event. */

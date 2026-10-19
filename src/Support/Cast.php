@@ -311,6 +311,33 @@ final class Cast
 	}
 
 	/**
+	 * A map of strings (a resource's `metadata`): a JSON object whose values are all strings.
+	 * Absent or null → `[]`. A list (`[]` included) or a value that is not a string is the wrong
+	 * JSON type.
+	 *
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @return array<string,string>
+	 */
+	public static function stringMap(array $data, string $key): array
+	{
+		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return [];
+		}
+
+		$out = [];
+		foreach (self::fields($value, $key) as $name => $item) {
+			if (! is_string($item)) {
+				throw self::wrongType(sprintf('%s.%s', $key, $name), 'a string', $item);
+			}
+			$out[(string) $name] = $item;
+		}
+
+		return $out;
+	}
+
+	/**
 	 * A whole response body that must be a JSON object.
 	 *
 	 * @template T

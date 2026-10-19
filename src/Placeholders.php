@@ -15,7 +15,7 @@ namespace QBitFlow;
  */
 final class Placeholders
 {
-	/** The checkout session's uuid (`pay@…` or `sub@…`), e.g. for `getStatus()` on your success page. */
+	/** The checkout session's uuid (`pay@…` or `sub@…`), e.g. for `checkoutSessions->get()` on your success page. */
 	public const UUID = '{{UUID}}';
 
 	/** The transaction's type (`payment`, `createSubscription`…). */

@@ -8,7 +8,8 @@ use QBitFlow\Models\SubscriptionActionRequiredChanged;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.actionRequiredChanged`: What a subscription's customer must do changed (`data->actionRequired`).
+ * `subscription.actionRequiredChanged`: What a subscription's customer must do changed
+ * (`data->actionRequired`).
  */
 final readonly class SubscriptionActionRequiredChangedEvent extends Event
 {

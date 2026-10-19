@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * A blockchain (the testnet's in test mode).
+ * A blockchain, by its native coin's symbol (`Currency::$chain`; the testnet's in test mode).
  *
  * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
  * know yet is kept as is, never rejected. Compare against these constants.

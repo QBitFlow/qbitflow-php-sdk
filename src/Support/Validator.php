@@ -16,8 +16,9 @@ use QBitFlow\Models\Duration;
  * They mirror the API's binding rules so a bad input fails before the round trip, with a
  * {@see ValidationException} naming each failing input by its wire name. Lengths count Unicode
  * code points. Rules that depend on the key's mode or on server state (the test-mode price
- * cap, https-only URLs in live mode, the frequency minimum, the 95-day export window,
- * uniqueness) are left to the API.
+ * cap, https-only URLs in live mode, the live subscription price minimum, the frequency minimum,
+ * the 92-day export window, the merged metadata key count, uniqueness, refund rounding) are left
+ * to the API.
  *
  * @internal
  */
@@ -34,8 +35,28 @@ final class Validator
 
 	private const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
-	/** The prefixes of the API's transaction ids (`pay@…`, `sub-hist@…`). */
-	private const TX_PREFIXES = ['pay', 'sub', 'payg', 'sub-hist', 'refund', 'transfer'];
+	/** The prefixes of the API's transaction ids (`pay@…`, `sub-hist@…`, `release@…`). */
+	private const TX_PREFIXES = ['pay', 'sub', 'payg', 'sub-hist', 'refund', 'transfer', 'release'];
+
+	/** The largest USD amount an input takes (`usd=1000000`: prices and fee lines). */
+	public const MAX_USD = 1_000_000;
+
+	/** The grammar of the USD and percent inputs: digits, and an optional fraction of 1 or 2 digits. */
+	private const DECIMAL = '/^([0-9]+)(?:\.([0-9]{1,2}))?$/D';
+
+	/** The most keys a metadata map may have. */
+	public const MAX_METADATA_KEYS = 50;
+
+	/** The longest metadata key. */
+	public const MAX_METADATA_KEY_LENGTH = 40;
+
+	/** The longest metadata value, in code points. */
+	public const MAX_METADATA_VALUE_LENGTH = 500;
+
+	private const METADATA_KEY = '/^[A-Za-z0-9_.:-]+$/D';
+
+	/** The longest cursor a paginated list takes (the API's `max=200`). */
+	public const MAX_CURSOR_LENGTH = 200;
 
 	/** Unicode White_Space (Go's `unicode.IsSpace`, `strings.TrimSpace`): NBSP included. */
 	private const SPACE = '[\x{9}-\x{D}\x{20}\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]';
@@ -182,61 +203,87 @@ final class Validator
 		}
 	}
 
-	/** A price in USD: finite and above 0. */
-	public function price(string $field, float $value): void
+	/**
+	 * An amount in USD sent as a decimal string (the API's `usd=<max>` validator): digits with at
+	 * most 2 decimals (no sign, exponent, leading `.` or grouping; trailing zeros are fine), above
+	 * 0 and at most `$max`, compared exactly (as digits: no float rounds it). `"12.50"` passes;
+	 * `"0"`, `"1e2"`, `"+1"`, `" 1"`, `"1.234"` do not.
+	 */
+	public function usd(string $field, string $value, int $max = self::MAX_USD): void
 	{
-		if (! is_finite($value) || $value <= 0) {
-			$this->add($field, 'must be a number above 0');
+		if (preg_match(self::DECIMAL, $value) !== 1 || self::isZeroDecimal($value) || self::compareDecimal($value, $max) > 0) {
+			$this->add($field, sprintf('must be an amount in USD as a decimal string (e.g. "12.50"): above 0, at most %d, with at most 2 decimals', $max));
 		}
 	}
 
 	/**
-	 * An amount in USD (the API's `usd=<max>` validator): a finite number or a numeric string,
-	 * above 0, at most `$max`, with at most 2 decimals, no sign and no exponent. A float is judged
-	 * by its shortest decimal form (`0.1 + 0.2` is `0.30000000000000004`: refused); a string as
-	 * typed (`"4.99"`; not `"+1"`, `"1e2"`, `" 1"`).
+	 * A rate in percent sent as a decimal string: digits with at most 2 decimals, at most 16
+	 * characters, from 0 (above 0 when `$positive`) to `$max`, compared exactly.
 	 */
-	public function usd(string $field, int|float|string $value, int $max): void
+	public function percent(string $field, string $value, int $max, bool $positive): void
 	{
-		$ok = match (true) {
-			is_string($value) => self::isUsdString($value, $max),
-			is_int($value) => $value > 0 && $value <= $max,
-			default => is_finite($value) && $value > 0 && $value <= $max && self::hasAtMostTwoDecimals($value),
-		};
-		if (! $ok) {
-			$this->add($field, sprintf('must be an amount in USD above 0 and at most %d, with at most 2 decimals', $max));
-		}
-	}
-
-	/** Whether `$text` is digits with at most 2 decimals, above 0 and at most `$max` (compared as digits: no float rounds it). */
-	private static function isUsdString(string $text, int $max): bool
-	{
-		if (preg_match('/^([0-9]+)(?:\.([0-9]{1,2}))?$/D', $text, $m) !== 1) {
-			return false;
-		}
-		$whole = ltrim($m[1], '0');
-		$cents = rtrim($m[2] ?? '', '0');
-		if ($whole === '' && $cents === '') {
-			return false; // zero
-		}
-		$limit = (string) $max;
-		if (strlen($whole) !== strlen($limit)) {
-			return strlen($whole) < strlen($limit);
-		}
-		$cmp = strcmp($whole, $limit);
-
-		return $cmp < 0 || ($cmp === 0 && $cents === '');
-	}
-
-	/** A rate in percent: finite, from 0 (above 0 when `$positive`) to `$max`, at most 2 decimals. */
-	public function percent(string $field, float $value, float $max, bool $positive): void
-	{
-		if (! is_finite($value) || $value < 0 || ($positive && $value == 0) || $value > $max || ! self::hasAtMostTwoDecimals($value)) {
+		if (strlen($value) > 16 || preg_match(self::DECIMAL, $value) !== 1 || ($positive && self::isZeroDecimal($value)) || self::compareDecimal($value, $max) > 0) {
 			$this->add($field, sprintf(
-				'must be a percentage from %s to %s, with at most 2 decimals',
+				'must be a percentage as a decimal string (e.g. "7.5"): from %s to %d, with at most 2 decimals',
 				$positive ? 'above 0' : '0',
-				self::formatNumber($max),
+				$max,
 			));
+		}
+	}
+
+	/**
+	 * A metadata map, when set: at most 50 keys (error on `$field`); each key 1 to 40 of
+	 * `A-Z a-z 0-9 _ - . :` (error on `$field`, the key not echoed); each value a string of at
+	 * most 500 code points, without control (a tab included) or bidirectional characters (error
+	 * on `$field.<key>`). On an update only the map sent is checked: the 50-key cap on the merged
+	 * result is the API's.
+	 *
+	 * @param array<array-key,mixed>|null $metadata
+	 */
+	public function metadata(string $field, ?array $metadata): void
+	{
+		if ($metadata === null || $metadata === []) {
+			return;
+		}
+		if (count($metadata) > self::MAX_METADATA_KEYS) {
+			$this->add($field, sprintf('must have at most %d keys', self::MAX_METADATA_KEYS));
+		}
+		ksort($metadata, SORT_STRING);
+		$badKey = false;
+		foreach ($metadata as $key => $value) {
+			$key = (string) $key;
+			if (strlen($key) < 1 || strlen($key) > self::MAX_METADATA_KEY_LENGTH || preg_match(self::METADATA_KEY, $key) !== 1) {
+				$badKey = true;
+
+				continue;
+			}
+			if (! is_string($value)) {
+				$this->add($field . '.' . $key, 'must be a string');
+
+				continue;
+			}
+			if (self::codePoints($value) > self::MAX_METADATA_VALUE_LENGTH) {
+				$this->add($field . '.' . $key, sprintf('must be at most %d characters', self::MAX_METADATA_VALUE_LENGTH));
+
+				continue;
+			}
+			if (preg_match('/[\x{0}-\x{1F}\x{7F}-\x{9F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/u', $value) === 1) {
+				$this->add($field . '.' . $key, 'must not contain control or bidirectional characters');
+			}
+		}
+		if ($badKey) {
+			$this->add($field, sprintf('keys must be 1 to %d characters among A-Z a-z 0-9 _ - . :', self::MAX_METADATA_KEY_LENGTH));
+		}
+	}
+
+	/**
+	 * A list's cursor, when set: at most 200 characters. It is opaque otherwise: pass back a
+	 * page's `nextCursor` verbatim.
+	 */
+	public function cursor(?string $value): void
+	{
+		if ($value !== null && $value !== '') {
+			$this->length('cursor', $value, 0, self::MAX_CURSOR_LENGTH);
 		}
 	}
 
@@ -298,7 +345,7 @@ final class Validator
 		}
 	}
 
-	/** An export window: two `YYYY-MM-DD` dates, `from <= to` (the API enforces the 95-day maximum). */
+	/** An export window: two `YYYY-MM-DD` dates, `from <= to` (the API enforces the maximum: 92 days, both included). */
 	public function dateRange(string $fromField, string $from, string $toField, string $to): void
 	{
 		$okFrom = $this->date($fromField, $from);
@@ -428,7 +475,7 @@ final class Validator
 		return self::isUuid($value) && $value !== self::NIL_UUID;
 	}
 
-	/** `<pay|sub|payg|sub-hist|refund|transfer>@<uuid>`, or a bare UUID. */
+	/** `<pay|sub|payg|sub-hist|refund|transfer|release>@<uuid>`, or a bare UUID. */
 	public static function isTxId(string $value): bool
 	{
 		$at = strpos($value, '@');
@@ -453,7 +500,7 @@ final class Validator
 
 	/**
 	 * Checks a UUID path parameter (members, invitations, endpoints, customers, products): an
-	 * empty one would address another route.
+	 * empty one would address another route. The nil UUID passes (the API answers 404).
 	 */
 	public static function pathUuid(string $field, string $value): void
 	{
@@ -465,7 +512,7 @@ final class Validator
 		}
 	}
 
-	/** Checks a transaction id path parameter (payments, subscriptions, bills, sessions). */
+	/** Checks a transaction id path parameter (payments, subscriptions, bills, sessions, refunds). */
 	public static function pathTxId(string $field, string $value): void
 	{
 		if ($value === '') {
@@ -476,7 +523,7 @@ final class Validator
 		}
 	}
 
-	/** Checks a free-form path parameter (a reference, an email, an event id): only its presence. */
+	/** Checks a free-form path parameter (an event id): only its presence, the API judges the rest. */
 	public static function pathRequired(string $field, string $value): void
 	{
 		if (self::isBlank($value)) {
@@ -501,14 +548,28 @@ final class Validator
 		return self::isUtf8($value) ? (int) preg_match_all('/./su', $value) : strlen($value);
 	}
 
-	/** Whether the shortest decimal form of `$value` has at most 2 decimals. */
-	private static function hasAtMostTwoDecimals(float $value): bool
+	/** Whether a value of the decimal grammar is zero (`"0"`, `"0.00"`). */
+	private static function isZeroDecimal(string $value): bool
 	{
-		return round($value * 100) / 100 === $value;
+		return trim($value, '0.') === '';
 	}
 
-	private static function formatNumber(float $value): string
+	/**
+	 * Compares a value of the decimal grammar with the integer `$limit`, exactly (as digits, no
+	 * float): -1, 0 or +1.
+	 */
+	private static function compareDecimal(string $value, int $limit): int
 	{
-		return $value == floor($value) ? (string) (int) $value : (string) $value;
+		[$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
+		$whole = ltrim($whole, '0');
+		$digits = $limit === 0 ? '' : (string) $limit;
+		if (strlen($whole) !== strlen($digits)) {
+			return strlen($whole) < strlen($digits) ? -1 : 1;
+		}
+		if ($whole !== $digits) {
+			return strcmp($whole, $digits) < 0 ? -1 : 1;
+		}
+
+		return rtrim($fraction, '0') !== '' ? 1 : 0;
 	}
 }

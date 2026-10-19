@@ -9,7 +9,7 @@ namespace QBitFlow\Exceptions;
  *
  * `field` is the input's wire name, dotted when nested (`frequency.unit`), indexed in a list
  * (`events[1]`). For the SDK's own checks the message starts with the field's name
- * (`"price must be a number above 0"`).
+ * (`"priceUsd is required"`).
  */
 final readonly class FieldError
 {

@@ -8,7 +8,7 @@ use QBitFlow\Models\SubscriptionUpcomingBill;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.upcomingBill`: A bill (or a trial's end) is near (`data->billingDate`).
+ * `subscription.upcomingBill`: A bill (or a trial's end) is near (`data->billingAt`).
  */
 final readonly class SubscriptionUpcomingBillEvent extends Event
 {

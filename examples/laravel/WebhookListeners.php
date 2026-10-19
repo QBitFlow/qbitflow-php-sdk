@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use QBitFlow\Laravel\Events\CheckoutExpired;
 use QBitFlow\Laravel\Events\PaymentCompleted;
+use QBitFlow\Laravel\Events\RefundApproved;
+use QBitFlow\Laravel\Events\SubscriptionBilled;
 use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
 use QBitFlow\Laravel\Events\WebhookReceived;
 
@@ -23,7 +25,7 @@ final class FulfilPaidOrder implements ShouldQueue
 		if (! Cache::add('qbitflow-event-' . $event->event->id, true, now()->addDays(7))) {
 			return; // a retry of an event already handled
 		}
-		Log::info('fulfil order', ['reference' => $event->data->reference, 'payment' => $event->data->uuid, 'usd' => $event->data->amount]);
+		Log::info('fulfil order', ['reference' => $event->data->reference, 'payment' => $event->data->uuid, 'usd' => $event->data->amountUsd, 'metadata' => $event->data->metadata]);
 	}
 }
 
@@ -32,6 +34,27 @@ final class ReleaseExpiredOrder implements ShouldQueue
 	public function handle(CheckoutExpired $event): void
 	{
 		Log::info('release order', ['reference' => $event->data->reference, 'session' => $event->data->uuid]);
+	}
+}
+
+final class ExtendSubscriptionAccess implements ShouldQueue
+{
+	public function handle(SubscriptionBilled $event): void
+	{
+		// {bill, subscription}: the bill paid, and the subscription as it leaves it.
+		$bill = $event->data->bill;
+		$subscription = $event->data->subscription;
+		Log::info('subscription billed', ['uuid' => $subscription->uuid, 'status' => $subscription->status, 'usd' => $bill->amountUsd, 'paidUntil' => $bill->periodEnd?->format(DATE_ATOM)]);
+	}
+}
+
+final class ReverseRefundedOrder implements ShouldQueue
+{
+	public function handle(RefundApproved $event): void
+	{
+		// refund.approved (was refund.completed): its transfer is confirmed; refundPercent below 100 is partial.
+		$refund = $event->data;
+		Log::info('refund sent', ['refund' => $refund->uuid, 'tx' => $refund->txUuid, 'percent' => $refund->refundPercent, 'amount' => $refund->amount . ' ' . $refund->currency->symbol]);
 	}
 }
 

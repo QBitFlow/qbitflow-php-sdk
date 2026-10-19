@@ -14,7 +14,8 @@ final readonly class SubscriptionCancellation
 		public Subscription $subscription,
 		/**
 		 * True when the API answered 202: the cancellation is still confirming on-chain and the
-		 * subscription's status is not updated yet (`subscription.statusChanged` tells the end).
+		 * subscription's status is not updated yet (`subscription.statusChanged` tells the end;
+		 * the cancellation goes on whatever happens).
 		 */
 		public bool $pending,
 	) {

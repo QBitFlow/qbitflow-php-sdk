@@ -17,6 +17,7 @@ use QBitFlow\Models\Currency;
 use QBitFlow\Models\Subscription;
 use QBitFlow\Placeholders;
 use QBitFlow\QBitFlow;
+use QBitFlow\Services\AccountingService;
 use QBitFlow\Support\Amount;
 use QBitFlow\Tests\Support\Fixtures;
 use QBitFlow\Tests\Support\MockHttpClient;
@@ -46,7 +47,7 @@ final class HelpersTest extends TestCase
 		$this->assertSame(CheckoutSessionStatusValue::COMPLETED, $status->status);
 		$this->assertSame(3, $this->http->count());
 		$this->assertSame([3.0, 3.0], $this->sleeps, 'the default interval, with the injected sleep');
-		$this->assertSame('/transaction/session-checkout/' . self::SESSION . '/status', self::pathOf($this->http->last()));
+		$this->assertSame('/checkout-sessions/' . self::SESSION, self::pathOf($this->http->last()), 'it polls checkoutSessions->get()');
 	}
 
 	#[Test]
@@ -231,7 +232,8 @@ final class HelpersTest extends TestCase
 		$usdc = Currency::fromArray(get_object_vars(json_decode(Fixtures::model('Currency'))));
 		$this->assertSame(6, $usdc->decimals);
 		$this->assertSame('10.0042', $usdc->formatAmount('10004200'));
-		$this->assertSame('0.000000000000001', $usdc->mainCurrency?->formatAmount('1000'), '18 decimals');
+		$eth = Currency::fromArray(get_object_vars(json_decode(Fixtures::NATIVE)));
+		$this->assertSame('0.000000000000001', $eth->formatAmount('1000'), '18 decimals');
 		$this->expectException(ValidationException::class);
 		$usdc->formatAmount('1.5');
 	}
@@ -262,55 +264,58 @@ final class HelpersTest extends TestCase
 		$client = $this->exportClient(static fn () => Fixtures::list(Fixtures::model('AccountingEvent')), $windows);
 		$events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31');
 
-		$this->assertSame([['2026-01-01', '2026-04-06'], ['2026-04-07', '2026-07-11'], ['2026-07-12', '2026-10-15'], ['2026-10-16', '2026-12-31']], $windows);
+		$this->assertSame([['2026-01-01', '2026-04-02'], ['2026-04-03', '2026-07-03'], ['2026-07-04', '2026-10-03'], ['2026-10-04', '2026-12-31']], $windows,
+			'windows of at most 92 days, both ends included');
 		$this->assertCount(4, $events);
 		$this->assertContainsOnlyInstancesOf(AccountingEvent::class, $events);
 		$this->assertTrue(array_is_list($events));
 	}
 
 	#[Test]
-	public function ninety_five_days_is_one_request_ninety_six_two(): void
+	public function ninety_two_days_is_one_request_ninety_three_two(): void
 	{
-		$client = $this->exportClient(static fn () => '[]', $windows);
-		$this->assertSame([], $client->accounting->exportJsonRange('2026-01-01', '2026-04-06'));
-		$this->assertSame([['2026-01-01', '2026-04-06']], $windows);
+		$empty = static fn () => Fixtures::list();
+		$client = $this->exportClient($empty, $windows);
+		$this->assertSame([], $client->accounting->exportJsonRange('2026-01-01', '2026-04-02'));
+		$this->assertSame([['2026-01-01', '2026-04-02']], $windows, '92 days, both counted: one request');
 
-		$client = $this->exportClient(static fn () => '[]', $windows);
-		$client->accounting->exportJsonRange('2026-01-01', '2026-04-07');
-		$this->assertSame([['2026-01-01', '2026-04-06'], ['2026-04-07', '2026-04-07']], $windows);
+		$client = $this->exportClient($empty, $windows);
+		$client->accounting->exportJsonRange('2026-01-01', '2026-04-03');
+		$this->assertSame([['2026-01-01', '2026-04-02'], ['2026-04-03', '2026-04-03']], $windows, '93 days: two');
 
-		$client = $this->exportClient(static fn () => '[]', $windows);
+		$client = $this->exportClient($empty, $windows);
 		$client->accounting->exportJsonRange('2026-03-01', '2026-03-01');
 		$this->assertSame([['2026-03-01', '2026-03-01']], $windows, 'one day');
 
-		$client = $this->exportClient(static fn () => '[]', $windows);
+		$client = $this->exportClient($empty, $windows);
 		$client->accounting->exportJsonRange('2024-02-01', '2024-06-01');
-		$this->assertSame([['2024-02-01', '2024-05-06'], ['2024-05-07', '2024-06-01']], $windows, 'calendar dates (a leap year)');
+		$this->assertSame([['2024-02-01', '2024-05-02'], ['2024-05-03', '2024-06-01']], $windows, 'calendar dates (a leap year)');
+		$this->assertSame(92, AccountingService::MAX_WINDOW_DAYS);
 	}
 
 	#[Test]
 	public function the_csv_header_is_kept_once(): void
 	{
 		$answers = [
-			'2026-01-01' => "paymentUuid,type\r\npay@1,payment\r\n",
-			'2026-04-07' => "paymentUuid,type\r\n", // only a header: adds nothing
-			'2026-07-12' => "paymentUuid,type\r\npay@2,refund\r\npay@3,payment\r\n",
-			'2026-10-16' => "paymentUuid,type\r\npay@4,payment",
+			'2026-01-01' => "txUuid,type\r\npay@1,payment\r\n",
+			'2026-04-03' => "txUuid,type\r\n", // only a header: adds nothing
+			'2026-07-04' => "txUuid,type\r\npay@2,refund\r\npay@3,payment\r\n",
+			'2026-10-04' => "txUuid,type\r\npay@4,payment",
 		];
 		$client = $this->exportClient(static fn (string $from) => $answers[$from], $windows);
 		$this->assertSame(
-			"paymentUuid,type\r\npay@1,payment\r\npay@2,refund\r\npay@3,payment\r\npay@4,payment",
+			"txUuid,type\r\npay@1,payment\r\npay@2,refund\r\npay@3,payment\r\npay@4,payment",
 			$client->accounting->exportCsvRange('2026-01-01', '2026-12-31'),
 		);
 		$this->assertCount(4, $windows);
 
 		// A window without a final line break, then rows: the line ending is the header's.
-		$answers = ['2026-01-01' => "h\npay@1", '2026-04-07' => "h\npay@2\n"];
+		$answers = ['2026-01-01' => "h\npay@1", '2026-04-03' => "h\npay@2\n"];
 		$client = $this->exportClient(static fn (string $from) => $answers[$from], $windows);
 		$this->assertSame("h\npay@1\npay@2\n", $client->accounting->exportCsvRange('2026-01-01', '2026-05-01'));
 
 		// An empty first window: the next one's header.
-		$answers = ['2026-01-01' => '', '2026-04-07' => "h\npay@2\n"];
+		$answers = ['2026-01-01' => '', '2026-04-03' => "h\npay@2\n"];
 		$client = $this->exportClient(static fn (string $from) => $answers[$from], $windows);
 		$this->assertSame("h\npay@2\n", $client->accounting->exportCsvRange('2026-01-01', '2026-05-01'));
 	}
@@ -431,7 +436,7 @@ final class HelpersTest extends TestCase
 		$this->http->push('{"link":"https://x","uuid":"pay@1","expiresAt":null}', 201);
 		$this->client()->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
 			productName: 'Pro',
-			price: 1,
+			priceUsd: '1',
 			successUrl: 'https://shop.example.com/ok?session=' . Placeholders::UUID . '&type=' . Placeholders::TRANSACTION_TYPE,
 		));
 		$body = json_decode((string) $this->http->last()->getBody(), true);

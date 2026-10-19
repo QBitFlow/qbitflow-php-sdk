@@ -8,7 +8,9 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A wallet of a space on one chain, with its token wallets.
+ * A space's receiving address on one chain (`currency`, its native coin), with the currencies
+ * it accepts on that chain (`tokenWallets`). Its mode is the space's. Wallets are added and
+ * removed in the dashboard.
  */
 final readonly class Wallet extends Model
 {
@@ -23,9 +25,9 @@ final readonly class Wallet extends Model
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * The wallet's address.
+	 * The wallet's address on its chain (EVM: `0x…`, Solana: base58).
 	 */
-	public string $publicKey;
+	public string $address;
 
 	/**
 	 * True in test mode.
@@ -38,19 +40,14 @@ final readonly class Wallet extends Model
 	public ?string $userUuid;
 
 	/**
-	 * The tokens enabled on it.
+	 * The currencies it accepts on its chain; `[]` when none.
 	 *
 	 * @var list<TokenWallet>
 	 */
 	public array $tokenWallets;
 
 	/**
-	 * The chain's native coin.
-	 */
-	public int $currencyId;
-
-	/**
-	 * That native coin.
+	 * The chain, by its native coin.
 	 */
 	public Currency $currency;
 
@@ -61,11 +58,10 @@ final readonly class Wallet extends Model
 	{
 		$this->uuid = Cast::string($data, 'uuid');
 		$this->createdAt = Cast::date($data, 'createdAt');
-		$this->publicKey = Cast::string($data, 'publicKey');
+		$this->address = Cast::string($data, 'address');
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
 		$this->tokenWallets = Cast::listOf($data, 'tokenWallets', TokenWallet::fromArray(...));
-		$this->currencyId = Cast::uint($data, 'currencyId');
 		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 	}
 }

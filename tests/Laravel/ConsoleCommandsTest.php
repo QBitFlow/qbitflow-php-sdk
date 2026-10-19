@@ -67,7 +67,7 @@ final class ConsoleCommandsTest extends TestCase
 	#[Test]
 	public function it_warns_that_a_member_key_cannot_act_for_others(): void
 	{
-		$client = $this->client(MockHttpClient::static(200, '{"credential":"apiKey","role":"user","space":{"uuid":"s-2","userUuid":"m-1","member":{"userUuid":"m-1","name":"Ada","lastName":"L"},"test":false}}'));
+		$client = $this->client(MockHttpClient::static(200, '{"credential":"apiKey","role":"user","space":{"uuid":"s-2","userUuid":"m-1","member":{"userUuid":"m-1","firstName":"Ada","lastName":"L"},"test":false}}'));
 		$tester = $this->tester($client);
 		$tester->execute([]);
 		$this->assertStringContainsString('organization key', $tester->getDisplay());

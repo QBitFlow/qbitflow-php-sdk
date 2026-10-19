@@ -8,7 +8,8 @@ use QBitFlow\Models\SubscriptionStatusChanged;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.statusChanged`: A subscription's status changed (`data->previousStatus` → `data->status`).
+ * `subscription.statusChanged`: A subscription's status changed (`data->previousStatus` →
+ * `data->status`).
  */
 final readonly class SubscriptionStatusChangedEvent extends Event
 {

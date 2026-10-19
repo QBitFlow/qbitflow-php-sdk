@@ -15,7 +15,8 @@ use QBitFlow\QBitFlow;
 $client = QBitFlow::fromEnv();
 
 // docs:start currencies-list
-foreach ($client->currencies->listAvailable() as $currency) {
-	echo "{$currency->id}: {$currency->symbol} ({$currency->name}), {$currency->decimals} decimals\n";
+// One bounded list: the live currencies; test: the test networks'; main: the chains' native coins only.
+foreach ($client->currencies->list() as $currency) {
+	echo "{$currency->id}: {$currency->code} ({$currency->name} on {$currency->chain}), {$currency->decimals} decimals\n";
 }
 // docs:end currencies-list

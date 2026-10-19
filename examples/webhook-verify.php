@@ -23,7 +23,7 @@ try {
 	http_response_code(400); // $e->reason: noMatchingSignature, timestampOutsideTolerance, …
 	exit;
 } catch (\QBitFlow\Exceptions\ValidationException) {
-	http_response_code(400); // not a v2 event: an endpoint still on payload version v1
+	http_response_code(400); // not a v2 event (unsupported payload version), or not JSON
 	exit;
 }
 

@@ -8,24 +8,24 @@ use QBitFlow\Support\Cast;
 
 /**
  * An amount a checkout adds to its product's price, shown to the customer and paid with it, a
- * subscription's with every bill (on {@see Payment::$fees}, {@see PaymentSessionData::$fees} and
- * {@see Subscription::$fees}).
+ * subscription's with every bill (`Payment::$fees`, `Subscription::$fees`, `Transaction::$fees`,
+ * `PaymentSessionData::$fees`).
  */
 final readonly class FeeLine extends Model
 {
 	/**
 	 * `custom` (the merchant's line) or `processingFee` (QBitFlow's fee, which the merchant has
-	 * the customer pay), see {@see \QBitFlow\Enums\FeeLineType}; an unknown value is kept.
+	 * the customer pay); see {@see \QBitFlow\Enums\FeeLineType}.
 	 */
 	public string $type;
 
 	/**
-	 * The line's name, as the checkout shows it ("Processing fee" for the processing fee).
+	 * The line's name, as the checkout shows it (`"Processing fee"` for the processing fee).
 	 */
 	public string $label;
 
 	/**
-	 * More about the line, as the merchant wrote it; null without one.
+	 * More about the line, as the merchant wrote it; null (absent) without one.
 	 */
 	public ?string $description;
 

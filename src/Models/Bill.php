@@ -8,13 +8,12 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A subscription's paid bill (a subscription history entry, `sub-hist@…`).
- *
- * On `subscriptions->getPublicHistory()` the fields the API only returns to the merchant
- * (customerUuid, customerReference, customer, metadata, userUuid, paidMinUnits, paidUsd, refund…)
- * are empty.
+ * One paid bill of a subscription (`sub-hist@…`): what its customer paid for one period
+ * (`periodStart` → `periodEnd`), in the subscription's token, and how it settled. A failed
+ * attempt is no bill (`failures->list()`, `subscription.billingFailed`). Bills carry no merchant
+ * metadata: read the subscription's.
  */
-readonly class Bill extends Model
+final readonly class Bill extends Model
 {
 	/**
 	 * The bill's id (`sub-hist@…`).
@@ -37,24 +36,25 @@ readonly class Bill extends Model
 	public string $to;
 
 	/**
-	 * What the customer paid, in USD.
+	 * What the customer paid, in the currency's units, exact (a decimal string).
 	 */
-	public float $amount;
+	public string $amount;
 
 	/**
-	 * The amount in the token's min units (a decimal string).
+	 * The same in the currency's smallest unit, a string of digits.
 	 */
 	public string $amountMinUnits;
 
 	/**
-	 * The currency paid in (`$client->currencies->get()`).
+	 * What the customer paid in USD, a decimal string: the subscription's `priceUsd` plus its
+	 * `fees` lines.
 	 */
-	public int $currencyId;
+	public string $amountUsd;
 
 	/**
-	 * That currency.
+	 * The currency paid in.
 	 */
-	public ?Currency $currency;
+	public Currency $currency;
 
 	/**
 	 * The transaction's hash.
@@ -62,7 +62,7 @@ readonly class Bill extends Model
 	public string $txHash;
 
 	/**
-	 * The chain it was paid on (`ETH`, `BASE`, `SOL`; the testnet's in test mode), see {@see \QBitFlow\Enums\Chain}.
+	 * The chain it was paid on.
 	 */
 	public ?string $chain;
 
@@ -82,14 +82,14 @@ readonly class Bill extends Model
 	public ?string $userUuid;
 
 	/**
-	 * The subscription's product name when the bill was paid.
+	 * The subscription's product name when the bill was paid (later product edits don't change it).
 	 */
-	public string $name;
+	public string $productName;
 
 	/**
-	 * The same, for the product's description.
+	 * The same, for the product's description; null without one.
 	 */
-	public string $description;
+	public ?string $productDescription;
 
 	/**
 	 * The subscription's product.
@@ -97,7 +97,7 @@ readonly class Bill extends Model
 	public ?string $productUuid;
 
 	/**
-	 * The bill's subscription (`sub@…`).
+	 * The subscription it bills (`sub@…`).
 	 */
 	public string $subscriptionUuid;
 
@@ -107,44 +107,52 @@ readonly class Bill extends Model
 	public ?string $customerUuid;
 
 	/**
-	 * The merchant's reference of the customer.
+	 * Your reference of the customer, as the checkout was given it.
 	 */
 	public ?string $customerReference;
 
 	/**
-	 * Names the customer (API reads only).
+	 * Names the customer, even once deleted (API reads only).
 	 */
 	public ?CustomerSummary $customer;
 
 	/**
-	 * The bill's fees and split.
+	 * How it settled: its fees, its split and its transaction.
 	 */
-	public PaymentMetadata $metadata;
+	public Settlement $settlement;
 
 	/**
-	 * The start of the period the bill paid (its due date).
+	 * The start of the period the bill paid: its due date (the subscription's start for its first
+	 * bill); null on bills recorded before it was.
 	 */
 	public ?DateTimeImmutable $periodStart;
 
 	/**
-	 * The end of the period the bill paid: paid until then.
+	 * The end of the period the bill paid (the subscription's next bill): paid until then; null
+	 * on bills recorded before it was.
 	 */
 	public ?DateTimeImmutable $periodEnd;
 
 	/**
-	 * When the chain confirmed it, when known.
+	 * When the chain confirmed it (its block's time).
 	 */
 	public ?DateTimeImmutable $confirmedAt;
 
 	/**
-	 * Everything the customer's wallet sent, in min units.
+	 * Everything the customer's wallet sent, in the currency's units (`amount` plus the network
+	 * fee): a refund's base.
+	 */
+	public ?string $paid;
+
+	/**
+	 * The same in the currency's smallest unit.
 	 */
 	public ?string $paidMinUnits;
 
 	/**
 	 * The same in USD.
 	 */
-	public ?float $paidUsd;
+	public ?string $paidUsd;
 
 	/**
 	 * Its refund, if any (API reads only).
@@ -157,7 +165,7 @@ readonly class Bill extends Model
 	public ?bool $refundable;
 
 	/**
-	 * Why not.
+	 * Why not ({@see \QBitFlow\Enums\NotRefundableReason}); null when refundable.
 	 */
 	public ?string $notRefundableReason;
 
@@ -170,28 +178,29 @@ readonly class Bill extends Model
 		$this->createdAt = Cast::date($data, 'createdAt');
 		$this->from = Cast::string($data, 'from');
 		$this->to = Cast::string($data, 'to');
-		$this->amount = Cast::float($data, 'amount');
+		$this->amount = Cast::string($data, 'amount');
 		$this->amountMinUnits = Cast::string($data, 'amountMinUnits');
-		$this->currencyId = Cast::uint($data, 'currencyId');
-		$this->currency = Cast::nullableObject($data, 'currency', Currency::fromArray(...));
+		$this->amountUsd = Cast::string($data, 'amountUsd');
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 		$this->txHash = Cast::string($data, 'txHash');
 		$this->chain = Cast::nullableString($data, 'chain');
 		$this->explorerUrl = Cast::nullableString($data, 'explorerUrl');
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
-		$this->name = Cast::string($data, 'name');
-		$this->description = Cast::string($data, 'description');
+		$this->productName = Cast::string($data, 'productName');
+		$this->productDescription = Cast::nullableString($data, 'productDescription');
 		$this->productUuid = Cast::nullableString($data, 'productUuid');
 		$this->subscriptionUuid = Cast::string($data, 'subscriptionUuid');
 		$this->customerUuid = Cast::nullableString($data, 'customerUuid');
 		$this->customerReference = Cast::nullableString($data, 'customerReference');
 		$this->customer = Cast::nullableObject($data, 'customer', CustomerSummary::fromArray(...));
-		$this->metadata = Cast::object($data, 'metadata', PaymentMetadata::fromArray(...));
+		$this->settlement = Cast::object($data, 'settlement', Settlement::fromArray(...));
 		$this->periodStart = Cast::nullableDate($data, 'periodStart');
 		$this->periodEnd = Cast::nullableDate($data, 'periodEnd');
 		$this->confirmedAt = Cast::nullableDate($data, 'confirmedAt');
+		$this->paid = Cast::nullableString($data, 'paid');
 		$this->paidMinUnits = Cast::nullableString($data, 'paidMinUnits');
-		$this->paidUsd = Cast::nullableFloat($data, 'paidUsd');
+		$this->paidUsd = Cast::nullableString($data, 'paidUsd');
 		$this->refund = Cast::nullableObject($data, 'refund', RefundSummary::fromArray(...));
 		$this->refundable = Cast::nullableBool($data, 'refundable');
 		$this->notRefundableReason = Cast::nullableString($data, 'notRefundableReason');

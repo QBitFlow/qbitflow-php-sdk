@@ -60,22 +60,22 @@ final class TransportTest extends TestCase
 	public function it_escapes_every_path_segment(): void
 	{
 		$cases = [
-			[Requester::path('/product/reference/%s', 'a/b c'), '/product/reference/a%2Fb%20c'],
-			[Requester::path('/transaction/payment/%s', 'pay@019c-1'), '/transaction/payment/pay@019c-1'],
-			[Requester::path('/customer/email/%s', 'a+b@example.com'), '/customer/email/a+b@example.com'],
-			[Requester::path('/product/reference/%s', '..'), '/product/reference/%2E%2E'],
-			[Requester::path('/product/reference/%s', '.'), '/product/reference/%2E'],
-			[Requester::path('/product/reference/%s', 'v1..2'), '/product/reference/v1..2'],
+			[Requester::path('/webhooks/events/%s', 'a/b c'), '/webhooks/events/a%2Fb%20c'],
+			[Requester::path('/payments/%s', 'pay@019c-1'), '/payments/pay@019c-1'],
+			[Requester::path('/webhooks/events/%s', 'a+b@example.com'), '/webhooks/events/a+b@example.com'],
+			[Requester::path('/webhooks/events/%s', '..'), '/webhooks/events/%2E%2E'],
+			[Requester::path('/webhooks/events/%s', '.'), '/webhooks/events/%2E'],
+			[Requester::path('/webhooks/events/%s', 'v1..2'), '/webhooks/events/v1..2'],
 			[Requester::path('/x/%s/y/%s', '?q=1#f', '%41'), '/x/%3Fq=1%23f/y/%2541'],
-			[Requester::path('/transaction/subscription/reference/%s/%s', 'subscription', 'ord:1'), '/transaction/subscription/reference/subscription/ord:1'],
+			[Requester::path('/subscriptions/%s/%s', 'sub@019c-1', 'bills'), '/subscriptions/sub@019c-1/bills'],
 		];
 		foreach ($cases as [$got, $want]) {
 			$this->assertSame($want, $got);
 		}
 
 		// The escaped path reaches the server as is.
-		$this->transport(MockHttpClient::static(200, '{}'))->send('GET', Requester::path('/product/reference/%s', 'a/b'));
-		$this->assertSame('/v2/product/reference/a%2Fb', $this->http->last()->getUri()->getPath());
+		$this->transport(MockHttpClient::static(200, '{}'))->send('GET', Requester::path('/webhooks/events/%s', 'a/b'));
+		$this->assertSame('/v2/webhooks/events/a%2Fb', $this->http->last()->getUri()->getPath());
 	}
 
 	#[Test]
@@ -100,7 +100,7 @@ final class TransportTest extends TestCase
 		$this->assertSame('2026-10-01T00:00:00.123456Z', Query::formatTime(new DateTimeImmutable('2026-10-01T00:00:00.123456Z')));
 
 		// Sent on the wire with the + escaped.
-		$this->transport(MockHttpClient::static(200, '{"items":[],"nextCursor":null}'))->send('GET', '/transaction/payments', $query);
+		$this->transport(MockHttpClient::static(200, '{"items":[],"hasMore":false}'))->send('GET', '/payments', $query);
 		$raw = $this->http->last()->getUri()->getQuery();
 		$this->assertStringNotContainsString('+', $raw);
 		parse_str($raw, $parsed);
@@ -160,7 +160,7 @@ final class TransportTest extends TestCase
 	#[Test]
 	public function it_maps_unusable_2xx_bodies_to_server_errors(): void
 	{
-		foreach (['' => 'empty', "  \n" => 'blank', '<html>ok</html>' => 'html', '{"s":"x"' => 'truncated', 'null' => 'null object', '[1]' => 'list for object', '{"price":"5"}' => 'string for float'] as $body => $name) {
+		foreach (['' => 'empty', "  \n" => 'blank', '<html>ok</html>' => 'html', '{"s":"x"' => 'truncated', 'null' => 'null object', '[1]' => 'list for object', '{"priceUsd":5}' => 'number for a decimal string'] as $body => $name) {
 			try {
 				Transport::decode(new RawResponse(201, ['x-request-id' => 'rid'], (string) $body), Requester::one(Product::fromArray(...)));
 				$this->fail($name . ': want a ServerException');
@@ -170,7 +170,15 @@ final class TransportTest extends TestCase
 				$this->assertFalse($e->isRetryable(), $name . ': a response-shape failure is not retryable');
 			}
 		}
-		$this->assertSame([], Transport::decode(new RawResponse(200, [], 'null'), Requester::list(Product::fromArray(...))));
+		// Every answer is a JSON object, lists included (pages): null is no answer at all.
+		foreach (['null', '[]', '[{"uuid":"p-1"}]'] as $body) {
+			try {
+				Transport::decode(new RawResponse(200, [], $body), Requester::page(Product::fromArray(...)));
+				$this->fail($body . ': want a ServerException');
+			} catch (ServerException $e) {
+				$this->assertSame(200, $e->status, $body);
+			}
+		}
 	}
 
 	#[Test]

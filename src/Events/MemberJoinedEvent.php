@@ -8,7 +8,8 @@ use QBitFlow\Models\MemberJoined;
 use QBitFlow\Support\Cast;
 
 /**
- * `member.joined`: Someone accepted an invitation (`data->invitationUuid`) and is now a member (`data->userUuid`).
+ * `member.joined`: Someone accepted an invitation (`data->invitationUuid`) and is now a member
+ * (`data->userUuid`).
  */
 final readonly class MemberJoinedEvent extends Event
 {

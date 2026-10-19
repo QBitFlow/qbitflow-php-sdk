@@ -41,7 +41,7 @@ final class Webhook
 	/** Carries the event's type. */
 	public const EVENT_TYPE_HEADER = 'QBitFlow-Event-Type';
 
-	/** Carries the payload version (`v1` or `v2`). */
+	/** Carries the payload version (`v2`, the only one). */
 	public const VERSION_HEADER = 'QBitFlow-Webhook-Version';
 
 	/** How far (seconds) a signature's timestamp may be from now, by default. */
@@ -169,7 +169,7 @@ final class Webhook
 			throw Validator::fieldError('body', 'is not a valid webhook event ("version" must be a string)');
 		}
 		if ($version !== 'v2') {
-			throw Validator::fieldError('version', 'must be v2: the endpoint is still on v1, move it to v2 in the dashboard');
+			throw Validator::fieldError('version', 'must be v2 (unsupported payload version)');
 		}
 
 		try {

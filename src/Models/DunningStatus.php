@@ -8,7 +8,7 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A past-due subscription's retries.
+ * A past-due subscription's retries (`Subscription::$dunning`).
  */
 final readonly class DunningStatus extends Model
 {

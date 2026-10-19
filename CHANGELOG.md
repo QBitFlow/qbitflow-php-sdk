@@ -5,13 +5,13 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-10-08
+## [3.0.0] - 2026-10-19
 
-The SDK for **QBitFlow API v2**, aligned with the API docs `v2` @ `58460e9` and with the
-behaviour contract the Go, JavaScript, Python and PHP SDKs 3.0.0 share (same services, methods,
-errors, retries and webhook verification). A major release: the client, most names and the
-Laravel integration change. [MIGRATION-v3.md](MIGRATION-v3.md) maps every 2.x method and class
-to its replacement.
+The SDK for **QBitFlow API v2**, aligned with the final API v2 contract (api-hub `docs/api` @
+`fab875c`) and with the behaviour contract the Go, JavaScript, Python and PHP SDKs 3.0.0 share
+(same services, methods, errors, retries, validation and webhook verification). A major release:
+the client, the routes, most names and the Laravel integration change.
+[MIGRATION-v3.md](MIGRATION-v3.md) maps every 2.x method and class to its replacement.
 
 This entry describes the changes since 2.1.0, the last published release (2.5.0 was prepared
 but never published; its changes are part of 3.0.0). Requires PHP **8.2** or later, as before.
@@ -19,61 +19,132 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
 ### ⚠️ Breaking
 
 -   **API v2**: the default base URL is `https://api.qbitflow.app/v2`
-    (`QBitFlow::DEFAULT_BASE_URL`). API v1 runs next to it, against the same data, for a
-    transition period. The client no longer reads `QBITFLOW_BASE_URL` from the environment: pass
-    `baseUrl:` (the Laravel config still maps it).
+    (`QBitFlow::DEFAULT_BASE_URL`), with its REST routes: plural collections (`/products/:uuid`,
+    `/customers`, `/payments`, `/subscriptions`, `/bills/:uuid`, `/refunds`, `/wallets`,
+    `/currencies`, `/checkout-sessions/…`, `/payment-failures`, `/transactions`,
+    `/held-funds`), updates as `PATCH`, actions as `POST /<resource>/:uuid/<verb>`, lookups by
+    reference as list filters, and every `DELETE` answering `204` with no body. `/v1` is gone.
+    The client no longer reads `QBITFLOW_BASE_URL` from the environment: pass `baseUrl:` (or use
+    `QBitFlow::fromEnv()`; the Laravel config still maps it).
 -   **The client.** `new QBitFlow(apiKey: …, baseUrl:, timeout:, maxRetries:, onBehalfOf:,
     httpClient:, requestFactory:, streamFactory:)`: use named arguments (`onBehalfOf` comes
     before `httpClient`). The key must be non-blank and start with `sk_`, `baseUrl` an absolute
-    http(s) URL, `timeout` positive (now **per attempt**), `maxRetries` not negative: a
-    `ValidationException` otherwise, and nothing is sent. `QBitFlow::fromArray()`, `getApiKey()`
-    and the `Config` class are removed (`QBitFlow::DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES`).
+    http(s) URL, `timeout` positive (now **per attempt**), `maxRetries` not negative (`0`
+    disables retries): a `ValidationException` otherwise, and nothing is sent.
+    `QBitFlow::fromArray()`, `getApiKey()` and the `Config` class are removed
+    (`QBitFlow::DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES`).
 -   **`onBehalfOf` takes a member's user UUID**: `$client->onBehalfOf(string $userUuid)` returns
     a client for every service (checked at once: a non-UUID or the nil UUID is a
-    `ValidationException`; `''` gives the organization level). The per-service `onBehalfOf(int)`
-    methods are removed. `RequestOptions(onBehalfOf: …)` acts for one call.
+    `ValidationException`; `''` gives the organization level, and the `On-Behalf-Of` header is
+    then omitted: it is never sent blank). The per-service `onBehalfOf(int)` methods are
+    removed. `new RequestOptions(onBehalfOf: …)` acts for one call.
 -   **`RequestOptions` last on every method** (`onBehalfOf`, `idempotencyKey`, `requestId`).
 -   **Params classes.** Every create, update and list takes a `final readonly`
     `QBitFlow\Params\…` class built with named arguments (`CreatePaymentSessionParams`,
     `UpdateCustomerParams`, `PaymentListParams`, …) instead of a DTO or an array; each has
-    `validate()` (run before every request) and `toArray()`.
+    `validate()` (run before every request) and `toArray()` / `toQuery()`.
 -   **Models.** Responses are `readonly` `QBitFlow\Models\…` classes (was `QBitFlow\Dto\…`)
-    whose properties are the API's JSON keys: `customerUUID` → `customerUuid`,
-    `transactionHash` → `txHash`, `TxAmountsUSD` → `TxAmountsUsd`, `TxAmountsFull` →
-    `TxAmounts`, `LinkResponse` → `CheckoutSession`, `TransactionStatus` →
-    `CheckoutSessionStatus`, `SubscriptionHistory` → `Bill`, `RefundEntry` → `Refund`, `User` →
-    `Member`. Optional fields are nullable (`?T`, `null` when absent); fields the API always
-    sends get their zero value when absent.
+    whose properties are the API's JSON keys (`customerUUID` → `customerUuid`,
+    `transactionHash` → `txHash`). A field the API always sends gets its zero value when
+    absent; an optional field is `?T`, `null` when absent.
+-   **Money is a decimal string, never a float**, in requests and in responses: USD amounts
+    (`priceUsd`, `amountUsd`, `paidUsd`, `totalUsd`, `attemptedUsd`), token amounts (`amount`,
+    `paid`, `owed`, next to their `…MinUnits`) and fee rates in percent (`feePercent`,
+    `organizationFeePercent`, `refundPercent`: `"1.5"` is 1.5 %). `CreateProductParams::$price`
+    → `priceUsd: string`, the session params' inline `price` → `priceUsd: string`,
+    `FeeItem::$amountUsd`, `CreateRefundParams::$refundPercent`,
+    `CreateInvitationParams::$organizationFeePercent` and `UpdateMemberParams::$organizationFeePercent`
+    are strings (no `int|float` input is accepted). No `float` is left in a model or a params
+    class.
+-   **Amounts are token amounts.** `Payment::$amount`, `Bill::$amount`, `Transaction::$amount`
+    and `HeldFundsReleased::$amount` are in the currency's units (`"10"` for 10 USDC), next to
+    `amountMinUnits` and `amountUsd` (what `amount` used to be).
 -   **Enums are strings.** Enum properties are plain `string`s, and `QBitFlow\Enums\…` are
     classes of string constants (was PHP backed `enum`s): compare with `===`. Values follow the
-    API's lowerCamelCase (`pastDue`, `trialExpired`, `subscriptionHistory`);
-    `TransactionType::ONE_TIME_PAYMENT` → `PAYMENT`, `EXECUTE_SUBSCRIPTION_PAYMENT` →
-    `EXECUTE_SUBSCRIPTION`; `UserRole` → `Role`; `RefundStatus::REFUSED` → `REJECTED`,
-    `FAILED` removed.
+    API's lowerCamelCase (`pastDue`, `trialExpired`); `TransactionType::ONE_TIME_PAYMENT` →
+    `PAYMENT`, `EXECUTE_SUBSCRIPTION_PAYMENT` → `EXECUTE_SUBSCRIPTION`; `UserRole` → `Role`;
+    `RefundStatus::REFUSED` → `REJECTED`, plus `CANCELLED` (a merchant's draft dropped before it
+    was sent) and `FAILED` (declared, never set); `LedgerEntryType` and `AccountingEventType`
+    `subscriptionHistory` → `BILL` (`bill`); `CombinedPaymentSource` → `TransactionKind`
+    (`PAYMENT`, `BILL`); `WebhookPayloadVersion::V1` is removed (v2 is the only payload).
 -   **Ids are UUID strings.** Products are named by `uuid` (was the numeric `id`), and
     `productId` is `productUuid` everywhere; people are named by their user UUID (`userId` →
     `userUuid`). `organizationId` is gone from every model. Currencies keep numeric ids.
--   **Users and claims become invitations, members and the trust layer**: `users` →
+    Transaction ids are prefixed (`pay@`, `sub@`, `sub-hist@`, `refund@`, `transfer@`,
+    `release@`) and every route also takes the bare UUID.
+-   **Users and claims become invitations, members and held funds**: `users` →
     `invitations` and `members` (a person exists once they accept an invitation); `claims` →
     `members->trust()` and the held-funds reads; `apiKeys` is removed (`$client->me()`
-    describes the current key).
+    describes the current key). `CreateInvitationParams(holdFunds: …)` (was `trustLayer`,
+    now required and always sent).
 -   **Checkout sessions have their own service.** `oneTimePayments->createSession()` and
     `subscriptions->createSession()` → `checkoutSessions->createPayment()` /
-    `createSubscription()`; `transactionStatus->get($uuid, $type)` →
-    `checkoutSessions->getStatus($uuid)`, with four statuses (`created`, `waitingConfirmation`,
-    `completed`, `expired`): a failed attempt is `created` with `lastAttempt` set, never final.
-    `oneTimePayments` becomes `payments`.
+    `createSubscription()`, returning a `CreatedCheckoutSession` (`link`, `uuid`, `expiresAt`);
+    `transactionStatus->get($uuid, $type)` → `checkoutSessions->get($uuid)`
+    (`GET /checkout-sessions/:uuid`), with four statuses (`created`, `waitingConfirmation`,
+    `completed`, `expired`) and `expiresAt` while open: a failed attempt is `created` with
+    `lastAttempt` set, never final. `oneTimePayments` becomes `payments`.
 -   **Subscriptions.** `status` (was `subscriptionStatus`) takes `trial`, `trialExpired`,
     `active`, `pastDue`, `paused`, `stopped`, `cancelled`; `low_on_funds` and `pending` became
     `actionRequired` values (`topUpAllowance`, `raiseMaximum`, `confirmTrial`), and the
-    `stopped` bool the `stopped` status. `frequency` is a `Duration` (was seconds),
-    `nextBillingDate` nullable. `forceCancel()` → `cancel($uuid, ?CancelSubscriptionParams)`
-    (a POST, never retried, returns a `SubscriptionCancellation` with `pending` for an HTTP
-    202); `executeTestBilling()` returns the bill's `BillingState`; `getPaymentHistory()` →
-    `listBills()` / `iterateBills()`, or `getPublicHistory()`; `get()` returns cancelled
-    subscriptions too.
+    `stopped` bool the `stopped` status. `frequency` is a `Duration` (was seconds);
+    `lastBillingDate` → `lastBilledAt`, `nextBillingDate` → `nextBillingAt`,
+    `minimumCancellationDate` → `cancellableAt` (all nullable); `allowance` is an `Allowance`
+    object (`amount`, `amountMinUnits`, `amountUsd`, `remainingPeriods`, `maxPerPeriod`,
+    `maxPerPeriodMinUnits`); `currencyId` → the `currency` object; `from`, `productUuid` and
+    `subscriptionHash` are null when unknown; `managementPageLink` is on the subscription itself.
+    `forceCancel()` → `cancel($uuid, ?CancelSubscriptionParams)` (`POST
+    /subscriptions/:uuid/cancel`, never retried, returns a `SubscriptionCancellation` with
+    `pending` for an HTTP 202); `executeTestBillingCycle()` → `testBill($uuid)`
+    (`POST /subscriptions/:uuid/test-bill`, returns a `TestBill`: `billUuid` `sub-hist@…`,
+    `stage`, `outcome`, `attempts`, `nextAttemptAt`); `getPaymentHistory()` → `listBills()` /
+    `iterateBills()`; `get()` returns cancelled subscriptions too.
+-   **The settlement.** `Payment::$metadata` (the fee split) → `Payment::$settlement`, a
+    `Settlement` (`feePercent`, `organizationFee`, `referralFee`, `split`, `transaction`) on
+    payments, bills, transactions and held-funds lines; a `TransferSettlement` on refunds and
+    held-funds releases. `PaymentMetadata`, `TxMetadata`, `BlockData`, `NetworkFees`,
+    `TxAmounts`, `TxAmountsMinUnits` and `TxAmountsUsd` are replaced by `Settlement`, `Split`
+    (each part a `TokenAmount`; `platform` no longer includes the referrer's share),
+    `SettlementTransaction` (`blockNumber`, `blockTime`, `gasUsed`, `fee`, `l1Fee`,
+    `nativePriceUsd`) and `TransferSettlement`. `OrganizationFee` and `ReferralFee` name their
+    wallet `address`.
+-   **`metadata` is now your own data**: an `array<string,string>` on `Product`, `Customer`,
+    `Payment` (copied from its checkout, read-only), `Subscription`, `Transaction` and the
+    `checkout.expired` session.
+-   **Models renamed and retyped**: `LinkResponse` → `CreatedCheckoutSession`,
+    `TransactionStatus` → `CheckoutSessionStatus`, `SubscriptionHistory` → `Bill`, `RefundEntry`
+    → `Refund` (`txId` → `txUuid`), `User` → `Member`, `CursorData` → `Page`. `name` →
+    `firstName` on `Customer`, `CustomerSummary`, `Member` and `MeMember` (and the customer
+    params); a payment's and a bill's `name` / `description` → `productName` /
+    `productDescription`; `Product::$price` → `priceUsd`; `Me::$onBehalfOf` →
+    `onBehalfOfUserUuid`; `Member::$acceptedCurrencyIds` → `acceptedCurrencies`
+    (`list<Currency>`); `Wallet::$publicKey` → `address`; `TokenWallet` names its `currency`;
+    `Balance` is a `TokenAmount` plus its `currency`; `HeldFunds` / `MemberHeldFunds`
+    `totalAmount` → `totalUsd`; `LedgerEntry::$amount` → `amountUsd`, its `metadata` →
+    `settlement`, plus `owed`; `Invitation::$trustLayer` → `holdFunds`; `InvitationCreated`
+    `{invitation, link}` → `CreatedInvitation`, flat (the invitation's properties and `link`);
+    `MemberHeldFundsSummary` → `MemberHeldFunds`; `BillingState` → `TestBill`; the
+    `currencyId` properties are gone (each model carries its `currency` object).
+-   **The currency object** gains `code` (`BASE:USDC`) and `chain`; `address` is null on a
+    native coin; the nested `mainCurrency` is gone (`mainCurrencyId` stays).
 -   **Fee rates are percents**: `feeBps` → `feePercent`, `organizationFeeBps` →
-    `organizationFeePercent` (`150` bps is `1.5`).
+    `organizationFeePercent` (`150` bps is `"1.5"`).
+-   **Pagination**: `getAll…($limit, $cursor)` returning a `CursorData` → `list(?…ListParams)`
+    returning a `QBitFlow\Page` `{items, hasMore, nextCursor}`: `hasMore` is a property (no
+    `hasMore()` method), `nextCursor` an opaque `?string` (null on the last page). The
+    `iterate*()` generators stop when `hasMore` is false (also, defensively, on a page that
+    claims more without a new cursor or without items). Bounded lists (`currencies->list()`,
+    `wallets->list()`, `wallets->listForMember()`, `wallets->listAcceptedCurrencies()`,
+    `members->listHeldFunds()`, `accounting->exportJson()`) return a `list<T>` (and follow a
+    `nextCursor` should one ever claim more, so an export is never cut short silently).
+-   **Lookups by reference are list filters.** `products`, `customers`, `payments` and
+    `subscriptions` `getByReference($reference)` run the list's `?reference=` filter and return
+    the item whose `reference` equals the one asked for (exactly), or a `NotFoundException`
+    (status 404, code `not_found`) when none does — never another resource. The reference is
+    validated. `customers->getByEmail()` is removed: an email may match several customers
+    (`customers->list(new CustomerListParams(email: …))`).
+-   **Every `DELETE` returns `void`**: `invitations->revoke()` no longer returns the invitation
+    (`204`), nor do the deletes return a `SuccessResponse`.
 -   **Exceptions.** One class per condition, all extending `ApiException`, itself a
     `QBitFlowException` implementing the marker `ExceptionInterface`: `ValidationException`
     (400 `validation_failed` and client-side checks), `BadRequestException` (other 400s, which
@@ -87,87 +158,127 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `getStatusCode()`, `getFields()` and `getResponse()` are removed.
 -   **Webhooks** use API v2's scheme: the `QBitFlow-Signature: t=…,v1=…` header, an
     HMAC-SHA256 of `t + "." + rawBody` over the raw body (no canonical JSON), and the event
-    envelope `{id, type, version, createdAt, test, userUuid, data}`. Endpoints must be on payload
-    version v2: v1 bodies are not parsed. `WebhookVerifier` → `QBitFlow\Webhooks\Webhook`;
+    envelope `{id, type, version, createdAt, test, userUuid, data}`; a version other than `v2`
+    is refused. `WebhookVerifier` → `QBitFlow\Webhooks\Webhook`;
     `webhooks->verify($payload, $signature, $timestamp): bool` →
     `webhooks->verifyRemote($endpointUuid, $rawBody, $signatureHeader): void`.
--   **Pagination**: `getAll…($limit, $cursor)` returning a `CursorData` → `list(?…ListParams)`
-    returning a `QBitFlow\Page`, with filters.
+-   **Webhook events renamed and reshaped**: `refund.completed` → `refund.approved`
+    (`EventType::REFUND_APPROVED`, `Events\RefundApprovedEvent`), `refund.denied` →
+    `refund.rejected` (`EventType::REFUND_REJECTED`, `Events\RefundRejectedEvent`).
+    `subscription.billed`'s data is nested: `Models\SubscriptionBilled {bill, subscription}`
+    (the flattened `subscriptionReference` / `subscriptionStatus` are `subscription->reference`
+    / `->status`). `subscription.created`'s data is a plain `Models\Subscription` (the
+    `SubscriptionCreated` model is gone). `subscription.upcomingBill`'s `billingDate` →
+    `billingAt` and its `amountUsd` is a string. `heldFunds.released`'s `txMetadata` →
+    `settlement`. The `checkout.expired` session has `priceUsd`, `amountUsd` (was `price` /
+    `amount` numbers), `availableCurrencies` (was `availableCurrencyIds`), `metadata`, and
+    `upgradingFromTrial` as a bool.
 -   **Laravel.** `Route::qbitflowTransactionWebhook()` and `Route::qbitflowSubscriptionWebhook()`
     → one `Route::qbitflowWebhooks()`; the invokable `WebhookController` dispatches one Laravel
     event per webhook type (`PaymentCompleted`, `SubscriptionCreated`, `SubscriptionBilled`,
     `SubscriptionStatusChanged`, `SubscriptionActionRequiredChanged`,
     `SubscriptionBillingFailed`, `SubscriptionUpcomingBill`, `RefundRequested`,
-    `RefundCompleted`, `RefundDenied`, `MemberJoined`, `MemberRemoved`, `HeldFundsReleased`,
+    `RefundApproved`, `RefundRejected`, `MemberJoined`, `MemberRemoved`, `HeldFundsReleased`,
     `CheckoutExpired`, `WebhookTestReceived`) then `WebhookReceived` for every delivery;
     `TransactionWebhookReceived` and the 2.x payloads of `SubscriptionBilled` /
     `SubscriptionStatusChanged` are gone. The `qbitflow.webhook` middleware verifies locally with
-    `QBITFLOW_WEBHOOK_SECRET` (required; no API fallback), answers 400 to a bad signature or a v1
-    body, and no longer short-circuits the dashboard's test (it is a `webhook.test` event,
-    dispatched as `WebhookTestReceived`). `qbitflow:verify` calls `me()`.
+    `QBITFLOW_WEBHOOK_SECRET` (required; no API fallback), answers 400 to a bad signature or a
+    non-v2 body, and no longer short-circuits the dashboard's test (it is a `webhook.test`
+    event, dispatched as `WebhookTestReceived`). `qbitflow:verify` calls `me()`.
+-   **Renamed inside 3.0.0's preparation** (before API v2's final contract; nothing was
+    published): `checkoutSessions->getStatus()` → `get()`; `payments->listCombined()` /
+    `iterateCombined()` → `transactions->list()` / `iterate()` (`CombinedPayment` →
+    `Transaction`, `CombinedPaymentListParams` → `TransactionListParams`, its `source` filter →
+    `type`); `subscriptions->executeTestBilling()` → `testBill()`; `refunds->initiate()` →
+    `create()` (`InitiateRefundParams` → `CreateRefundParams`); `refunds->list()` (active) and
+    `listInactive()` / `iterateInactive()` → one `refunds->list()` / `iterate()` with a
+    `status` filter; `wallets->listSupportedCurrencies()` → `listAcceptedCurrencies()`
+    (`SupportedCurrenciesParams` → `AcceptedCurrenciesParams`); `currencies->listAvailable()` /
+    `listMain()` → `currencies->list(new CurrencyListParams(main: …))`;
+    `webhooks->endpoints->list()` takes `?EndpointListParams` and returns a `Page`;
+    `subscriptions->getPublicHistory()` is removed (`listBills()` has every bill).
 
 ### Added
 
--   `$client->me()`: what the key is (role, space, mode), the recommended start-up check;
-    `$client->onBehalfOf()`: a client acting in a member's space, sharing the transport.
--   `checkoutSessions`: `createPayment`, `createSubscription` (with `expiresInMinutes` and the
-    `{{UUID}}` / `{{TRANSACTION_TYPE}}` redirect placeholders), `getStatus`, `expire`.
--   **Checkout fees**: `CreatePaymentSessionParams(fees: new CheckoutFees(…))`
-    adds your lines (`FeeItem`: `label`, `amountUsd` as a number or a string sent as typed,
-    optional `description`; at most 10) and QBitFlow's processing fee (`processingFee: true`,
-    grossed up so you keep the price and your lines; `null` follows the dashboard setting
-    `checkout.customerPaysProcessingFee`) to the price. Checked before the request (label 1-40 on
-    one line, description at most 200, `amountUsd` above 0, at most 1,000,000, 2 decimals) on
-    `fees.items[<i>].<field>`. `Payment` (and `payment.completed`) has `price` and `fees`, with
-    `amount = price + fees`; `PaymentSessionData` (`checkout.expired`) has `fees` and `amount`; new
-    `Models\FeeLine` (`amountUsd` a decimal string) and `Enums\FeeLineType` (`custom`,
-    `processingFee`). The network fee stays on top of `amount`; test mode caps it, fees included,
-    at 5 USD.
--   Checkout fees on subscriptions: `CreateSubscriptionSessionParams(fees: …)` (the same
-    `CheckoutFees` and rules, errors on `fees.items[<i>].<field>` after the terms'), locked with
-    the price: every bill charges the price plus every line. `Subscription::$fees` (the lines,
-    next to `priceUsd`, which stays the price; also on every `subscription.*` webhook); the
-    session's `fees` and `amount` on a subscription checkout too.
--   `AccountingEvent` follows the API's export: amounts in the currency's units (not min units),
-    `currency` (was `tokenSymbol`), `currencyPriceUsd`, and the network fees apart from the net:
-    `networkFeesPaidBy` (the open enum `Enums\NetworkFeesPayer`: `PAYER`, `MERCHANT`,
-    `ORGANIZATION`), `networkFees`, `networkFeesCurrency`, `networkFeesCurrencyDecimals`,
-    `networkFeesCurrencyPriceUsd`, `networkFeesUsd`. Its properties are in the CSV's column order;
-    the always-empty `userName`, `userLastName`, `customerName` and `customerLastName` are gone.
--   `payments->list()` / `listCombined()` with filters (customer, product, dates, `refunded`,
-    `includeMembers` / `userUuid`, `source`, `subscriptionUuid`); `payments->get()` with
-    `ReadParams`. `failures->list()`: the failed payment attempts.
--   `subscriptions->list()` (status, reference and the shared filters), `listBills()`,
-    `getBill()`; `Subscription::$currentPeriodEnd` (grant access while now is before it),
-    `actionRequired`, `priceUsd`, `cancellationReason`, `dunning`.
--   `refunds->initiate()`: a merchant's refund of a payment or a bill, signed in the dashboard;
-    refund list filters (`includeMembers`, `userUuid`, `held`).
--   `members` (`list`, `get`, `update`, `remove`, `trust`, `listHeldFunds`, `getHeldFunds`,
-    `getOwnHeldFunds`) and `invitations` (`create`, `list`, `revoke`) for marketplaces.
--   `wallets` (`list` with balances, `listForMember`, `listSupportedCurrencies`),
-    `currencies->get()`, product filters and subscription products, customer filters.
--   `webhooks->endpoints` (`list`, `create` with the secret shown once, `get`, `update`,
-    `delete`) and `webhooks->events` (the event log: `list`, `get` with its deliveries).
+-   `$client->me()`: what the key is (role, space, mode, the member acted for), the recommended
+    start-up check; `$client->onBehalfOf()`: a client acting in a member's space, sharing the
+    transport. `MeSpace` has `role`, `trustedAt`, `createdAt` and `organizationFeePercent`.
+-   `checkoutSessions`: `createPayment`, `createSubscription` (with `expiresInMinutes`,
+    `metadata` and the `{{UUID}}` / `{{TRANSACTION_TYPE}}` redirect placeholders), `get`,
+    `expire`.
+-   **Checkout fees**: `CreatePaymentSessionParams(fees: new CheckoutFees(…))` and
+    `CreateSubscriptionSessionParams(fees: …)` add your lines (`FeeItem`: `label`, `amountUsd`
+    as a decimal string, optional `description`; at most 10) and QBitFlow's processing fee
+    (`processingFee: true`, grossed up so you keep the price and your lines; `null` follows the
+    dashboard setting `checkout.customerPaysProcessingFee`) to the price. Checked before the
+    request (label 1-40 on one line, description at most 200, `amountUsd` above 0, at most
+    1,000,000, 2 decimals) on `fees.items[<i>].<field>`. The customer pays the price plus every
+    line, then the network fee on top; test mode caps that amount, fees included, at `"5"`. A
+    subscription's are locked with its price: every bill charges both. `Payment::$priceUsd` and
+    `$fees`, `Subscription::$fees`, `Transaction::$priceUsd` and `$fees`, `Models\FeeLine` and the
+    open enum `Enums\FeeLineType` (`CUSTOM`, `PROCESSING_FEE`).
+-   Merchant metadata (`array<string,string>`) on `CreateProductParams` / `UpdateProductParams`,
+    `CreateCustomerParams` / `UpdateCustomerParams`, both session creates, and
+    `subscriptions->update($uuid, UpdateSubscriptionParams)` (`PATCH /subscriptions/:uuid`):
+    merged on the updates, a key set to `''` deleting it.
+-   `$client->transactions` (`TransactionsService`): `list()` / `iterate()`
+    (`GET /transactions`), the feed of payments and bills, each a `Transaction` with its `type`,
+    filtered by `type`, `subscriptionUuid`, `refunded` and the shared filters.
+-   `payments->list()` with filters (customer, product, dates, `reference`, `refunded`,
+    `includeMembers` / `userUuid`); `payments->get()` with `ReadParams`. `failures->list()`: the
+    failed payment attempts (`attempted`, `attemptedUsd`, `currency`).
+-   `products->list()` / `iterate()` (paginated: `limit`, `cursor`, `includeHidden`,
+    `subscription`, `reference`) and subscription products; `customers->list()` / `iterate()`
+    (`email`, `reference`, `verified`).
+-   `subscriptions->list()` (status, reference and the shared filters), `update()`,
+    `listBills()`, `getBill()` (`GET /bills/:uuid`); `Subscription::$currentPeriodEnd` (grant
+    access while now is before it), `actionRequired`, `priceUsd`, `cancellationReason`,
+    `dunning`, `metadata`, `managementPageLink`; `Allowance`.
+-   `refunds->list()` / `iterate()` (`status` (a list, sent repeated, up to 5), `txUuid`,
+    `held`, `includeMembers`, `userUuid`), `refunds->get()` (`GET /refunds/:uuid`) and
+    `refunds->create(CreateRefundParams)` (`POST /refunds`): a merchant's refund of a payment or
+    a bill, signed in the dashboard. A `Refund` carries `paid`, `amount`, its `currency` and,
+    once approved, its `settlement`.
+-   `members` (`list`, `iterate`, `get`, `update`, `remove`, `trust`, `listHeldFunds`,
+    `getHeldFunds`, `getOwnHeldFunds`) and `invitations` (`create`, `list`, `iterate`,
+    `revoke`) for marketplaces.
+-   `wallets` (`list` with balances, `listForMember`, `listAcceptedCurrencies`),
+    `accounting->exportCsv()`, `currencies->list()` and `get()`.
+-   `Models\TokenAmount` (`amount`, `amountMinUnits`, `amountUsd`), the shape of every token
+    amount.
+-   `webhooks->endpoints` (`list` / `iterate` paginated, `create` with the secret shown once,
+    `get`, `update`, `delete`) and `webhooks->events` (the event log: `list`, `iterate`, `get`
+    with its deliveries).
 -   Webhook verification without a client: `Webhook::verify()`, `Webhook::verifyRequest()` (a
     PSR-7 request, 1 MiB at most), `Webhook::constructEvent()`, `Webhook::parseEvent()`, with a
     tolerance and an injectable clock; every `v1=` signature is checked, so a secret rotation
     needs nothing on the receiver's side. The header constants `Webhook::SIGNATURE_HEADER`,
     `EVENT_ID_HEADER`, `EVENT_TYPE_HEADER`, `VERSION_HEADER`.
 -   Typed events: `Events\Event::fromArray()` returns one `final readonly` subclass per type
-    (`PaymentCompletedEvent`, `SubscriptionBilledEvent`, `CheckoutExpiredEvent`, … 15 types)
-    with a typed `data`, or an `UnknownEvent` keeping the raw data; `Event::decodeData()` for
-    another shape.
--   A `Generator` next to every paginated list: `iterate()`, `iterateCombined()`,
-    `iterateBills()`, `iterateInactive()`.
+    (`PaymentCompletedEvent`, `SubscriptionBilledEvent`, `RefundApprovedEvent`,
+    `CheckoutExpiredEvent`, … 15 types) with a typed `data`, or an `UnknownEvent` keeping the
+    raw data; `Event::decodeData()` for another shape.
+-   A `Generator` next to every paginated list: `iterate()`, `iterateBills()`.
 -   Retries: reads and the 7 creates are retried on network errors, timeouts, 5xx, 429 (after
     `Retry-After`, at most 60 s) and `409 idempotency_key_in_use`, 3 times by default with a
     1 s · 2ⁿ back-off; `maxRetries: 0` disables them; `QBitFlowException::isRetryable()`.
 -   An `Idempotency-Key` on each create, generated per call and reused by its retries;
     `RequestOptions(idempotencyKey: …)` for retries across processes.
 -   `RequestOptions(requestId: …)` (`X-Request-Id`) and the request id on every exception.
+-   Client-side validation mirroring the API v2 validators, through each params class's
+    `validate()`, run before every request (no request is sent on failure): names, texts,
+    references (also on the `reference` filters and `getByReference()`), emails (also the
+    customers' `email` filter), phones, URLs, USD amounts as strings (at most 2 decimals, above
+    0, at most 1,000,000, compared exactly), percents as strings (at most 2 decimals and 16
+    characters; `refundPercent` above 0 up to 100, `organizationFeePercent` 0 to 50, required on
+    `UpdateMemberParams`), metadata (at most 50 keys of 1 to 40 of `A-Z a-z 0-9 _ - . :`, values
+    of at most 500 characters without control or bidirectional characters), durations, cursors
+    (at most 200 characters), the refunds' `status` filter (at most 5 known statuses), the
+    transactions' `type`, the `release@` transaction prefix, and a clearable
+    `UpdateCustomerParams::$lastName`.
 -   Laravel: `webhook_secret` and `webhook_tolerance` config keys (`QBITFLOW_WEBHOOK_SECRET`,
     `QBITFLOW_WEBHOOK_TOLERANCE`); the verified event on `$request->attributes`
-    (`qbitflow.event`); facade methods for every service and `me()`.
+    (`qbitflow.event`); facade methods for every service (`transactions()` included) and `me()`.
 -   `User-Agent: qbitflow-php/3.0.0` and `QBitFlow::VERSION`.
 -   **Integration helpers** (the same in the Go, JavaScript, Python and PHP SDKs):
     -   `Webhooks\WebhookRouter` (also `$client->webhooks->router($secret)`): verifies, parses and
@@ -183,15 +294,16 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
         elsewhere. New dependency: `psr/http-server-handler` ^1.0 (the PSR-15 interface).
     -   `Webhook::sign($rawBody, $secret, $timestamp = now)`: the `QBitFlow-Signature` header
         QBitFlow would send, to test your handlers.
-    -   `checkoutSessions->waitForCompletion($uuid, timeout: 600, interval: 3)`: polls until
-        `completed` or `expired`, or returns the last status seen at the timeout; uses the
+    -   `checkoutSessions->waitForCompletion($uuid, timeout: 600, interval: 3)`: polls `get()`
+        until `completed` or `expired`, or returns the last status seen at the timeout; uses the
         client's sleep.
     -   `Subscription::hasAccess(?DateTimeInterface $at = null)` (also on the subscription
         webhook data): `currentPeriodEnd` set and `$at` before it.
     -   `Support\Amount::format()` / `parse()`: exact min units ↔ decimal strings by string
         arithmetic (no extension needed); `Currency::formatAmount($minUnits)`.
     -   `accounting->exportJsonRange()` / `exportCsvRange()`: any date range, split into windows
-        of at most 95 days and joined (the CSV header once).
+        of at most 92 days, both ends included (`[from, from+91d]`), and joined (the CSV header
+        once).
     -   `QBitFlow::fromEnv(...)`: `QBITFLOW_API_KEY` (required), `QBITFLOW_BASE_URL`,
         `QBITFLOW_ON_BEHALF_OF` from `getenv()` / `$_ENV` / `$_SERVER`; named arguments win.
     -   `Placeholders::UUID` and `Placeholders::TRANSACTION_TYPE` for the redirect URLs.
@@ -201,22 +313,41 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
         throwing listener is a 500 `{"error":"internal error"}` reported to the exception
         handler. The middleware answers `{"error":"invalid signature"}` /
         `{"error":"invalid event"}` (400) and 413 over 1 MiB.
--   Examples: `checkout.php`, `subscriptions.php`, `marketplace.php`, `webhook-handler.php`,
-    `errors-and-retries.php`, `laravel/`; `MIGRATION-v3.md`.
+-   Examples: `checkout.php`, `subscriptions.php`, `marketplace.php`, `refunds.php`,
+    `webhook-handler.php`, `errors-and-retries.php`, `laravel/`; `MIGRATION-v3.md`.
+-   Website snippets: three new ids, `transactions-list`, `subscriptions-update` and
+    `refunds-get`; none renamed or retired.
 
 ### Changed
 
+-   `AccountingEvent` follows the API's export: amounts in the currency's units as decimal
+    strings, each with its `…MinUnits` twin (`grossAmountMinUnits`, `platformFeeMinUnits`,
+    `referralFeeMinUnits`, `organizationFeeMinUnits`, `netAmountMinUnits`,
+    `networkFeesMinUnits`); USD amounts and rates as decimal strings; `currency` (was
+    `tokenSymbol`), `currencyPriceUsd`, and the network fees apart from the net
+    (`networkFeesPaidBy`, the open enum `Enums\NetworkFeesPayer`: `PAYER`, `MERCHANT`,
+    `ORGANIZATION`). `paymentReference` / `relatedPaymentReference` → `reference` /
+    `relatedReference`, `paymentId` / `relatedPaymentId` → `txUuid` / `relatedTxUuid`; a fee
+    that doesn't apply is null (was `"0"`). Its properties are in the CSV's column order; the
+    always-empty `userName`, `userLastName`, `customerName` and `customerLastName` are gone. The
+    export window is at most 92 days, both ends included (`AccountingService::MAX_WINDOW_DAYS`).
 -   Responses decode leniently: a field the API leaves out or sends as `null` gets its zero
-    value; a value of the wrong JSON type (an empty list where an object is expected included) is
+    value; a value of the wrong JSON type (a JSON number where a decimal string is expected, an
+    empty list where an object or a map is expected, a non-string `metadata` value included) is
     a `ServerException`. Unknown enum values are kept as is, decimal strings are never parsed,
-    timestamps keep the offset the API sends.
+    timestamps keep the offset the API sends. Every answer is a JSON object: a `null` body is a
+    `ServerException`.
 -   Redirects are never followed: a 3xx is a `ServerException`.
 -   A 2xx with an empty or non-JSON body where a result is expected is a `ServerException`.
 -   A request body JSON cannot represent (NaN, ±INF, invalid UTF-8) is a `ValidationException`
     naming the field, and nothing is sent.
 -   Update params send an explicit `''` for the clearable fields
-    (`UpdateCustomerParams::$phoneNumber` / `$address`, `UpdateProductParams::$description`,
-    `UpdateWebhookEndpointParams::$description`): `''` clears them, `null` leaves them.
+    (`UpdateCustomerParams::$lastName` / `$phoneNumber` / `$address`,
+    `UpdateProductParams::$description`, `UpdateWebhookEndpointParams::$description`): `''`
+    clears them, `null` leaves them.
+-   The event log's cursor is opaque (was an event id); the subscriptions' `status` and the
+    event log's `type` filters are sent as given (the API checks them).
+-   `CustomerSummary::$deleted` and `DeliveryAttempt::$skipped` are `bool`s.
 -   Exception messages read `<message> (status <status>, code <code>, request <requestId>)`,
     followed by each field error.
 
@@ -225,8 +356,11 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
 -   `users`, `claims`, `apiKeys`, `transactionStatus`, `oneTimePayments->getSession()`,
     `subscriptions->getSession()`, `oneTimePayments->getCustomerForTransaction()` (read
     `Payment::$customer`, or `customers->get($payment->customerUuid)`),
-    `refunds->getByTransaction()` (read `Payment::$refund` / `Bill::$refund`),
-    `accounting->export($from, $to, $format)` (use `exportJson()` / `exportCsv()`).
+    `refunds->getByTransaction()` (read `Payment::$refund` / `Bill::$refund`, or
+    `refunds->list(new RefundListParams(txUuid: …))`), `customers->getByEmail()`
+    (`customers->list()` with `email`), `subscriptions->getPaymentHistory()` and the public bill
+    history (the customer's page; `listBills()` has every bill), `accounting->export($from,
+    $to, $format)` (use `exportJson()` / `exportCsv()`).
 -   The v1 webhook verifier: `WebhookVerifier` (`verify`, `computeSignature`, `canonicalJson`,
     `extractHeaders`), the `X-Webhook-*` header constants, `TEST_WEBHOOK_ID`,
     `webhooks->isTestWebhook()` and its header getters, and the v1 payloads
@@ -235,15 +369,16 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `PaygSubscriptionSession`, `StatusLinkResponse`, `Dto\StatusResponse`, `SuccessResponse`,
     `Organization`, `ApiKey`, `ClaimFunds`, `ClaimRequestResponse`, `Support\Dto`,
     `Support\CursorData`, `Support\Validate`, `Config`, the enums `ExportFormat`,
-    `SubscriptionWebhookType`, `TransactionShortType`, `TransactionStatusValue`.
+    `SubscriptionWebhookType`, `TransactionShortType`, `TransactionStatusValue`; `legacyId` is
+    not modelled.
 
 ### Fixed
 
 -   **Field validation errors were read from the wrong key** (a top-level `errors` list instead
     of the API's `details.errors`), so every field of a 400 came back empty. `fieldErrors` now
     names each failing input by the name sent, dotted when nested (`frequency.unit`).
--   A `.` or `..` path segment (a reference) is escaped, so it can no longer address another
-    route.
+-   User-supplied path segments are escaped, a `.` or `..` segment included, so an id can no
+    longer address another route.
 
 ## [2.1.0] - 2026-09-21
 

@@ -21,7 +21,9 @@ final class WebhookEventsService extends Service
 {
 	/**
 	 * One page of the space's event log (`GET /webhooks/events`; newest first, page size 20 by
-	 * default, at most 100). The cursor is an event id (`evt_…`). Each event is typed by its type.
+	 * default, at most 100; events are kept at least 90 days), each event exactly as it was
+	 * delivered and typed by its type, optionally filtered by `type`; `includeMembers` adds the
+	 * members' events (organization key). The cursor is opaque.
 	 *
 	 * @return Page<Event>
 	 */
@@ -33,7 +35,7 @@ final class WebhookEventsService extends Service
 	}
 
 	/**
-	 * Every event `list()` returns, the pages fetched lazily.
+	 * Every event `list()` returns, the pages fetched lazily, filters and page size kept.
 	 *
 	 * @return Generator<int,Event>
 	 */
@@ -44,7 +46,10 @@ final class WebhookEventsService extends Service
 		return Requester::walk($params->cursor, fn (?string $cursor): Page => $this->list($params->withCursor($cursor), $options));
 	}
 
-	/** An event of the log with its deliveries (`GET /webhooks/events/:id`; `evt_…`). */
+	/**
+	 * An event of the log with its deliveries to the space's endpoints
+	 * (`GET /webhooks/events/:id`; `evt_…`, at most 64 characters).
+	 */
 	public function get(string $id, ?RequestOptions $options = null): EventDetail
 	{
 		Validator::pathRequired('id', $id);

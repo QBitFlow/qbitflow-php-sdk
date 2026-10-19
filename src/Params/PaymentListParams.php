@@ -16,9 +16,9 @@ final readonly class PaymentListParams
 	use WithCursor;
 
 	public function __construct(
-		/** The page size (server default 10, max 50). */
+		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor`; null for the first page. */
+		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
 		/** Keeps only this customer's. */
 		public ?string $customerUuid = null,
@@ -32,6 +32,11 @@ final readonly class PaymentListParams
 		public bool $includeMembers = false,
 		/** Reads one member's rows (organization space only); not with `includeMembers`. */
 		public ?string $userUuid = null,
+		/**
+		 * Keeps only the payment with this reference (set on its checkout): a page of 0 or 1
+		 * payment per space read (`payments->getByReference()` reads it).
+		 */
+		public ?string $reference = null,
 		/** Keeps only the payments with (true) or without (false) an approved refund. */
 		public ?bool $refunded = null,
 	) {
@@ -41,16 +46,18 @@ final readonly class PaymentListParams
 	public function validate(): void
 	{
 		$v = new Validator();
+		$v->cursor($this->cursor);
 		ListFilters::validate($v, $this->customerUuid, $this->productUuid, $this->includeMembers, $this->userUuid);
+		$v->reference('reference', $this->reference);
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		$q = (new Query())->page($this->limit, $this->cursor);
 		ListFilters::encode($q, $this->customerUuid, $this->productUuid, $this->createdAfter, $this->createdBefore, $this->includeMembers, $this->userUuid);
 
-		return $q->bool('refunded', $this->refunded)->toArray();
+		return $q->string('reference', $this->reference)->bool('refunded', $this->refunded)->toArray();
 	}
 }

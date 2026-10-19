@@ -8,101 +8,111 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A payment checkout session, as `checkout.expired` sends it.
+ * A one-time payment's checkout session, as `checkout.expired` sends it (flat; a subscription's
+ * is {@see SubscriptionSessionData}). No customer is named: match it on `uuid`, `reference` or
+ * `metadata`.
  */
 readonly class PaymentSessionData extends Model
 {
 	/**
-	 * The session's id (`pay@…`, `sub@…`).
+	 * The session's id (`pay@…`, `sub@…`): the id the payment or subscription would have had.
 	 */
 	public string $uuid;
 
 	/**
-	 * The merchant's reference, set when creating it.
+	 * The merchant's reference of the checkout (an order id), set when creating it.
 	 */
 	public ?string $reference;
 
 	/**
-	 * The product, when it named one.
+	 * The product paid for; null for an inline product of a payment.
 	 */
 	public ?string $productUuid;
 
 	/**
-	 * The product's reference, when it named it so.
+	 * The product's reference, when the checkout named it so.
 	 */
 	public ?string $productReference;
 
 	/**
-	 * The product's name.
+	 * What is paid for: the product's name as the checkout was opened (or the inline one).
 	 */
 	public ?string $productName;
 
 	/**
-	 * The product's description.
+	 * The product's description as the checkout was opened; null without one.
 	 */
 	public ?string $description;
 
 	/**
-	 * The product's price in USD.
+	 * The product's price in USD, a decimal string.
 	 */
-	public ?float $price;
+	public string $priceUsd;
 
 	/**
-	 * What the checkout adds to the price, line by line, in the order shown: the merchant's lines,
-	 * then the processing fee (when the customer pays it). A subscription's are charged with every
-	 * bill. `[]` without any.
+	 * What the checkout adds to the price, line by line, in the order the checkout shows them:
+	 * the merchant's lines, then the processing fee (when the customer pays it). A subscription's
+	 * are charged with every bill. `[]` without any.
 	 *
 	 * @var list<FeeLine>
 	 */
 	public array $fees;
 
 	/**
-	 * What the customer pays in USD before the network fee: the price plus every line of `fees`
-	 * (the payment's `amount`, or each bill's of a subscription); null when absent.
+	 * What the customer pays in USD before the network fee, a decimal string: `priceUsd` plus
+	 * every line of `fees` (the payment's `amountUsd`, or each bill's of a subscription).
 	 */
-	public ?float $amount;
+	public string $amountUsd;
 
 	/**
-	 * Where the customer goes after paying (placeholders filled).
+	 * The merchant's page for the customer after paying (placeholders filled).
 	 */
 	public ?string $successUrl;
 
 	/**
-	 * Where a customer who leaves the checkout goes.
+	 * The merchant's page for a customer who leaves the checkout (placeholders filled).
 	 */
 	public ?string $cancelUrl;
 
 	/**
-	 * The merchant's success page, on QBitFlow's own success page's copy.
+	 * The merchant's success page on the hosted page's copy only: absent from `checkout.expired`.
 	 */
 	public ?string $redirectUrl;
 
 	/**
-	 * The organization's name.
+	 * The merchant's organization, as the checkout shows it.
 	 */
 	public string $organizationName;
 
 	/**
-	 * The member who created it, for a member's session.
+	 * The member the checkout pays (a marketplace's seller), by name; null on the organization's
+	 * own checkouts.
 	 */
 	public ?string $userName;
 
 	/**
-	 * True in test mode.
+	 * True for a checkout paid on test networks.
 	 */
 	public bool $test;
 
 	/**
-	 * `payment` or `createSubscription` ({@see \QBitFlow\Enums\TransactionType}).
+	 * The session's kind: `payment` or `createSubscription` ({@see \QBitFlow\Enums\TransactionType}).
 	 */
 	public string $txType;
 
 	/**
-	 * The currencies accepted for the payment.
+	 * The currencies the customer could pay with.
 	 *
-	 * @var list<int>
+	 * @var list<Currency>
 	 */
-	public array $availableCurrencyIds;
+	public array $availableCurrencies;
+
+	/**
+	 * The merchant's own data on the checkout; `[]` without any.
+	 *
+	 * @var array<string,string>
+	 */
+	public array $metadata;
 
 	/**
 	 * When the session was opened.
@@ -110,7 +120,7 @@ readonly class PaymentSessionData extends Model
 	public ?DateTimeImmutable $createdAt;
 
 	/**
-	 * When it could no longer be paid.
+	 * When it could no longer be paid (when the merchant expired it, if so).
 	 */
 	public ?DateTimeImmutable $expiresAt;
 
@@ -125,9 +135,9 @@ readonly class PaymentSessionData extends Model
 		$this->productReference = Cast::nullableString($data, 'productReference');
 		$this->productName = Cast::nullableString($data, 'productName');
 		$this->description = Cast::nullableString($data, 'description');
-		$this->price = Cast::nullableFloat($data, 'price');
+		$this->priceUsd = Cast::string($data, 'priceUsd');
 		$this->fees = Cast::listOf($data, 'fees', FeeLine::fromArray(...));
-		$this->amount = Cast::nullableFloat($data, 'amount');
+		$this->amountUsd = Cast::string($data, 'amountUsd');
 		$this->successUrl = Cast::nullableString($data, 'successUrl');
 		$this->cancelUrl = Cast::nullableString($data, 'cancelUrl');
 		$this->redirectUrl = Cast::nullableString($data, 'redirectUrl');
@@ -135,7 +145,8 @@ readonly class PaymentSessionData extends Model
 		$this->userName = Cast::nullableString($data, 'userName');
 		$this->test = Cast::bool($data, 'test');
 		$this->txType = Cast::string($data, 'txType');
-		$this->availableCurrencyIds = Cast::uintList($data, 'availableCurrencyIds');
+		$this->availableCurrencies = Cast::listOf($data, 'availableCurrencies', Currency::fromArray(...));
+		$this->metadata = Cast::stringMap($data, 'metadata');
 		$this->createdAt = Cast::nullableDate($data, 'createdAt');
 		$this->expiresAt = Cast::nullableDate($data, 'expiresAt');
 	}

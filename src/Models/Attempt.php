@@ -8,12 +8,13 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A failed attempt to pay (or to send a refund): never final.
+ * How a session's (or a refund approval's) last attempt failed, while it waits for another:
+ * never final.
  */
 final readonly class Attempt extends Model
 {
 	/**
-	 * `failed`.
+	 * `failed` ({@see \QBitFlow\Enums\AttemptStatus}).
 	 */
 	public string $status;
 

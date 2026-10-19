@@ -22,6 +22,7 @@ use QBitFlow\Services\PaymentsService;
 use QBitFlow\Services\ProductsService;
 use QBitFlow\Services\RefundsService;
 use QBitFlow\Services\SubscriptionsService;
+use QBitFlow\Services\TransactionsService;
 use QBitFlow\Services\WalletsService;
 use QBitFlow\Services\WebhooksService;
 use QBitFlow\Support\Validator;
@@ -35,13 +36,23 @@ use QBitFlow\Support\Validator;
  * $me = $client->me(); // the recommended start-up check
  * $session = $client->checkoutSessions->createPayment(new CreatePaymentSessionParams(
  *     productName: 'Premium access',
- *     price: 4.99,
+ *     priceUsd: '4.99', // money is a decimal string, never a float
  *     successUrl: 'https://shop.example.com/thanks?session=' . Placeholders::UUID,
  * ));
  * ```
  *
  * Each service is a property (`$client->products`, `$client->webhooks->endpoints`…), and also a
- * method of the same name for the Laravel facade (`QBitFlow::products()`).
+ * method of the same name for the Laravel facade (`QBitFlow::products()`): products, customers,
+ * checkoutSessions, payments, transactions (payments and bills together), failures,
+ * subscriptions, refunds, members, invitations, wallets, accounting, webhooks (with
+ * `webhooks->endpoints` and `webhooks->events`) and currencies.
+ *
+ * Ids are strings: UUIDs, and prefixed transaction ids (`pay@…`, `sub@…`, `sub-hist@…`,
+ * `refund@…`) passed back verbatim (the bare UUID works too); only currency ids are integers.
+ * Money is a decimal string everywhere, inputs included: USD amounts (`priceUsd` `"4.99"`,
+ * `amountUsd`), token amounts in the token's units (`amount` `"10"`, next to `amountMinUnits`
+ * and the `currency` object) and fee rates in percent (`feePercent` `"0.99"`). An optional field
+ * the API left out is null.
  */
 final class QBitFlow
 {
@@ -66,16 +77,19 @@ final class QBitFlow
 	/** Creates checkout sessions and reads or expires them. */
 	public readonly CheckoutSessionsService $checkoutSessions;
 
-	/** Reads the one-time payments and the combined payment feed. */
+	/** Reads the one-time payments (`/payments…`). */
 	public readonly PaymentsService $payments;
 
-	/** Reads the failed payment attempts. */
+	/** Reads the feed of payments and bills together (`/transactions`). */
+	public readonly TransactionsService $transactions;
+
+	/** Reads the failed payment attempts (`/payment-failures`). */
 	public readonly FailuresService $failures;
 
-	/** Reads, bills and cancels subscriptions. */
+	/** Reads, updates, bills and cancels subscriptions (`/subscriptions…`, `/bills…`). */
 	public readonly SubscriptionsService $subscriptions;
 
-	/** Lists and initiates refunds. */
+	/** Lists, reads and creates refunds (`/refunds…`). */
 	public readonly RefundsService $refunds;
 
 	/** Manages the organization's members and their held funds (organization key). */
@@ -84,7 +98,7 @@ final class QBitFlow
 	/** Invites members (organization key). */
 	public readonly InvitationsService $invitations;
 
-	/** Reads the wallets and the currencies they accept. */
+	/** Reads the wallets and the currencies they accept (`/wallets…`). */
 	public readonly WalletsService $wallets;
 
 	/** Exports the accounting events. */
@@ -93,7 +107,7 @@ final class QBitFlow
 	/** Verifies webhooks, and manages the endpoints (`->endpoints`) and the event log (`->events`). */
 	public readonly WebhooksService $webhooks;
 
-	/** Reads the currency catalog (public). */
+	/** Reads the currency catalog (`/currencies…`, public). */
 	public readonly CurrenciesService $currencies;
 
 	private readonly Requester $requester;
@@ -210,7 +224,9 @@ final class QBitFlow
 	/**
 	 * A client that acts in a member's space: every request sends `On-Behalf-Of: <userUuid>`
 	 * (a member's userUuid; organization key only). It shares this client's transport and
-	 * configuration; `''` returns one at the organization level. This client is unchanged.
+	 * configuration; `''` returns one at the organization level (the header is then omitted: it
+	 * is never sent blank). Acting for a member, the role is `user`: the admin methods (members,
+	 * invitations, `wallets->listForMember()`) answer 403. This client is unchanged.
 	 *
 	 * ```php
 	 * $seller = $client->onBehalfOf($member->userUuid);
@@ -279,6 +295,11 @@ final class QBitFlow
 	public function payments(): PaymentsService
 	{
 		return $this->payments;
+	}
+
+	public function transactions(): TransactionsService
+	{
+		return $this->transactions;
 	}
 
 	public function failures(): FailuresService
@@ -359,6 +380,7 @@ final class QBitFlow
 		$this->customers = new CustomersService($requester);
 		$this->checkoutSessions = new CheckoutSessionsService($requester);
 		$this->payments = new PaymentsService($requester);
+		$this->transactions = new TransactionsService($requester);
 		$this->failures = new FailuresService($requester);
 		$this->subscriptions = new SubscriptionsService($requester);
 		$this->refunds = new RefundsService($requester);
