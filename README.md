@@ -123,7 +123,7 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
 - **Money is a decimal string** everywhere, inputs included, never a float: USD amounts
   (`priceUsd: '4.99'`, `amountUsd`), token amounts in the token's units (`amount` `"10"` for 10
   USDC, next to `amountMinUnits` and the `currency` object) and percents (`feePercent` `"0.99"`,
-  `refundPercent: '50'`). Convert token amounts exactly with [`Amount`](#showing-amounts).
+  `refundPercent` `"50"`). Convert token amounts exactly with [`Amount`](#showing-amounts).
 - **Metadata**: products, customers, checkouts (copied onto their payment or subscription) and
   subscriptions carry your own `metadata`, an `array<string,string>` (`[]` without any), merged
   on updates (a key set to `''` deletes it).
@@ -830,42 +830,29 @@ foreach ($client->refunds->iterate($answered) as $r) {
 }
 ```
 
-One refund by its id:
+`refunds->get()` reads one refund by its `refund@…` id:
 
 <!-- docs:snippet refunds-get -->
 ```php
 $refund = $client->refunds->get($refundUuid); // refund@…
-// pending, approved, rejected or cancelled (a merchant's draft dropped before it was sent).
+// pending (a customer's request), approved or rejected.
 echo "{$refund->uuid} {$refund->status} {$refund->refundPercent}% {$refund->amount} {$refund->currency->symbol}\n";
 ```
 <!-- /docs:snippet -->
 
-`refunds->create()` starts a refund of a payment (`pay@…`) or a bill (`sub-hist@…`) of the space.
-**It creates a pending refund: no money moves until you sign the transfer in the dashboard**,
-from the wallet that was paid. `refund.approved` tells you when it is sent.
+Refunds are read only here: there is no create. A refund is **requested by the customer** (the
+refund page; you approve or reject it in the dashboard) or **sent by you from the dashboard**,
+signed from the wallet that was paid. Yours exists only once its transfer confirmed: it is recorded
+`approved`, and `refund.approved` (with `initiatedBy` `merchant`) is the first and only event about
+it. `refund.requested` is always a customer's request.
 
-<!-- docs:snippet refunds-create -->
-```php
-$refund = $client->refunds->create(new \QBitFlow\Params\CreateRefundParams(
-	txUuid: $paymentUuid, // pay@…, or a bill's sub-hist@…
-	refundPercent: '50',  // a percent string, of what the customer paid; null = "100"
-	reason: 'Damaged item',
-));
-// Pending: no money moves until you sign the transfer in the dashboard (refund.approved).
-echo "Refund {$refund->uuid}: {$refund->status}\n";
-```
-<!-- /docs:snippet -->
+`refundPercent` is a percent string (`"100"`: all of it) of everything the customer paid (`paid`,
+network fee included); `amount` / `amountMinUnits` / `amountUsd` is what it sends back, in the
+token paid. There is one refund per transaction, whatever it became: `$payment->refundable` /
+`notRefundableReason` say whether one would be accepted now.
 
-`refundPercent` is a percent string, a share of everything the customer paid (`paid`), network fee
-included (null = `"100"`); `merchantMessage` adds a note to the customer. There is one refund per
-transaction: a second one is a `ConflictException` with `apiCode` `refund_already_exists` and the
-existing refund in `$e->details['refundUuid']` (a merchant's draft not sent yet gives way: a new
-refund replaces it).
-
-A refund is `pending`, `approved`, `rejected` or `cancelled` (a merchant's draft dropped before it
-was sent; `failed` is declared but never set); `initiatedBy` is `customer` (a request you answer
-in the dashboard) or `merchant`. `amount` is what it sends back, in the token paid. A held seller's payment already released to them can no longer be
-refunded (`409 held_funds_released`).
+A refund is `pending` (a customer's request waiting for your answer), `approved` or `rejected`
+(both final); `failed` is declared but never set. `initiatedBy` is `customer` or `merchant`.
 
 ## Marketplaces
 
@@ -1402,7 +1389,7 @@ Every exception the SDK throws extends `QBitFlow\Exceptions\QBitFlowException` (
 | `AuthenticationException` | 401 | a missing, unknown, expired or revoked key (a removed member's keys too) |
 | `PermissionDeniedException` | 403 | `forbidden`, `policy_disabled` (`details['policy']`), `plan_required` |
 | `NotFoundException` | 404 | unknown, deleted, or outside the request's space |
-| `ConflictException` | 409 | `unique_violation` (`details['field']`), `tx_already_sent`, `merchant_not_ready` (`details['reason']`), `refund_already_exists` (`details['refundUuid']`), `held_funds_released`, `held_funds_pending`, `already_joined`, `payment_not_due`, `idempotency_key_in_use`, `conflict` |
+| `ConflictException` | 409 | `unique_violation` (`details['field']`), `tx_already_sent`, `merchant_not_ready` (`details['reason']`), `held_funds_pending`, `already_joined`, `payment_not_due`, `idempotency_key_in_use`, `conflict` |
 | `GoneException` | 410 | `merchant_closed`: a removed member's or a closed organization's space |
 | `IdempotencyException` | 422 `idempotency_key_reused` | an `Idempotency-Key` reused for another request: a bug, never retried |
 | `RateLimitException` | 429 | `retryAfter` (seconds), `limit`, `periodSeconds` |
@@ -1453,13 +1440,13 @@ filters, and exclusive filters. A failure is a `ValidationException` with `statu
 is sent. What depends on the key's mode or on stored data is left to the API: the `"5"` USD
 test-mode cap, `https`-only live URLs, the live subscription price minimum (above `"0.25"`), the
 frequency minimum (1 hour live, 5 minutes test), the 92-day export window, the merged metadata key
-count, uniqueness, refund rounding.
+count, uniqueness.
 
 ## Retries and idempotency
 
 | | |
 |---|---|
-| Retried methods | every read (GET), and the 7 creates: `checkoutSessions->createPayment()`, `checkoutSessions->createSubscription()`, `products->create()`, `customers->create()`, `webhooks->endpoints->create()`, `invitations->create()`, `refunds->create()` |
+| Retried methods | every read (GET), and the 6 creates: `checkoutSessions->createPayment()`, `checkoutSessions->createSubscription()`, `products->create()`, `customers->create()`, `webhooks->endpoints->create()`, `invitations->create()` |
 | Never retried | every other write: updates (`subscriptions->update()` included), deletes, `checkoutSessions->expire()`, `subscriptions->cancel()`, `subscriptions->testBill()`, `members->trust()`, `members->remove()`, `invitations->revoke()`, `webhooks->verifyRemote()` |
 | Retried on | a network error or timeout, a 5xx, a 429, a 409 `idempotency_key_in_use` |
 | Not retried on | any other 4xx (422 `idempotency_key_reused` included), a 3xx, an unusable response |
@@ -1528,7 +1515,7 @@ $client = new QBitFlow(
 | `RequestOptions` (every method, last argument) | |
 |---|---|
 | `onBehalfOf` | acts in that member's space for this call; `''` forces the organization's (the header is omitted, never sent blank) |
-| `idempotencyKey` | the 7 creates only: your own `Idempotency-Key` |
+| `idempotencyKey` | the 6 creates only: your own `Idempotency-Key` |
 | `requestId` | sends `X-Request-Id` (1 to 128 of `A-Z a-z 0-9 - _ . :`) |
 
 | Webhook arguments (`new WebhookRouter()`, `Webhook::verify()`, `verifyRequest()`, `constructEvent()`) | Default |
@@ -1644,7 +1631,7 @@ Runnable scripts in [`examples/`](examples) (`QBITFLOW_API_KEY=sk_… php exampl
 | [`catalog.php`](examples/catalog.php) | create and list products, one page of customers, a checkout for a product by its reference |
 | [`payments.php`](examples/payments.php) | list payments with a filter, get one by id and by reference, the iterator, the transactions feed (payments and bills), exact amounts |
 | [`subscriptions.php`](examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, metadata, a test bill (`--bill`), cancel at period end (`--cancel`) |
-| [`refunds.php`](examples/refunds.php) | list the pending refunds, read one, refund half of a payment |
+| [`refunds.php`](examples/refunds.php) | list the pending refunds (customers' requests), read one (refunds are read only) |
 | [`marketplace.php`](examples/marketplace.php) | invite a seller, invitations, members, `onBehalfOf`, wallets, held funds, fee, trust (`--trust`), remove (`--remove`) |
 | [`webhooks.php`](examples/webhooks.php) | create a webhook endpoint (`--create`), the event log |
 | [`webhook-handler.php`](examples/webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, the right answers (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |

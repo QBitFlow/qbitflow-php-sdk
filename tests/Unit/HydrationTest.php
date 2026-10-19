@@ -117,7 +117,7 @@ final class HydrationTest extends TestCase
 		$this->assertSame(['10.0042', '10004200', '10.0042'], [$p->paid, $p->paidMinUnits, $p->paidUsd]);
 		$this->assertTrue($p->customer?->deleted);
 		$this->assertSame('Ada', $p->customer->firstName);
-		$this->assertSame([RefundStatus::CANCELLED, '50', '5.0021'], [$p->refund?->status, $p->refund?->refundPercent, $p->refund?->amount]);
+		$this->assertSame([RefundStatus::APPROVED, '50', '5.0021'], [$p->refund?->status, $p->refund?->refundPercent, $p->refund?->amount]);
 		$this->assertNotNull($p->refund->respondedAt);
 		$this->assertFalse($p->refundable);
 		$this->assertSame(NotRefundableReason::REFUND_EXISTS, $p->notRefundableReason);

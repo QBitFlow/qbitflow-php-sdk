@@ -52,7 +52,7 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `paid`, `owed`, next to their `…MinUnits`) and fee rates in percent (`feePercent`,
     `organizationFeePercent`, `refundPercent`: `"1.5"` is 1.5 %). `CreateProductParams::$price`
     → `priceUsd: string`, the session params' inline `price` → `priceUsd: string`,
-    `FeeItem::$amountUsd`, `CreateRefundParams::$refundPercent`,
+    `FeeItem::$amountUsd`,
     `CreateInvitationParams::$organizationFeePercent` and `UpdateMemberParams::$organizationFeePercent`
     are strings (no `int|float` input is accepted). No `float` is left in a model or a params
     class.
@@ -63,8 +63,8 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     classes of string constants (was PHP backed `enum`s): compare with `===`. Values follow the
     API's lowerCamelCase (`pastDue`, `trialExpired`); `TransactionType::ONE_TIME_PAYMENT` →
     `PAYMENT`, `EXECUTE_SUBSCRIPTION_PAYMENT` → `EXECUTE_SUBSCRIPTION`; `UserRole` → `Role`;
-    `RefundStatus::REFUSED` → `REJECTED`, plus `CANCELLED` (a merchant's draft dropped before it
-    was sent) and `FAILED` (declared, never set); `LedgerEntryType` and `AccountingEventType`
+    `RefundStatus::REFUSED` → `REJECTED`, and `FAILED` stays (declared, never set);
+    `LedgerEntryType` and `AccountingEventType`
     `subscriptionHistory` → `BILL` (`bill`); `CombinedPaymentSource` → `TransactionKind`
     (`PAYMENT`, `BILL`); `WebhookPayloadVersion::V1` is removed (v2 is the only payload).
 -   **Ids are UUID strings.** Products are named by `uuid` (was the numeric `id`), and
@@ -189,8 +189,8 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     published): `checkoutSessions->getStatus()` → `get()`; `payments->listCombined()` /
     `iterateCombined()` → `transactions->list()` / `iterate()` (`CombinedPayment` →
     `Transaction`, `CombinedPaymentListParams` → `TransactionListParams`, its `source` filter →
-    `type`); `subscriptions->executeTestBilling()` → `testBill()`; `refunds->initiate()` →
-    `create()` (`InitiateRefundParams` → `CreateRefundParams`); `refunds->list()` (active) and
+    `type`); `subscriptions->executeTestBilling()` → `testBill()`; `refunds->initiate()` is
+    removed (`InitiateRefundParams` with it: refunds are read only, below); `refunds->list()` (active) and
     `listInactive()` / `iterateInactive()` → one `refunds->list()` / `iterate()` with a
     `status` filter; `wallets->listSupportedCurrencies()` → `listAcceptedCurrencies()`
     (`SupportedCurrenciesParams` → `AcceptedCurrenciesParams`); `currencies->listAvailable()` /
@@ -235,9 +235,10 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     access while now is before it), `actionRequired`, `priceUsd`, `cancellationReason`,
     `dunning`, `metadata`, `managementPageLink`; `Allowance`.
 -   `refunds->list()` / `iterate()` (`status` (a list, sent repeated, up to 5), `txUuid`,
-    `held`, `includeMembers`, `userUuid`), `refunds->get()` (`GET /refunds/:uuid`) and
-    `refunds->create(CreateRefundParams)` (`POST /refunds`): a merchant's refund of a payment or
-    a bill, signed in the dashboard. A `Refund` carries `paid`, `amount`, its `currency` and,
+    `held`, `includeMembers`, `userUuid`) and `refunds->get()` (`GET /refunds/:uuid`), read
+    only: a customer's request is answered, and a merchant's own refund sent, from the dashboard
+    (the merchant's is recorded only once its transfer confirmed, `approved`: `refund.approved` is
+    its only event). A `Refund` carries `paid`, `amount`, its `currency` and,
     once approved, its `settlement`.
 -   `members` (`list`, `iterate`, `get`, `update`, `remove`, `trust`, `listHeldFunds`,
     `getHeldFunds`, `getOwnHeldFunds`) and `invitations` (`create`, `list`, `iterate`,
@@ -259,7 +260,7 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     `CheckoutExpiredEvent`, … 15 types) with a typed `data`, or an `UnknownEvent` keeping the
     raw data; `Event::decodeData()` for another shape.
 -   A `Generator` next to every paginated list: `iterate()`, `iterateBills()`.
--   Retries: reads and the 7 creates are retried on network errors, timeouts, 5xx, 429 (after
+-   Retries: reads and the 6 creates are retried on network errors, timeouts, 5xx, 429 (after
     `Retry-After`, at most 60 s) and `409 idempotency_key_in_use`, 3 times by default with a
     1 s · 2ⁿ back-off; `maxRetries: 0` disables them; `QBitFlowException::isRetryable()`.
 -   An `Idempotency-Key` on each create, generated per call and reused by its retries;
@@ -270,7 +271,7 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
     references (also on the `reference` filters and `getByReference()`), emails (also the
     customers' `email` filter), phones, URLs, USD amounts as strings (at most 2 decimals, above
     0, at most 1,000,000, compared exactly), percents as strings (at most 2 decimals and 16
-    characters; `refundPercent` above 0 up to 100, `organizationFeePercent` 0 to 50, required on
+    characters; `organizationFeePercent` 0 to 50, required on
     `UpdateMemberParams`), metadata (at most 50 keys of 1 to 40 of `A-Z a-z 0-9 _ - . :`, values
     of at most 500 characters without control or bidirectional characters), durations, cursors
     (at most 200 characters), the refunds' `status` filter (at most 5 known statuses), the
@@ -316,7 +317,8 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2** or lat
 -   Examples: `checkout.php`, `subscriptions.php`, `marketplace.php`, `refunds.php`,
     `webhook-handler.php`, `errors-and-retries.php`, `laravel/`; `MIGRATION-v3.md`.
 -   Website snippets: three new ids, `transactions-list`, `subscriptions-update` and
-    `refunds-get`; none renamed or retired.
+    `refunds-get`; none renamed. `refunds-create` is listed as unsupported (refunds are read only;
+    the id stays in the website's catalog, marked retired).
 
 ### Changed
 

@@ -24,7 +24,6 @@ use QBitFlow\Params\CustomerListParams;
 use QBitFlow\Params\EventListParams;
 use QBitFlow\Params\FailureListParams;
 use QBitFlow\Params\FeeItem;
-use QBitFlow\Params\CreateRefundParams;
 use QBitFlow\Params\InvitationListParams;
 use QBitFlow\Params\PaymentListParams;
 use QBitFlow\Params\ProductListParams;
@@ -79,8 +78,6 @@ final class ValidationTest extends TestCase
 		$this->check('address 1 char', new CreateCustomerParams(firstName: 'Ada', email: 'a@b.co', address: 'x'));
 		$this->check('address 501', new CreateCustomerParams(firstName: 'Ada', email: 'a@b.co', address: str_repeat('x', 501)), ['address']);
 		$this->check('endpoint description 201', new CreateWebhookEndpointParams(url: 'https://x.io', description: str_repeat('x', 201)), ['description']);
-		$this->check('refund reason', new CreateRefundParams(txUuid: 'pay@' . self::UUID, reason: 'Broken, can you refund?', merchantMessage: "Sorry\nTeam"));
-		$this->check('refund reason bad', new CreateRefundParams(txUuid: 'pay@' . self::UUID, reason: '{x}', merchantMessage: str_repeat('m', 501)), ['reason', 'merchantMessage']);
 	}
 
 	#[Test]
@@ -161,19 +158,15 @@ final class ValidationTest extends TestCase
 	#[Test]
 	public function the_percent_rule(): void
 	{
-		foreach (['0.01', '1.5', '33.33', '100', '100.00', '050'] as $p) {
-			$this->check('refund ' . $p, new CreateRefundParams(txUuid: self::UUID, refundPercent: $p));
-		}
-		$this->check('refund unset', new CreateRefundParams(txUuid: self::UUID, refundPercent: ''));
-		foreach (['0', '0.00', '-1', '100.01', '1.155', '101', '1e1', '.5', ' 5', '00000000000000050'] as $p) {
-			$this->check('refund ' . var_export($p, true), new CreateRefundParams(txUuid: self::UUID, refundPercent: $p), ['refundPercent']);
-		}
-		foreach (['0', '0.05', '1.5', '50', '50.00'] as $p) {
+		// 16 characters is the limit: 16 digits are fine, 17 not.
+		foreach (['0', '0.00', '0.05', '1.5', '33.33', '50', '50.00', '007.5', '050', '0000000000000050'] as $p) {
 			$this->check('member fee ' . $p, new UpdateMemberParams($p));
 			$this->check('invitation fee ' . $p, new CreateInvitationParams(email: 'a@b.co', holdFunds: true, organizationFeePercent: $p));
 		}
-		foreach (['-0.01', '50.01', '1.234', '51', 'ten'] as $p) {
-			$this->check('member fee ' . $p, new UpdateMemberParams($p), ['organizationFeePercent']);
+		foreach (['-0.01', '-1', '50.01', '51', '101', '1.234', '1.155', '0.30000000000000004', '1e1', '.5', '5.', '50%', ' 5', 'NaN', 'Infinity', 'ten',
+			'00000000000000050'] as $p) {
+			$this->check('member fee ' . var_export($p, true), new UpdateMemberParams($p), ['organizationFeePercent']);
+			$this->check('invitation fee ' . var_export($p, true), new CreateInvitationParams(email: 'a@b.co', holdFunds: true, organizationFeePercent: $p), ['organizationFeePercent']);
 		}
 		$this->check('member fee required', new UpdateMemberParams(''), ['organizationFeePercent']);
 	}
@@ -382,8 +375,7 @@ final class ValidationTest extends TestCase
 		foreach (['', 'pay@', 'pay@x', 'evt@' . self::UUID, '@' . self::UUID, 'PAY@' . self::UUID, self::UUID . '0', '42'] as $id) {
 			$this->assertFalse(Validator::isTxId($id), $id);
 		}
-		$this->check('txUuid required', new CreateRefundParams(txUuid: ''), ['txUuid']);
-		$this->check('txUuid bad', new CreateRefundParams(txUuid: 'order-1'), ['txUuid']);
+		$this->check('txUuid bad', new RefundListParams(txUuid: 'order-1'), ['txUuid']);
 		$this->check('subscriptionUuid filter', new FailureListParams(subscriptionUuid: 'sub@nope'), ['subscriptionUuid']);
 
 		Validator::pathUuid('uuid', self::UUID);
@@ -414,9 +406,11 @@ final class ValidationTest extends TestCase
 		$this->check('refund exclusive', new RefundListParams(includeMembers: true, userUuid: self::UUID), ['userUuid']);
 		$this->check('refund includeMembers false + user', new RefundListParams(includeMembers: false, userUuid: self::UUID));
 		$this->check('accepted currencies', new AcceptedCurrenciesParams(userUuid: 'x'), ['userUuid']);
-		$this->check('refund statuses', new RefundListParams(status: [RefundStatus::PENDING, RefundStatus::CANCELLED, RefundStatus::FAILED]));
+		$all = [RefundStatus::PENDING, RefundStatus::APPROVED, RefundStatus::REJECTED, RefundStatus::FAILED, RefundStatus::PENDING]; // duplicates allowed
+		$this->check('refund statuses', new RefundListParams(status: $all));
 		$this->check('refund status unknown', new RefundListParams(status: ['approved', 'denied', '']), ['status[1]', 'status[2]']);
-		$this->check('refund 6 statuses', new RefundListParams(status: [...RefundStatus::values(), 'pending']), ['status']);
+		$this->check('refund status cancelled (retired)', new RefundListParams(status: ['cancelled']), ['status[0]']);
+		$this->check('refund 6 statuses', new RefundListParams(status: [...$all, RefundStatus::PENDING]), ['status']);
 		$this->check('refund txUuid', new RefundListParams(txUuid: 'order-1'), ['txUuid']);
 		$this->check('product reference filter', new ProductListParams(reference: 'a b'), ['reference']);
 		$this->check('customer reference filter', new CustomerListParams(reference: 'a/b'), ['reference']);
@@ -498,8 +492,6 @@ final class ValidationTest extends TestCase
 			[new CreatePaymentSessionParams(productUuid: self::UUID), '{"productUuid":"' . self::UUID . '"}'],
 			[new CreateSubscriptionSessionParams(productName: 'Pro', priceUsd: '9.99', expiresInMinutes: 30, frequency: Duration::weeks(1)),
 				'{"productName":"Pro","priceUsd":"9.99","expiresInMinutes":30,"frequency":{"value":1,"unit":"weeks"}}'],
-			[new CreateRefundParams(txUuid: 'pay@x'), '{"txUuid":"pay@x"}'],
-			[new CreateRefundParams(txUuid: 'pay@x', refundPercent: '50.00'), '{"txUuid":"pay@x","refundPercent":"50.00"}'],
 			[new CreateWebhookEndpointParams(url: 'https://x.io', includeMembers: false), '{"url":"https://x.io","includeMembers":false}'],
 			[new CreateWebhookEndpointParams(url: 'https://x.io', events: []), '{"url":"https://x.io"}'],
 		];

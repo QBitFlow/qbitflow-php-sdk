@@ -25,7 +25,7 @@ final readonly class RequestOptions
 		 */
 		public ?string $onBehalfOf = null,
 		/**
-		 * The `Idempotency-Key` of one of the 7 idempotent creates (the SDK otherwise generates a
+		 * The `Idempotency-Key` of one of the 6 idempotent creates (the SDK otherwise generates a
 		 * UUID v4 per call), e.g. to retry a create across processes: 1 to 255 printable ASCII
 		 * characters without spaces. Other methods ignore it.
 		 */

@@ -10,7 +10,8 @@ use QBitFlow\Support\Cast;
 /**
  * `refund.approved`: A refund was approved, its transfer confirmed (was `refund.completed`):
  * `data->refundPercent` and `data->amount` are the share actually paid back. Reverse the order, in
- * full or in part.
+ * full or in part. For a merchant's own refund (`data->initiatedBy` `merchant`) it is the first
+ * and only event.
  */
 final readonly class RefundApprovedEvent extends Event
 {

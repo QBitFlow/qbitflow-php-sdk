@@ -37,7 +37,7 @@ use Throwable;
  * The HTTP layer every client of one configuration shares: headers, body encoding, the retry
  * policy (behaviour §3) and the mapping of error responses onto the typed exceptions (§4).
  *
- * - **Retries:** every GET and the 7 idempotent creates are retried on a network error, a 5xx,
+ * - **Retries:** every GET and the 6 idempotent creates are retried on a network error, a 5xx,
  *   a 429, and (creates only) a 409 `idempotency_key_in_use`; attempt n (0-based) waits
  *   `1 s · 2^n`, a 429 at least its `Retry-After` (a wait above 60 s is not made: the
  *   {@see RateLimitException} is thrown at once). Every other write is sent once.
@@ -147,7 +147,7 @@ final class Transport
 	 * @param string                $path       The route below the base URL, segments already escaped.
 	 * @param array<string,string|list<string>> $query Sent as the query string (sorted; a list repeats its key).
 	 * @param array<string,mixed>|stdClass|null $body Encoded as JSON (null: no body, no Content-Type).
-	 * @param bool                  $idempotent One of the 7 creates: sends an Idempotency-Key, retried like a read.
+	 * @param bool                  $idempotent One of the 6 creates: sends an Idempotency-Key, retried like a read.
 	 * @param string|null           $onBehalfOf The client's default On-Behalf-Of (already validated).
 	 * @param string|null           $accept     Overrides `Accept: application/json`.
 	 *

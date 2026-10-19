@@ -23,7 +23,6 @@
     "subscriptions-cancel": "examples/subscriptions.php",
     "subscriptions-test-bill": "examples/subscriptions.php",
     "has-access": "examples/subscriptions.php",
-    "refunds-create": "examples/refunds.php",
     "refunds-list": "examples/refunds.php",
     "members-invite": "examples/marketplace.php",
     "members-list": "examples/marketplace.php",
@@ -48,5 +47,7 @@
     "subscriptions-update": "examples/subscriptions.php",
     "refunds-get": "examples/refunds.php"
   },
-  "unsupported": {}
+  "unsupported": {
+    "refunds-create": "API v2 has no refund create for API keys: a merchant's refund is sent from the dashboard (POST /refunds/intent, then POST /refunds, frontend only). Refunds are read only in the SDK."
+  }
 }

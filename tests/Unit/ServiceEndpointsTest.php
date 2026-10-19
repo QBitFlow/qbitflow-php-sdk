@@ -280,11 +280,6 @@ final class ServiceEndpointsTest extends TestCase
 				}),
 			'refunds.get' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->refunds->get(self::REFUND_ID, $o), 'GET', '/refunds/' . self::REFUND_ID, $m('Refund'),
 				check: static fn (self $t, Models\Refund $v) => $t->assertSame(['refund@1', '50', '5.0021'], [$v->uuid, $v->refundPercent, $v->amount])),
-			'refunds.create' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->refunds->create(new Params\CreateRefundParams(txUuid: self::BILL_ID, refundPercent: '50.5',
-				reason: 'Damaged', merchantMessage: 'Sorry'), $o),
-				'POST', '/refunds', $m('Refund'), body: '{"txUuid":"' . self::BILL_ID . '","refundPercent":"50.5","reason":"Damaged","merchantMessage":"Sorry"}',
-				idempotent: true, status: 201,
-				check: static fn (self $t, Models\Refund $v) => $t->assertSame('refund@1', $v->uuid)),
 
 			'members.list' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->members->list(new Params\MemberListParams(limit: 20, cursor: self::CURSOR), $o),
 				'GET', '/members', $page($m('Member')), 'cursor=' . self::CURSOR . '&limit=20',
@@ -442,11 +437,11 @@ final class ServiceEndpointsTest extends TestCase
 	}
 
 	#[Test]
-	public function exactly_seven_methods_are_idempotent(): void
+	public function exactly_six_methods_are_idempotent(): void
 	{
 		$idempotent = array_filter(self::routes(), static fn (array $route): bool => $route[5]);
 		$methods = array_unique(array_map(static fn (string $name): string => explode(' ', $name)[0], array_keys($idempotent)));
-		$this->assertCount(7, $methods, 'variants of a method count once');
+		$this->assertCount(6, $methods, 'variants of a method count once');
 	}
 
 	#[Test]
@@ -554,9 +549,7 @@ final class ServiceEndpointsTest extends TestCase
 			'refunds.list userUuid' => ['userUuid', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(userUuid: '1'))],
 			'refunds.list exclusive' => ['userUuid', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(includeMembers: true, userUuid: self::MEMBER_UUID))],
 			'refunds.list status' => ['status[1]', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: [RefundStatus::PENDING, 'denied']))],
-			'refunds.list too many statuses' => ['status', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: array_merge(RefundStatus::values(), [RefundStatus::PENDING])))],
-			'refunds.create percent' => ['refundPercent', static fn (QBitFlow $c) => $c->refunds->create(new Params\CreateRefundParams(txUuid: self::PAY_ID, refundPercent: '0'))],
-			'refunds.create percent above 100' => ['refundPercent', static fn (QBitFlow $c) => $c->refunds->create(new Params\CreateRefundParams(txUuid: self::PAY_ID, refundPercent: '100.01'))],
+			'refunds.list too many statuses' => ['status', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: array_merge(RefundStatus::values(), [RefundStatus::PENDING, RefundStatus::APPROVED])))],
 			'members.update fee' => ['organizationFeePercent', static fn (QBitFlow $c) => $c->members->update(self::MEMBER_UUID, new Params\UpdateMemberParams('51'))],
 			'members.update fee required' => ['organizationFeePercent', static fn (QBitFlow $c) => $c->members->update(self::MEMBER_UUID, new Params\UpdateMemberParams(''))],
 			'invitations.create email' => ['email', static fn (QBitFlow $c) => $c->invitations->create(new Params\CreateInvitationParams(email: '', holdFunds: false))],
