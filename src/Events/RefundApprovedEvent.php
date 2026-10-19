@@ -8,9 +8,11 @@ use QBitFlow\Models\Refund;
 use QBitFlow\Support\Cast;
 
 /**
- * `refund.completed`: A refund was sent (an approved refund).
+ * `refund.approved`: A refund was approved, its transfer confirmed (was `refund.completed`):
+ * `data->refundPercent` and `data->amount` are the share actually paid back. Reverse the order, in
+ * full or in part.
  */
-final readonly class RefundCompletedEvent extends Event
+final readonly class RefundApprovedEvent extends Event
 {
 	/** The event's data. */
 	public Refund $data;

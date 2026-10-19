@@ -9,13 +9,15 @@ checkouts, one-time payments, subscriptions, refunds, marketplaces with commissi
 funds, accounting exports and signed webhooks. Customers pay from their own wallets, on Ethereum,
 Base and Solana, straight to yours.
 
-- **API v2**, every integrator route: 13 services, 60 routes.
+- **API v2**, every integrator route: 14 services, 54 routes.
 - **Typed end to end**: readonly params classes with named arguments, readonly models named
-  exactly as the API's JSON, typed webhook events.
+  exactly as the API's JSON, typed webhook events. Money is a decimal string everywhere, never a
+  float.
 - **Typed exceptions**, each carrying the API's code, request id and field errors.
 - **Safe retries**: reads and creates are retried on network errors, 5xx and 429, and every create
   sends an `Idempotency-Key`, so a retry never charges or creates twice.
-- **Iterators**: `foreach ($client->payments->iterate() as $payment)` walks every page lazily.
+- **Iterators**: `foreach ($client->payments->iterate() as $payment)` walks every page lazily;
+  `getByReference()` finds a product, customer, payment or subscription by your own reference.
 - **Webhooks** verified locally (`QBitFlow-Signature`, secret rotation included) and parsed into
   typed events, with or without a client; a **webhook router** turns a delivery into your typed
   handler and the right HTTP answer (plain PHP, PSR-7/PSR-15, Laravel).
@@ -87,7 +89,7 @@ A hosted checkout for a one-time payment of 4.99 USD:
 $session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
 	productName: 'T-shirt',
 	description: 'Blue, size M',
-	price: 4.99,
+	priceUsd: '4.99', // a decimal string, never a float
 	reference: 'order-1042', // your order id: unique per space
 	successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 	cancelUrl: 'https://shop.example.com/orders/cancel',
@@ -106,21 +108,25 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
 
 ### Conventions
 
-- **Services are properties** of the client (`$client->products`, `$client->webhooks->endpoints`),
-  methods are camelCase (`createPayment`, `listCombined`). Every method takes an optional
-  [`RequestOptions`](#configuration) last.
+- **Services are properties** of the client (`$client->products`, `$client->transactions`,
+  `$client->webhooks->endpoints`), methods are camelCase (`createPayment`, `getByReference`).
+  Every method takes an optional [`RequestOptions`](#configuration) last.
 - **Params are readonly classes** built with named arguments (`new CreateProductParams(name: …,
-  price: …)`). Optional params arguments are nullable: `null` means "no filter" or "the defaults".
+  priceUsd: …)`). Optional params arguments are nullable: `null` means "no filter" or "the defaults".
 - **Ids are strings.** Resources are named by UUIDs; transactions by prefixed ids (`pay@…` a
   payment, `sub@…` a subscription, `sub-hist@…` a bill, `refund@…` a refund) that you pass back
-  verbatim. Only currencies keep numeric ids (`int`).
+  verbatim (the bare UUID works too). Only currencies keep numeric ids (`int`).
 - **Models are readonly classes** whose properties are the API's JSON keys (`$payment->txHash`,
-  `$payment->metadata->txAmounts->usd->merchant`). A field the API always sends is non-nullable
+  `$payment->settlement->split->merchant->amount`). A field the API always sends is non-nullable
   (its zero value when absent: `''`, `0`, `false`, `[]`, Go's zero time `0001-01-01T00:00:00Z`,
   see `QBitFlow\Support\Time::isZero()`); an optional field is nullable (`null` when absent).
-- **Amounts:** USD amounts are `float` (`amount`, `amountUsd`); exact amounts in a token's
-  smallest unit, and a few USD prices, are decimal strings (`amountMinUnits`, `priceUsd`,
-  `allowance`), never rounded. Fee rates are percents: `feePercent: 1.5` is 1.5 %.
+- **Money is a decimal string** everywhere, inputs included, never a float: USD amounts
+  (`priceUsd: '4.99'`, `amountUsd`), token amounts in the token's units (`amount` `"10"` for 10
+  USDC, next to `amountMinUnits` and the `currency` object) and percents (`feePercent` `"0.99"`,
+  `refundPercent: '50'`). Convert token amounts exactly with [`Amount`](#showing-amounts).
+- **Metadata**: products, customers, checkouts (copied onto their payment or subscription) and
+  subscriptions carry your own `metadata`, an `array<string,string>` (`[]` without any), merged
+  on updates (a key set to `''` deletes it).
 - **Enums** are plain strings with a constants class (`QBitFlow\Enums\SubscriptionStatus::ACTIVE`).
   A value this SDK does not know yet is kept as is: give every `match` a `default` arm.
 - **Times** are `DateTimeImmutable`, with the offset the API sent and microseconds.
@@ -162,7 +168,7 @@ $router = (new \QBitFlow\Webhooks\WebhookRouter((string) getenv('QBITFLOW_WEBHOO
 		\QBitFlow\Events\Event $event,
 	): void {
 		// Deliveries are at least once: skip an $event->id you already processed.
-		error_log("event {$event->id}: fulfil order {$payment->reference} ({$payment->uuid}), {$payment->amount} USD");
+		error_log("event {$event->id}: fulfil order {$payment->reference} ({$payment->uuid}), {$payment->amountUsd} USD");
 	})
 	->on(\QBitFlow\Enums\EventType::SUBSCRIPTION_STATUS_CHANGED, function (
 		\QBitFlow\Models\SubscriptionStatusChanged $subscription,
@@ -247,7 +253,7 @@ assert($result->status === 200);
 
 Create the checkout as in the [quick start](#quick-start): QBitFlow fills in
 `Placeholders::UUID` in the success URL, and you fulfil on `payment.completed` (above). The success
-page shows where the payment stands with `$client->checkoutSessions->getStatus($_GET['uuid'])`
+page shows where the payment stands with `$client->checkoutSessions->get($_GET['uuid'])`
 ([Status](#status)): a redirect proves nothing. A script, a test or a back-office job can wait
 until the session is completed or expired:
 
@@ -263,7 +269,7 @@ if ($status->status === \QBitFlow\Enums\CheckoutSessionStatusValue::COMPLETED) {
 ```
 <!-- /docs:snippet -->
 
-`waitForCompletion()` polls `getStatus()` (at most every second) and returns the final status, or
+`waitForCompletion()` polls `get()` (at most every second) and returns the final status, or
 the last one seen when `timeout` (seconds) elapses; errors (a 404 included) are thrown. Webhooks
 remain the way to fulfil orders.
 
@@ -285,8 +291,8 @@ if ($subscription->hasAccess()) { // now < currentPeriodEnd, whatever the status
 
 ### Showing amounts
 
-Exact amounts in a token's smallest unit are decimal strings (`allowance`, `amountMinUnits`,
-`maxAmountPerPeriod`…). Convert them exactly, never through floats:
+Token amounts are decimal strings, in the token's units (`amount`) and in its smallest unit
+(`amountMinUnits`). Convert between the two exactly, never through floats:
 
 <!-- docs:snippet amounts-display -->
 ```php
@@ -297,13 +303,13 @@ echo "{$display} USDC = {$minUnits} min units\n";
 ```
 <!-- /docs:snippet -->
 
-A model's currency knows its decimals: `$subscription->currency?->formatAmount($subscription->allowance)`
-gives `"110"` for 110 USDC.
+A model's currency knows its decimals: `$payment->currency->formatAmount($payment->amountMinUnits)`
+gives `"10"` for 10 USDC (`$payment->amount` already carries it).
 
 ### A yearly accounting export
 
-The API exports at most 95 days at a time; the range helpers split any range and join the parts
-(see [Accounting export](#accounting-export)).
+The API exports at most 92 days at a time (both included); the range helpers split any range and
+join the parts (see [Accounting export](#accounting-export)).
 
 ## Authentication and acting for a member
 
@@ -315,20 +321,22 @@ an organization key, and a job that must run in test mode can refuse to start un
 `$me->space?->test` is true.
 
 Keep the key in a secret store or an environment variable, never in code. Keys issued before API v2
-(`sk_<digits>_…`) still work; rotate them in the dashboard to the `sk_<uuid>_…` format.
+(`sk_<digits>_…`) are refused by the API (401): create a new key in the dashboard. The SDK only
+checks the `sk_` prefix.
 
 ### `On-Behalf-Of`: acting in a member's space
 
 A marketplace's **organization key** can act in any of its members' spaces: create their products
 and checkouts, read their payments. Name the member by their **user UUID** (`Member::$userUuid`,
 also in the `member.joined` webhook). A non-member, an owner or admin of the team, or a member of
-the other mode answers 404.
+the other mode answers 404. Acting for a member, the role is `user`: the admin methods (members,
+invitations, `wallets->listForMember()`) answer 403.
 
 <!-- docs:snippet client-on-behalf-of -->
 ```php
 // An organization key acts in a member's space: every request sends On-Behalf-Of.
 $seller = $client->onBehalfOf($memberUuid); // shares $client's transport and settings
-echo count($seller->products->list()), " products in the member's space\n";
+echo count($seller->products->list()->items), " products on the first page of the member's space\n";
 ```
 <!-- /docs:snippet -->
 
@@ -341,9 +349,10 @@ use QBitFlow\RequestOptions;
 $page = $client->payments->list(null, new RequestOptions(onBehalfOf: $memberUuid));
 echo count($page->items), " payments of the seller\n";
 
-// '' forces the organization's own space for one request of the seller's client.
+// '' forces the organization's own space for one request of the seller's client (the header is
+// then omitted: it is never sent blank).
 $own = $seller->products->list(null, new RequestOptions(onBehalfOf: ''));
-echo count($own), " products of the organization\n";
+echo count($own->items), " products of the organization\n";
 ```
 
 `onBehalfOf` is also a constructor argument: `new QBitFlow(apiKey: $key, onBehalfOf: $memberUuid)`.
@@ -357,7 +366,7 @@ on the webhook. The session's id (`pay@…` or `sub@…`) is also the id of the 
 subscription it creates once the customer's transaction is confirmed.
 
 Name the product with **exactly one** of `productUuid`, `productReference`, or an inline product
-(`productName` + `price`, `description` optional). The [quick start](#quick-start) names an inline
+(`productName` + `priceUsd`, `description` optional). The [quick start](#quick-start) names an inline
 product; a catalog product is named by its reference (or `productUuid`):
 
 <!-- docs:snippet checkout-create-payment-product -->
@@ -373,8 +382,9 @@ echo "Pay at {$session->link}\n";
 <!-- /docs:snippet -->
 
 The other fields: `reference` (your order id, unique per space), `customerUuid` or
-`customerReference` (kept on the payment), `successUrl` / `cancelUrl`, and `expiresInMinutes` (10
-to 1440; null = the default).
+`customerReference` (kept on the payment), `successUrl` / `cancelUrl`, `expiresInMinutes` (10 to
+1440; null = the default) and `metadata` (your own data, copied onto the payment or subscription
+and into its webhooks; at most 50 keys).
 
 A subscription checkout takes the same fields plus its terms (`frequency`, `trialPeriod`, and
 `minPeriods`, the periods the customer commits to), each optional over a subscription product's:
@@ -384,7 +394,7 @@ A subscription checkout takes the same fields plus its terms (`frequency`, `tria
 $session = $client->checkoutSessions->createSubscription(new \QBitFlow\Params\CreateSubscriptionSessionParams(
 	productName: 'T-shirt',
 	description: 'Blue, size M',
-	price: 4.99, // USD per period
+	priceUsd: '4.99', // USD per period, a decimal string
 	reference: 'order-1043',
 	frequency: \QBitFlow\Models\Duration::months(1),
 	trialPeriod: \QBitFlow\Models\Duration::days(7), // the first bill comes after the trial
@@ -399,11 +409,13 @@ echo "Subscribe at {$session->link}\n";
   session's id and `{{TRANSACTION_TYPE}}` with `payment` or `createSubscription`
   (`QBitFlow\Placeholders::UUID`, `::TRANSACTION_TYPE`; the SDK sends them as they are). In live mode both
   URLs must be `https`. A redirect proves nothing (anyone can open the URL): fulfil on the
-  webhook, or on `getStatus()`.
+  webhook, or on `get()`.
 - **Errors to expect:** `409 merchant_not_ready` (`details['reason']`) when the space's wallets
   accept no currency; `409 unique_violation` when another payment or open session holds the
-  `reference`; `400 validation_failed` above 5 USD in test mode, fees included (`details['max']`);
-  `404` for an unknown product or customer.
+  `reference`; `400 validation_failed` above `"5"` USD in test mode, fees included
+  (`details['max']` `"5"`), or for a live subscription at `"0.25"` or less (`details['min']`);
+  `404` for an unknown product or customer; `410 merchant_closed` for a removed member's or a
+  closed organization's space.
 
 ### Fees
 
@@ -416,13 +428,13 @@ customer sees them line by line and pays them with the price (a subscription: wi
 $session = $client->checkoutSessions->createPayment(new \QBitFlow\Params\CreatePaymentSessionParams(
 	productName: 'T-shirt',
 	description: 'Blue, size M',
-	price: 3.99,
+	priceUsd: '3.99',
 	reference: 'order-1044',
 	successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 	cancelUrl: 'https://shop.example.com/orders/cancel',
 	fees: new \QBitFlow\Params\CheckoutFees(
 		items: [
-			new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: 0.75, description: 'Standard, 3 to 5 days'),
+			new \QBitFlow\Params\FeeItem(label: 'Shipping', amountUsd: '0.75', description: 'Standard, 3 to 5 days'),
 		],
 		processingFee: true, // the customer pays QBitFlow's fee: you keep 3.99 + 0.75
 	),
@@ -433,8 +445,8 @@ echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping a
 
 - **Your lines** (`FeeItem`, at most 10, shown in that order): `label` (one line, 1 to 40
   characters), `description` (optional, at most 200) and `amountUsd`, above 0, at most 1,000,000,
-  with at most 2 decimals. A number is sent as a JSON number; a string (`'4.99'`) is sent as typed,
-  so no float rounds it. A bad line is a `ValidationException` on its path
+  with at most 2 decimals, a decimal string (`'4.99'`) sent as typed, so no float rounds it. A bad
+  line is a `ValidationException` on its path
   (`fees.items[0].amountUsd`), before any request.
 - **The processing fee** (`processingFee: true`) is a last line (`Processing fee`) that QBitFlow
   computes on the price and your lines at your platform fee, grossed up (its fee is also taken on
@@ -445,16 +457,16 @@ echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping a
   **`checkout.customerPaysProcessingFee`** setting decides (set in the dashboard, off by default;
   members may set their own; it also applies to product links); `false` turns it off for this
   checkout.
-- **What the customer pays** is the checkout's `amount` = the price + every line; the network fee
-  comes on top, once they pick a currency. QBitFlow's fee (and a marketplace's organization fee) is
-  taken on that amount. Test mode caps it, fees included, at 5 USD (`400` on `fees`).
+- **What the customer pays** is the payment's `amountUsd` = the price + every line; the network
+  fee comes on top, once they pick a currency. QBitFlow's fee (and a marketplace's organization
+  fee) is taken on that amount. Test mode caps it, fees included, at `"5"` USD (`400` on `fees`).
 - The lines are fixed when the session is created; `checkout.expired` carries them
-  (`$event->data->fees`, `->amount`), and the payment keeps them (`price`, `fees`: see
+  (`$event->data->fees`, `->amountUsd`), and the payment keeps them (`priceUsd`, `fees`: see
   [Payments](#payments-and-failures)).
 - **Subscriptions** take the same `fees` (`CreateSubscriptionSessionParams`, the same rules),
   locked with the price: every bill, the first one and each next one, charges the price plus every
   line, whatever the product's price or your fee becomes. The `Subscription` keeps them as `fees`
-  next to `priceUsd` (which stays the price); a bill's `amount` and `subscription.upcomingBill`'s
+  next to `priceUsd` (which stays the price); a bill's `amountUsd` and `subscription.upcomingBill`'s
   `amountUsd` include them, and the maximum and allowance the subscriber signs are sized on that
   amount. A trial's upgrade keeps the trial's lines. `checkout.customerPaysProcessingFee` applies
   to subscription checkouts too.
@@ -463,7 +475,7 @@ echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping a
 
 <!-- docs:snippet checkout-status -->
 ```php
-$status = $client->checkoutSessions->getStatus($sessionUuid); // pay@… or sub@…
+$status = $client->checkoutSessions->get($sessionUuid); // pay@… or sub@…
 echo match ($status->status) {
 	\QBitFlow\Enums\CheckoutSessionStatusValue::COMPLETED => "Paid, tx {$status->txHash}\n",
 	\QBitFlow\Enums\CheckoutSessionStatusValue::EXPIRED => "Expired unpaid: {$status->message}\n",
@@ -480,7 +492,7 @@ echo match ($status->status) {
 | `created` | Waiting for the customer. With `lastAttempt` set, their last attempt failed (`lastAttempt->code` says why) | no |
 | `waitingConfirmation` | A transaction was sent; waiting for the network. It may last: the transaction can still land | no |
 | `completed` | Confirmed and recorded: the `Payment` or `Subscription` exists, with the session's id | yes |
-| `expired` | Expired unpaid (`checkout.expired` was sent). Read some days later, an expired session is a 404 | yes |
+| `expired` | Expired unpaid, at its `expiresAt` or by its merchant (`checkout.expired` was sent). Read after QBitFlow dropped the record, an expired session is a 404 | yes |
 
 In a script, a test or a back-office job, `waitForCompletion($uuid, timeout: 600, interval: 3)`
 polls until the session is `completed` or `expired` (see [the recipe](#checkout-success-page-and-scripts)).
@@ -490,8 +502,8 @@ from the same checkout until it expires. Release what the order holds on `checko
 
 ### Expire
 
-End a session early (an order cancelled on your side). It answers its status, and
-`checkout.expired` follows. Once the customer paid or is paying it is a `409 tx_already_sent`.
+End a session early (an order cancelled on your side). It answers its status, `expired`, with
+`expiresAt` the time it was expired, and `checkout.expired` follows. Once the customer paid or is paying it is a `409 tx_already_sent`.
 
 <!-- docs:snippet checkout-expire -->
 ```php
@@ -509,7 +521,7 @@ with payment links.
 ```php
 $product = $client->products->create(new \QBitFlow\Params\CreateProductParams(
 	name: 'T-shirt',
-	price: 4.99,
+	priceUsd: '4.99', // a decimal string, never a float
 	description: 'Blue, size M',
 	reference: 'tshirt-blue-m', // your own reference, unique per space
 ));
@@ -519,15 +531,17 @@ echo "Created {$product->uuid}, payment link {$product->paymentLink}\n";
 
 <!-- docs:snippet products-list -->
 ```php
-foreach ($client->products->list() as $product) {
-	printf("%s %s: %.2f USD\n", $product->reference, $product->name, $product->price);
+// iterate() walks every page (list() returns one); hidden products only with includeHidden.
+foreach ($client->products->iterate() as $product) {
+	echo "{$product->reference} {$product->name}: {$product->priceUsd} USD\n";
 }
 ```
 <!-- /docs:snippet -->
 
-The reference is generated when null. A subscription product carries its terms, an update changes
-only the arguments given (a new price applies to new checkouts and subscribers only), and the list
-can include the hidden products. A member's key gives a product terms (on `create()` or `update()`)
+The reference is the product's uuid when null. A subscription product carries its terms, an
+update (`PATCH`) changes only the arguments given (a new price applies to new checkouts and
+subscribers only; `metadata` is merged), and the list (paginated, newest first: `list()` returns
+one `Page`, `iterate()` walks them) can include the hidden products. A member's key gives a product terms (on `create()` or `update()`)
 only while the organization's `members.subscriptions` policy allows it (`403 policy_disabled`
 otherwise); with the policy off, the links of the member's subscription products open nothing:
 
@@ -540,36 +554,49 @@ use QBitFlow\Params\UpdateProductParams;
 
 $plan = $client->products->create(new CreateProductParams(
 	name: 'Pro plan',
-	price: 4.99,
+	priceUsd: '4.99',
 	subscription: new SubscriptionTermsParams(frequency: Duration::months(1)),
+	metadata: ['sku' => 'PRO-M'],
 ));
-$plan = $client->products->update($plan->uuid, new UpdateProductParams(price: 5.99, isActive: false));
-$all = $client->products->list(new ProductListParams(includeHidden: true, subscription: true));
+$plan = $client->products->update($plan->uuid, new UpdateProductParams(
+	priceUsd: '5.99',
+	isActive: false,
+	metadata: ['sku' => 'PRO-M2', 'legacy' => ''], // '' deletes a key, keys not named are kept
+));
+$page = $client->products->list(new ProductListParams(includeHidden: true, subscription: true));
+
+// Your own reference: runs GET /products?reference= (a NotFoundException when none).
+$plan = $client->products->getByReference('tshirt-blue-m');
 ```
 
-`products->get()`, `getByReference()` and `delete()` complete the set. Deleting a product does not
-stop its subscriptions: cancel them with `subscriptions->cancel()` if the product is gone for good.
+`products->get()` and `delete()` (204) complete the set. Deleting a product does not stop its
+subscriptions: cancel them with `subscriptions->cancel()` if the product is gone for good.
 
 ```php
 use QBitFlow\Params\CreateCustomerParams;
+use QBitFlow\Params\CustomerListParams;
 use QBitFlow\Params\UpdateCustomerParams;
 
 $customer = $client->customers->create(new CreateCustomerParams(
-	name: 'Ada',
+	firstName: 'Ada',
 	email: 'ada@example.com',
 	lastName: 'Lovelace',
 	reference: 'crm-42',
+	metadata: ['crm:id' => 'C-5521'],
 ));
 
-// '' clears phoneNumber or address; null (the default) leaves them unchanged.
+// '' clears lastName, phoneNumber or address; null (the default) leaves them unchanged.
 $customer = $client->customers->update($customer->uuid, new UpdateCustomerParams(phoneNumber: ''));
 
-$byEmail = $client->customers->getByEmail('ada@example.com');
-var_dump($customer->uuid === $byEmail->uuid);
+// By your reference (one customer), or by email (several customers may share one).
+$customer = $client->customers->getByReference('crm-42');
+$page = $client->customers->list(new CustomerListParams(email: 'ada@example.com'));
 ```
 
-`customers->get()`, `getByReference()`, `list()` / `iterate()` (by `email` or `verified`) and
-`delete()` complete the set. A checkout given `customerUuid` or `customerReference` asks the
+`customers->get()`, `list()` / `iterate()` (by `email`, `reference` or `verified`) and `delete()`
+(204) complete the set. An email is not unique: a customer QBitFlow created from the email a payer
+typed at checkout is `verified` false, and is never linked to a verified one; the `reference` is
+unique per space (409 `unique_violation`). A checkout given `customerUuid` or `customerReference` asks the
 customer nothing; without either, the checkout asks what your `checkout.customerDetails` setting
 says (the full details by default).
 
@@ -584,42 +611,46 @@ $page = $client->payments->list(new \QBitFlow\Params\PaymentListParams(
 	limit: 20,
 ));
 foreach ($page->items as $payment) {
-	printf("%s %s: %.2f USD\n", $payment->uuid, $payment->reference ?? '-', $payment->amount);
+	// Amounts are decimal strings: the token's (amount, with its currency) and USD (amountUsd).
+	echo "{$payment->uuid} " . ($payment->reference ?? '-') . ": {$payment->amount} {$payment->currency->symbol} ({$payment->amountUsd} USD)\n";
 }
-$cursor = $page->nextCursor; // null on the last page; else pass it back as `cursor` for the next one
+if ($page->hasMore) {
+	$cursor = $page->nextCursor; // pass it back, verbatim, as `cursor` for the next page
+}
 ```
 <!-- /docs:snippet -->
 
 <!-- docs:snippet payments-get -->
 ```php
 $payment = $client->payments->get($paymentUuid); // pay@…
-echo "{$payment->uuid}: {$payment->amount} USD, tx {$payment->txHash}\n";
+echo "{$payment->uuid}: {$payment->amountUsd} USD, tx {$payment->txHash}\n";
 
+// Runs GET /payments?reference= and returns its one payment (a NotFoundException when none).
 $payment = $client->payments->getByReference('order-1042'); // your order id
 echo "order-1042 was paid by {$payment->uuid}\n";
 ```
 <!-- /docs:snippet -->
 
-A payment also says what the merchant got (`$payment->metadata->txAmounts->usd->merchant`), where
-to see it (`explorerUrl`) and whether it can be refunded (`refundable`).
+A payment also says how it settled (`$payment->settlement`: the fee terms, the `split` the
+contracts paid, its `transaction`), where to see it (`explorerUrl`), your checkout's `metadata`
+(read-only), and whether it can be refunded (`refundable`, `refund`).
 
-**What the amounts mean.** `amount` is what the customer paid in USD: the product's `price` at the
-checkout plus the checkout's `fees` (`FeeLine`s: `type` `custom` or `processingFee`, `label`,
-`description`, and `amountUsd`, a decimal string such as `"0.75"`), so
-`amount = price + Σ fees[]->amountUsd`. It is what the contracts split, and QBitFlow's fee is taken
-on it; with a processing fee the merchant's share is at least the price and the other lines. The
-network fee the customer paid on top is not in it (`paidUsd` and `metadata->txAmounts->usd->networkFee`
-include it). On payments recorded before fees existed, `price` is `amount` and `fees` is `[]`.
+**What the amounts mean.** `amountUsd` is what the customer paid in USD: the product's `priceUsd`
+at the checkout plus the checkout's `fees` (`FeeLine`s: `type` `custom` or `processingFee`,
+`label`, `description`, and `amountUsd`, such as `"0.75"`), so
+`amountUsd = priceUsd + Σ fees[]->amountUsd`. `amount` is the same in the token paid (`"10"` for 10
+USDC, with `amountMinUnits` and the `currency` object). It is what the contracts split
+(`settlement->split`: `platform`, `organization`, `referral` and `merchant` add up to it exactly),
+and QBitFlow's fee is taken on it; with a processing fee the merchant's share is at least the price
+and the other lines. The network fee the customer paid on top is not in it (`paid`, `paidUsd` and
+`settlement->split->networkFee` include it).
 
 - **Filters** (`PaymentListParams`): `customerUuid`, `productUuid`, `createdAfter` / `createdBefore`
-  (both excluded), `refunded`, and, with an organization key acting for itself, `includeMembers`
+  (both excluded), `reference`, `refunded`, and, with an organization key acting for itself, `includeMembers`
   (every member's rows, each naming its `userUuid`) or `userUuid` (one member's). The last two
   exclude each other.
 - **Reading a member's row** from the organization's space:
   `$client->payments->get($id, new ReadParams(includeMembers: true))`, or `onBehalfOf` the member.
-- **The combined feed** of one-time payments and subscription bills, newest first:
-  `payments->listCombined()` / `iterateCombined()`, with the same filters plus `source`
-  (`CombinedPaymentSource::PAYMENT`, `::SUBSCRIPTION_HISTORY`) and `subscriptionUuid`.
 - **Failures** are the failed attempts to pay a checkout or a bill. They never moved money and
   are not final: the customer can try again.
 
@@ -628,9 +659,28 @@ use QBitFlow\Enums\FailureCategory;
 use QBitFlow\Params\FailureListParams;
 
 foreach ($client->failures->iterate(new FailureListParams(category: FailureCategory::INSUFFICIENT_BALANCE)) as $f) {
-	printf("%s attempt %d: %s (%.2f USD)\n", $f->txUuid, $f->attempt, $f->code, $f->attemptedUsd);
+	printf("%s attempt %d: %s (%s USD)\n", $f->txUuid, $f->attempt, $f->code, $f->attemptedUsd);
 }
 ```
+
+### The transactions feed
+
+`$client->transactions` lists the one-time payments and the subscriptions' bills together, newest
+first, each row with its `type` (`payment` or `bill`, `QBitFlow\Enums\TransactionKind`) and the
+fields of its resource. It takes the payment filters plus `type`, `subscriptionUuid` (one
+subscription's bills) and `refunded`; open a row with `payments->get()` or
+`subscriptions->getBill()`.
+
+<!-- docs:snippet transactions-list -->
+```php
+// One feed of one-time payments and subscription bills, newest first; each row reads like its
+// resource. `type` filters it to one kind (TransactionKind::PAYMENT or TransactionKind::BILL).
+$feed = $client->transactions->list(new \QBitFlow\Params\TransactionListParams(limit: 20));
+foreach ($feed->items as $transaction) {
+	echo "{$transaction->type} {$transaction->uuid} {$transaction->amountUsd} USD\n";
+}
+```
+<!-- /docs:snippet -->
 
 ## Subscriptions
 
@@ -644,7 +694,7 @@ the free trial. It keeps the checkout's `sub@…` id for life.
 | `active` | Billed on its due dates |
 | `pastDue` | A bill failed; retried for up to 7 days (`dunning` on reads), then cancelled |
 | `paused` | Paused by its customer: not billed until resumed |
-| `stopped` | Cancelled during its period: never billed again, `cancelled` at `nextBillingDate` |
+| `stopped` | Cancelled during its period: never billed again, `cancelled` at `nextBillingAt` |
 | `cancelled` | Over (`cancellationReason` says why). Final |
 
 **Access rule: grant access while `now < currentPeriodEnd`, whatever the status.** A `stopped` or
@@ -656,8 +706,10 @@ The subscription webhooks' data (`SubscriptionStatusChanged`, …) are subscript
 `$data->hasAccess()` works there.
 
 `actionRequired` says what the customer must do (`topUpAllowance`, `raiseMaximum`,
-`confirmTrial`; `null`: nothing): point them to the `managementPageLink` the subscription webhooks
-carry.
+`confirmTrial`; `null`: nothing): point them to the subscription's `managementPageLink`.
+`allowance` (null during a trial) says what the subscriber's wallet still lets QBitFlow bill
+(`amount`, `remainingPeriods`, the signed `maxPerPeriod`); `priceUsd` plus `fees` is what each bill
+charges; `lastBilledAt`, `nextBillingAt` and `cancellableAt` the dates.
 
 <!-- docs:snippet subscriptions-get -->
 ```php
@@ -681,17 +733,30 @@ foreach ($page->items as $sub) {
 
 // Every bill, newest first: the iterator fetches the pages lazily.
 foreach ($client->subscriptions->iterateBills($subscriptionUuid) as $bill) {
-	printf("%s: %.2f USD, paid until %s\n", $bill->uuid, $bill->amount, $bill->periodEnd?->format('Y-m-d') ?? '?');
+	printf("%s: %s USD, paid until %s\n", $bill->uuid, $bill->amountUsd, $bill->periodEnd?->format('Y-m-d') ?? '?');
 }
 ```
 
-- `subscriptions->getByReference()` reads one by your checkout's `reference`; `getBill()` one bill
-  (`sub-hist@…`).
-- `subscriptions->getPublicHistory()` returns the 10 latest bills as the customer's page shows
-  them. It is a public route: the fields only the merchant sees (`metadata`, `customerUuid`,
-  `customerReference`, `userUuid`, `paidMinUnits`, `refund`, …) are empty there. Use
-  `listBills()` for full bills.
+- `subscriptions->getByReference()` reads one by your checkout's `reference` (it runs
+  `GET /subscriptions?reference=`; a `NotFoundException` when none); `getBill()` one bill
+  (`sub-hist@…`, `GET /bills/:uuid`).
 - Before its checkout completes, `subscriptions->get()` is a 404: read the checkout session instead.
+
+### Metadata
+
+A subscription's `metadata` is its checkout's, copied when it was created; `update()` merges keys
+into it (the only thing a merchant edits on a subscription, cancelled ones included):
+
+<!-- docs:snippet subscriptions-update -->
+```php
+// Metadata is merged into the subscription's: '' deletes a key, keys not named are kept. It is the
+// only thing a merchant edits on a subscription; webhooks carry it.
+$updated = $client->subscriptions->update($subscriptionUuid, new \QBitFlow\Params\UpdateSubscriptionParams(
+	metadata: ['plan' => 'pro', 'coupon' => ''],
+));
+echo ($updated->metadata['plan'] ?? '-') . "\n";
+```
+<!-- /docs:snippet -->
 
 ### Cancel
 
@@ -716,16 +781,19 @@ automatically (409 `subscription_already_stopped_or_inactive`, 404 once cancelle
 ### Test billing
 
 In test mode a subscription is billed only when you ask, with live's statuses and webhooks:
+`testBill()` returns where the test bill stands once its attempt settled (a `TestBill`: its
+`billUuid`, `stage`, `outcome`, `failureCode`).
 
 <!-- docs:snippet subscriptions-test-bill -->
 ```php
 // Test mode only: runs the next billing now instead of on its due date.
-$state = $client->subscriptions->executeTestBilling($subscriptionUuid);
-echo "Bill {$state->billUuid}: {$state->stage} {$state->outcome}\n";
+$bill = $client->subscriptions->testBill($subscriptionUuid);
+echo "Bill {$bill->billUuid}: {$bill->stage} " . ($bill->outcome ?? '-') . ' ' . ($bill->failureCode ?? '') . "\n"; // sub-hist@…
 ```
 <!-- /docs:snippet -->
 
-Before `nextBillingDate` it is a `409 payment_not_due`; a failed bill sets `$state->failureCode`.
+Before `nextBillingAt` it is a `409 payment_not_due`, and a live subscription a `400
+test_mode_only`; a failed bill sets `$bill->failureCode`.
 
 Walk the timeline once in test mode: a 5-minute frequency, pay from a test wallet, trigger the
 bill, then empty the wallet and trigger it again to see `subscription.billingFailed` and
@@ -733,48 +801,70 @@ bill, then empty the wallet and trigger it again to see `subscription.billingFai
 
 ## Refunds
 
-The refunds waiting for an answer:
+One list for every refund (`GET /refunds`, paginated), filtered by `status`: `pending` lists the
+ones waiting for an answer.
 
 <!-- docs:snippet refunds-list -->
 ```php
-foreach ($client->refunds->list() as $refund) {
-	echo "{$refund->uuid} {$refund->txUuid} ({$refund->initiatedBy}): {$refund->amountUsd} USD, {$refund->reason}\n";
+// The active ones: pending, waiting for an answer (no status: every status).
+$page = $client->refunds->list(new \QBitFlow\Params\RefundListParams(
+	status: [\QBitFlow\Enums\RefundStatus::PENDING],
+));
+foreach ($page->items as $refund) {
+	echo "{$refund->uuid} {$refund->txUuid} ({$refund->initiatedBy}): {$refund->amount} {$refund->currency->symbol}, " . ($refund->reason ?? '-') . "\n";
 }
 ```
 <!-- /docs:snippet -->
 
 From the organization's space the members' refunds are included by default:
-`new RefundListParams(includeMembers: false)` leaves them out. The answered ones are paginated:
+`new RefundListParams(includeMembers: false)` leaves them out; `txUuid` keeps one transaction's,
+`held` the held sellers' ones. Every status, page by page:
 
 ```php
-// Answered refunds (approved or rejected), page by page.
-foreach ($client->refunds->iterateInactive() as $r) {
+use QBitFlow\Enums\RefundStatus;
+use QBitFlow\Params\RefundListParams;
+
+$answered = new RefundListParams(status: [RefundStatus::APPROVED, RefundStatus::REJECTED]);
+foreach ($client->refunds->iterate($answered) as $r) {
 	echo "{$r->uuid} {$r->status} {$r->explorerUrl}\n";
 }
 ```
 
-`refunds->initiate()` starts a refund of a payment (`pay@…`) or a bill (`sub-hist@…`) of the space.
-**It creates a pending refund: no money moves until you sign the transfer in the dashboard**,
-from the wallet that was paid. `refund.completed` tells you when it is sent.
+One refund by its id:
 
-<!-- docs:snippet refunds-create -->
+<!-- docs:snippet refunds-get -->
 ```php
-$refund = $client->refunds->initiate(new \QBitFlow\Params\InitiateRefundParams(
-	txUuid: $paymentUuid, // pay@…, or a bill's sub-hist@…
-	refundPercent: 50.0,  // of what the customer paid
-	reason: 'Damaged item',
-));
-echo "Refund {$refund->uuid}: {$refund->status}\n"; // pending: no money moves until you sign it in the dashboard
+$refund = $client->refunds->get($refundUuid); // refund@…
+// pending, approved, rejected or cancelled (a merchant's draft dropped before it was sent).
+echo "{$refund->uuid} {$refund->status} {$refund->refundPercent}% {$refund->amount} {$refund->currency->symbol}\n";
 ```
 <!-- /docs:snippet -->
 
-`refundPercent` is a share of everything the customer paid, network fee included (null = 100);
-`merchantMessage` adds a note to the customer. There is one refund per transaction: a second one is
-a `ConflictException` with `apiCode` `refund_already_exists` and the existing refund in
-`$e->details['refundUuid']`.
+`refunds->create()` starts a refund of a payment (`pay@…`) or a bill (`sub-hist@…`) of the space.
+**It creates a pending refund: no money moves until you sign the transfer in the dashboard**,
+from the wallet that was paid. `refund.approved` tells you when it is sent.
 
-A refund is `pending`, `approved` or `rejected`; `initiatedBy` is `customer` (a request you answer
-in the dashboard) or `merchant`. A held seller's payment already released to them can no longer be
+<!-- docs:snippet refunds-create -->
+```php
+$refund = $client->refunds->create(new \QBitFlow\Params\CreateRefundParams(
+	txUuid: $paymentUuid, // pay@…, or a bill's sub-hist@…
+	refundPercent: '50',  // a percent string, of what the customer paid; null = "100"
+	reason: 'Damaged item',
+));
+// Pending: no money moves until you sign the transfer in the dashboard (refund.approved).
+echo "Refund {$refund->uuid}: {$refund->status}\n";
+```
+<!-- /docs:snippet -->
+
+`refundPercent` is a percent string, a share of everything the customer paid (`paid`), network fee
+included (null = `"100"`); `merchantMessage` adds a note to the customer. There is one refund per
+transaction: a second one is a `ConflictException` with `apiCode` `refund_already_exists` and the
+existing refund in `$e->details['refundUuid']` (a merchant's draft not sent yet gives way: a new
+refund replaces it).
+
+A refund is `pending`, `approved`, `rejected` or `cancelled` (a merchant's draft dropped before it
+was sent; `failed` is declared but never set); `initiatedBy` is `customer` (a request you answer
+in the dashboard) or `merchant`. `amount` is what it sends back, in the token paid. A held seller's payment already released to them can no longer be
 refunded (`409 held_funds_released`).
 
 ## Marketplaces
@@ -791,16 +881,18 @@ the dashboard.
 ```php
 $created = $client->invitations->create(new \QBitFlow\Params\CreateInvitationParams(
 	email: 'seller@example.com',
-	trustLayer: true,             // hold their payments until you trust them
-	organizationFeePercent: 10.0, // your commission on their payments
+	holdFunds: true,              // hold their payments until you trust them (always sent)
+	organizationFeePercent: '10', // your commission on their payments: "0" to "50" %
 	redirectUrl: 'https://shop.example.com/sellers/welcome',
 ));
-echo "Invitation {$created->invitation->uuid}: {$created->link}\n"; // the link is also emailed
+echo "Invitation {$created->uuid}: {$created->link}\n"; // the link is also emailed
 ```
 <!-- /docs:snippet -->
 
-The fee is 0 to 50 %, at most 2 decimals. Inviting a member is a `409 already_joined`, and more
-than 50 invitations an hour a 429.
+`holdFunds` is required; the fee is a percent string, `"0"` to `"50"`, at most 2 decimals. The
+answer is the invitation itself with its `link` (a `CreatedInvitation`). Inviting a member is a
+`409 already_joined`, and more than 50 invitations an hour a 429 (thrown at once: the wait is over
+the SDK's 60 s retry cap).
 
 **2. Wait for `member.joined`.** The seller exists once they accepted: store the event's
 `userUuid` and match `invitationUuid` to your invitation. Never trust the redirect's
@@ -819,9 +911,9 @@ they can, not needed while you hold their funds). Then act in their space:
 
 ```php
 use QBitFlow\Params\CreatePaymentSessionParams;
-use QBitFlow\Params\SupportedCurrenciesParams;
+use QBitFlow\Params\AcceptedCurrenciesParams;
 
-$currencies = $client->wallets->listSupportedCurrencies(new SupportedCurrenciesParams(userUuid: $memberUuid));
+$currencies = $client->wallets->listAcceptedCurrencies(new AcceptedCurrenciesParams(userUuid: $memberUuid));
 if ($currencies === []) {
 	throw new RuntimeException('the seller cannot be paid yet: their checkouts would answer 409 merchant_not_ready');
 }
@@ -829,8 +921,8 @@ if ($currencies === []) {
 $seller = $client->onBehalfOf($memberUuid);
 $session = $seller->checkoutSessions->createPayment(new CreatePaymentSessionParams(
 	productName: 'Handmade mug',
-	price: 4.5,
-	successUrl: 'https://market.example.com/orders/{{UUID}}',
+	priceUsd: '4.50',
+	successUrl: 'https://market.example.com/orders/' . \QBitFlow\Placeholders::UUID,
 )); // 403 policy_disabled when your policies don't let members do this
 echo $session->link, "\n";
 ```
@@ -838,18 +930,19 @@ echo $session->link, "\n";
 **4. Hear of every sale.** An organization webhook endpoint receives every seller's events by
 default; the event's `userUuid` names the seller. Use it as `onBehalfOf` for follow-up reads.
 
-**5. Commission and held funds.** Each payment records your fee in `metadata->organizationFee` and
-`metadata->txAmounts`. While you hold a seller's funds (`trustLayer` true, `Member::$trustedAt`
-null), their payments go to your wallet and the net is owed to them:
+**5. Commission and held funds.** Each payment records your fee in `settlement->organizationFee`
+and its share in `settlement->split->organization`. While you hold a seller's funds (`holdFunds`
+true, `Member::$trustedAt` null), their payments go to your wallet and the net is owed to them
+(`totalUsd`, and each line's `owed` in the token paid):
 
 <!-- docs:snippet members-held-funds -->
 ```php
-foreach ($client->members->listHeldFunds() as $summary) { // every member you owe
-	printf("%s: %.2f USD over %d lines\n", $summary->userUuid, $summary->totalAmount, $summary->count);
+foreach ($client->members->listHeldFunds() as $owed) { // every member you owe, the longest held first
+	echo "{$owed->userUuid}: {$owed->totalUsd} USD over {$owed->count} lines\n";
 }
 
 $held = $client->members->getHeldFunds($memberUuid);
-printf("Owed to %s: %.2f USD over %d lines\n", $memberUuid, $held->totalAmount, count($held->ledgers));
+printf("Owed to %s: %s USD over %d lines\n", $memberUuid, $held->totalUsd, count($held->ledgers));
 ```
 <!-- /docs:snippet -->
 
@@ -859,7 +952,7 @@ The seller reads their side with their own key, or through `$client->onBehalfOf(
 ```php
 // With a member's key (or a client from $client->onBehalfOf($memberUuid)):
 $held = $client->members->getOwnHeldFunds();
-printf("Held for me: %.2f USD over %d lines\n", $held->totalAmount, count($held->ledgers));
+printf("Held for me: %s USD over %d lines\n", $held->totalUsd, count($held->ledgers));
 ```
 <!-- /docs:snippet -->
 
@@ -874,12 +967,13 @@ echo 'Trusted since ' . ($member->trustedAt?->format(DATE_ATOM) ?? '?') . "\n";
 ```
 <!-- /docs:snippet -->
 
-Change the commission (a checkout already created keeps its fee):
+Change the commission (a percent string; a checkout already created keeps its fee, a running
+subscription's next bills take the new one):
 
 <!-- docs:snippet members-update -->
 ```php
 $member = $client->members->update($memberUuid, new \QBitFlow\Params\UpdateMemberParams(
-	organizationFeePercent: 10.0, // on their payments from now on; existing checkouts keep their fee
+	organizationFeePercent: '10', // a percent string ("0" to "50"); existing checkouts keep their fee
 ));
 echo "Fee now {$member->organizationFeePercent} %\n";
 ```
@@ -890,7 +984,7 @@ echo "Fee now {$member->organizationFeePercent} %\n";
 <!-- docs:snippet members-list -->
 ```php
 foreach ($client->members->iterate() as $member) {
-	printf("%s %s %s: fee %.2f %%, %s\n", $member->userUuid, $member->name, $member->lastName,
+	printf("%s %s %s: fee %s %%, %s\n", $member->userUuid, $member->firstName, $member->email,
 		$member->organizationFeePercent, $member->trustedAt !== null ? 'trusted' : 'funds held');
 }
 ```
@@ -899,19 +993,22 @@ foreach ($client->members->iterate() as $member) {
 <!-- docs:snippet members-get -->
 ```php
 $member = $client->members->get($memberUuid); // the member's userUuid
-echo "{$member->name} {$member->lastName} <{$member->email}>, joined {$member->joinedAt->format('Y-m-d')}\n";
+echo "{$member->firstName} " . ($member->lastName ?? '') . " <{$member->email}>, joined {$member->joinedAt->format('Y-m-d')}\n";
+foreach ($member->acceptedCurrencies as $currency) {
+	echo "  accepts {$currency->code}\n"; // none: their checkouts answer 409 merchant_not_ready
+}
 ```
 <!-- /docs:snippet -->
 
 <!-- docs:snippet members-wallets -->
 ```php
 foreach ($client->wallets->listForMember($memberUuid) as $wallet) {
-	echo "{$wallet->currency->symbol} {$wallet->publicKey}\n";
+	echo "{$wallet->currency->chain} {$wallet->address}\n";
 }
 ```
 <!-- /docs:snippet -->
 
-`members->remove()` ends a seller's membership in the key's mode: their keys stop working and
+`members->remove()` (204) ends a seller's membership in the key's mode: their keys stop working and
 their checkouts close. It is a `409 held_funds_pending` while you hold their live funds: release
 them first.
 
@@ -943,13 +1040,15 @@ foreach ($page->items as $invitation) {
 
 <!-- docs:snippet invitations-revoke -->
 ```php
-$invitation = $client->invitations->revoke($invitationUuid); // a pending invitation only
-echo "Invitation {$invitation->uuid}: {$invitation->status}\n"; // revoked
+$client->invitations->revoke($invitationUuid); // a pending invitation only (204)
+echo "Revoked {$invitationUuid}: its link no longer works\n";
 ```
 <!-- /docs:snippet -->
 
 - `members->list()` returns one page (the snippet's `iterate()` walks them all);
-  `invitations->iterate()` walks every invitation.
+  `invitations->iterate()` walks every invitation. `invitations->revoke()` answers 204 (void).
+- A member's `acceptedCurrencies` are the currencies a checkout of theirs can be paid in now; none
+  means their checkouts answer `409 merchant_not_ready`.
 - Today a seller whose account already belongs to another organization cannot accept (no
   `member.joined` comes), and test-mode sellers are real accounts that accept from a real inbox.
 
@@ -961,18 +1060,19 @@ Wallets are added and removed in the dashboard, by their owner only. The SDK rea
 use QBitFlow\Params\WalletListParams;
 
 foreach ($client->wallets->list(new WalletListParams(withBalances: true)) as $wallet) {
-	echo "{$wallet->currency->symbol} {$wallet->publicKey}\n";
+	echo "{$wallet->currency->chain} {$wallet->address}\n";
 	foreach ($wallet->tokenWallets as $tokenWallet) {
-		if ($tokenWallet->balance !== null) {
-			printf("  %s: %s (%.2f USD)\n", $tokenWallet->token->symbol, $tokenWallet->balance->balance, $tokenWallet->balance->balanceUsd);
+		if ($tokenWallet->balance !== null) { // read on-chain; null when the chain couldn't be read
+			$balance = $tokenWallet->balance;
+			echo "  {$tokenWallet->currency->symbol}: {$balance->amount} (" . ($balance->amountUsd ?? '?') . " USD)\n";
 		}
 	}
 }
 ```
 
-`wallets->listForMember($userUuid)` reads a member's wallets (organization key), and
-`wallets->listSupportedCurrencies()` the currencies a space's checkouts accept: none means its
-checkouts answer `409 merchant_not_ready`.
+The wallet lists are bounded: they return a plain array. `wallets->listForMember($userUuid)` reads
+a member's wallets (organization key), and `wallets->listAcceptedCurrencies()` the currencies a
+space's checkouts accept now: none means its checkouts answer `409 merchant_not_ready`.
 
 ## Accounting export
 
@@ -981,32 +1081,37 @@ or as CSV text:
 
 <!-- docs:snippet accounting-export -->
 ```php
-// The API exports at most 95 days at a time: the range helpers split any range and join the parts.
+// The API exports at most 92 days at a time (both included): the range helpers split any range
+// into windows, request them in order and join the results (the CSV header once).
 $events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31');
 foreach ($events as $event) {
-	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->currency}\n";
+	echo "{$event->type} {$event->txUuid} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmountUsd} USD {$event->productName}\n";
 }
 
 $csv = $client->accounting->exportCsvRange('2026-01-01', '2026-12-31'); // one header line, then the rows
 ```
 <!-- /docs:snippet -->
 
-The SDK checks the dates and `from <= to` before sending. **The API allows at most 95 days per
-export** and answers 400 beyond: `exportJsonRange()` and `exportCsvRange()` take any range, split
-it into windows of at most 95 days (`[from, from+95d]`, the next starting the day after), request
-them in order and join them (the CSV header once): a year is 4 requests. `exportJson()` and
-`exportCsv()` make one request for a window of at most 95 days. Rows are typed `payment`,
-`subscriptionHistory`, `refund`, `organizationFee` or `referralFee`, and the empty fields of a row
-are `null`.
+The SDK checks the dates and `from <= to` before sending. **The API allows at most 92 days per
+export, both included** and answers `400 validation_failed` on `to` beyond (`details['max']` 92):
+`exportJsonRange()` and `exportCsvRange()` take any range, split it into windows of at most 92
+days (`[from, from+91d]`, the next starting the day after, on calendar dates), request them in
+order and join them (the CSV header once): 2026-01-01 to 2026-12-31 is 4 requests (`[01-01,
+04-02] [04-03, 07-03] [07-04, 10-03] [10-04, 12-31]`). `exportJson()` and `exportCsv()` make one
+request for a window of at most 92 days. Rows are typed `payment`, `bill`, `refund`,
+`organizationFee` or `referralFee`, and a value a row doesn't have (a fee that doesn't apply) is
+`null`, never `"0"`.
 
 - **Dates** are the transactions' (the day their block was mined, in UTC: `txTimeUtc`), so
   consecutive exports never miss nor repeat an event. Rows are ordered by `txTimeUtc`, `type`,
-  then `paymentUuid`.
+  then `txUuid` (`pay@…`, `sub-hist@…`, `refund@…`; a refund's `relatedTxUuid` and
+  `relatedReference` name what it refunds).
 - **Amounts** are in the currency's units (`"7.5"` USDC, not `7500000`), as decimal strings, next
   to `currencyDecimals`. `currency` names what was paid as markets do (`USDC`, or the chain's
   native currency: `ETH`, `SOL`), and `currencyPriceUsd` is the USD price the amounts were
-  converted at. `grossAmount = platformFee + organizationFee + netAmount` exactly; a refund's net
-  is the refunded amount, negative.
+  converted at; the USD amounts (`grossAmountUsd`, `netAmountUsd`…) are decimal strings too, and
+  each amount has its `…MinUnits` twin. `grossAmount = platformFee + organizationFee + netAmount`
+  exactly; a refund's net is the refunded amount, negative.
 - **Network fees are never part of the net.** `networkFeesPaidBy` (`Enums\NetworkFeesPayer`) says
   whose wallet paid them: `payer` (a payment or a bill: on top of the amount, in its currency),
   `merchant` (a refund your space sent) or `organization` (a refund of a payment the organization
@@ -1014,7 +1119,8 @@ are `null`.
   on a refund) apart for `merchant` and `organization`.
 - **CSV columns** follow `AccountingEvent`'s property order (what happened, the USD amounts, the
   same amounts in the currency, the network fees, the rates, the on-chain proof, the ids): read
-  them by header name, not position.
+  them by header name, not position. Amounts are plain numbers, an absent value an empty cell, and
+  a cell starting with `= + - @`, a tab or a CR gets a leading `'`.
 
 ## Webhooks
 
@@ -1038,11 +1144,13 @@ echo "Endpoint {$endpoint->uuid}: QBITFLOW_WEBHOOK_SECRET={$endpoint->secret}\n"
 ```
 <!-- /docs:snippet -->
 
-`description` adds a note for the dashboard. Up to 10 endpoints per space and mode; live endpoints need `https` and a public host. An
-organization endpoint also receives its members' events unless created with
-`includeMembers: false`. `endpoints->list()`, `get()`, `update()` (`enabled: false` pauses it,
-`true` enables it again) and `delete()` manage them. An endpoint's secret is shown and rotated in
-the dashboard only.
+`description` adds a note for the dashboard; `events` takes at most 20 types, never
+`webhook.test`. Up to 10 endpoints per space and mode; live endpoints need `https` and a public
+host. An organization endpoint also receives its members' events unless created with
+`includeMembers: false`. `endpoints->list()` (a `Page`; `iterate()` walks them), `get()`,
+`update()` (`PATCH`: `enabled: false` pauses it, `true` enables it again, also after it was
+disabled for failing; `description: ''` clears the note; `events: []` receives every type) and
+`delete()` (204) manage them. An endpoint's secret is shown and rotated in the dashboard only.
 
 ### 2. Handle the deliveries with a router
 
@@ -1074,7 +1182,7 @@ $result = $router->handleGlobals(); // plain PHP; or handleRequest($psr7Request)
 |---|---|---|
 | handled, or no handler for its type (unknown types included) | 200 | `{"received":true}` |
 | bad, missing or stale signature (no handler runs) | 400 | `{"error":"invalid signature"}` |
-| not a v2 event: not JSON, an endpoint still on v1, data not fitting its type | 400 | `{"error":"invalid event"}` |
+| not a v2 event: not JSON, another payload version, data not fitting its type | 400 | `{"error":"invalid event"}` |
 | a handler threw: the handlers after it are skipped, QBitFlow retries | 500 | `{"error":"internal error"}` |
 | adapters: not a POST / a body over 1 MiB / an unreadable body | 405 (`Allow: POST`) / 413 / 400 | `method not allowed` / `body too large` / `cannot read the body` |
 
@@ -1101,7 +1209,7 @@ try {
 	http_response_code(400); // $e->reason: noMatchingSignature, timestampOutsideTolerance, …
 	exit;
 } catch (\QBitFlow\Exceptions\ValidationException) {
-	http_response_code(400); // not a v2 event: an endpoint still on payload version v1
+	http_response_code(400); // not a v2 event (unsupported payload version), or not JSON
 	exit;
 }
 
@@ -1132,9 +1240,8 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 - **Members' events** carry the member in `$event->userUuid`: read their resources with
   `$client->onBehalfOf($event->userUuid)`.
 - **No fixed source IPs**: verify the signature, never allow-list addresses.
-- **v2 only.** An endpoint migrated from API v1 receives v1 bodies, which `parseEvent()` refuses:
-  move it to v2 in the dashboard, or with `$client->webhooks->endpoints->update($uuid,
-  new UpdateWebhookEndpointParams(payloadVersion: WebhookPayloadVersion::V2))`.
+- **v2 only.** Every endpoint receives the v2 envelope (`version` `v2`, the only payload
+  version); a body with another version is a `ValidationException` ("unsupported payload version").
 - Not holding the secret? `$client->webhooks->verifyRemote($endpointUuid, $rawBody, $header)` has
   the API check it (a `WebhookSignatureException` with reason `invalidSignature` when it does not
   match), then `Webhook::parseEvent()` parses the body.
@@ -1142,13 +1249,13 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 | `type` | Event class | `$event->data` |
 |---|---|---|
 | `payment.completed` | `PaymentCompletedEvent` | `PaymentCompleted`: the `Payment` + `managementPageLink` |
-| `subscription.created` | `SubscriptionCreatedEvent` | `SubscriptionCreated`: the `Subscription` (`active` or `trial`) + `managementPageLink` |
-| `subscription.billed` | `SubscriptionBilledEvent` | `SubscriptionBilled`: the `Bill` (paid until `periodEnd`) + `subscriptionReference`, `subscriptionStatus` |
+| `subscription.created` | `SubscriptionCreatedEvent` | the `Subscription` (`active` or `trial`), its `managementPageLink` included |
+| `subscription.billed` | `SubscriptionBilledEvent` | `SubscriptionBilled`: `bill` (the `Bill` paid, until `bill->periodEnd`) and `subscription` (as the bill leaves it) |
 | `subscription.statusChanged` | `SubscriptionStatusChangedEvent` | `SubscriptionStatusChanged`: the `Subscription` + `previousStatus` |
 | `subscription.actionRequiredChanged` | `SubscriptionActionRequiredChangedEvent` | `SubscriptionActionRequiredChanged`: the `Subscription` + `previousActionRequired` |
 | `subscription.billingFailed` | `SubscriptionBillingFailedEvent` | `SubscriptionBillingFailed`: the `Subscription` + `reason`, `billUuid`, `amountUsd` (a string), `attempt`, `remainingAttempts`, `nextAttemptAt` |
-| `subscription.upcomingBill` | `SubscriptionUpcomingBillEvent` | `SubscriptionUpcomingBill`: the `Subscription` + `billingDate`, `amountUsd` (a float), `trialEnding`, `balanceSufficient`, `allowanceSufficient` |
-| `refund.requested` / `.completed` / `.denied` | `RefundRequestedEvent` / `RefundCompletedEvent` / `RefundDeniedEvent` | the `Refund` |
+| `subscription.upcomingBill` | `SubscriptionUpcomingBillEvent` | `SubscriptionUpcomingBill`: the `Subscription` + `billingAt`, `amountUsd` (a string), `trialEnding`, `balanceSufficient`, `allowanceSufficient` |
+| `refund.requested` / `.approved` / `.rejected` | `RefundRequestedEvent` / `RefundApprovedEvent` / `RefundRejectedEvent` | the `Refund` (`refund.approved` and `refund.rejected` were `refund.completed` and `refund.denied`) |
 | `member.joined` | `MemberJoinedEvent` | `MemberJoined`: the `Member` + `invitationUuid` |
 | `member.removed` | `MemberRemovedEvent` | the `Member` |
 | `heldFunds.released` | `HeldFundsReleasedEvent` | `HeldFundsReleased`: the transfer paid to the member + the `ledgers` it settled |
@@ -1159,11 +1266,12 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 Every event also has `id`, `type`, `version`, `createdAt`, `test`, `userUuid` and `rawData`;
 `$event->decodeData(Subscription::fromArray(...))` reads the data as another model. Webhook data
 never carries what only API reads return (`customer`, `refund`/`refundable`, `dunning`,
-`approval`, `productName`). In Laravel, the [route, middleware and events](#laravel) do all of this.
+`approval`, a refund's `customerUuid` and `productName`). In Laravel, the [route, middleware and events](#laravel) do all of this.
 
 ### The event log
 
-Every event of the space, newest first:
+Every event of the space, newest first, each exactly as it was delivered (kept at least 90 days;
+the cursor is opaque):
 
 <!-- docs:snippet events-list -->
 ```php
@@ -1171,8 +1279,11 @@ $page = $client->webhooks->events->list(new \QBitFlow\Params\EventListParams(
 	type: \QBitFlow\Enums\EventType::PAYMENT_COMPLETED,
 	limit: 20,
 ));
-foreach ($page->items as $event) { // newest first
+foreach ($page->items as $event) { // newest first, each exactly as delivered
 	echo "{$event->id} {$event->type} {$event->createdAt->format(DATE_ATOM)}\n";
+}
+if ($page->hasMore) {
+	echo "More: pass {$page->nextCursor} as cursor\n"; // opaque, never an event id
 }
 ```
 <!-- /docs:snippet -->
@@ -1196,22 +1307,27 @@ foreach ($client->webhooks->events->iterate(new EventListParams(type: EventType:
 
 <!-- docs:snippet currencies-list -->
 ```php
-foreach ($client->currencies->listAvailable() as $currency) {
-	echo "{$currency->id}: {$currency->symbol} ({$currency->name}), {$currency->decimals} decimals\n";
+// One bounded list: the live currencies; test: the test networks'; main: the chains' native coins only.
+foreach ($client->currencies->list() as $currency) {
+	echo "{$currency->id}: {$currency->code} ({$currency->name} on {$currency->chain}), {$currency->decimals} decimals\n";
 }
 ```
 <!-- /docs:snippet -->
 
-`listAvailable()` lists every currency checkouts can take (`new CurrencyListParams(test: true)`:
-the testnet ones), `listMain()` the chains' native coins, and `get($id)` one by id, to resolve the `currencyId`, `availableCurrencyIds` and
-`acceptedCurrencyIds` fields. These routes are public and **limited to 60 requests a minute per
-IP: cache the list** at start-up instead of reading it per request. Payments, bills and
-subscriptions already carry their `currency`.
+`list()` returns the currency catalog (a plain array): `new CurrencyListParams(test: true)` lists
+the test networks' currencies (whatever the key's mode), `main: true` only the chains' native coins
+(ETH, BASE, SOL). `get($id)` reads one by id, e.g. a token's `mainCurrencyId`. A `Currency` has its
+`code` (`BASE:USDC`, `ETH`), `chain`, `symbol`, `decimals` and, for a token, its `address`. These
+routes are public and **limited to 60 requests a minute per IP: cache the list** at start-up
+instead of reading it per request. Payments, bills, subscriptions and wallets already carry their
+`currency` object.
 
 ## Pagination and iterators
 
-Paginated lists return a `QBitFlow\Page`: `items`, and `nextCursor` (null on the last page, else
-the value to pass back as the params' `cursor`, verbatim).
+Paginated lists return a `QBitFlow\Page`: `items`, `hasMore`, and `nextCursor` (null when
+`hasMore` is false, else the value to pass back as the params' `cursor`, verbatim: it is opaque,
+never build or parse it). A full last page answers `hasMore` false: there is never an extra empty
+page.
 
 <!-- docs:snippet customers-list -->
 ```php
@@ -1219,7 +1335,9 @@ $page = $client->customers->list(new \QBitFlow\Params\CustomerListParams(limit: 
 foreach ($page->items as $customer) {
 	echo "{$customer->uuid} {$customer->email}\n";
 }
-$cursor = $page->nextCursor; // null on the last page; else pass it back as `cursor` for the next one
+if ($page->hasMore) {
+	$cursor = $page->nextCursor; // pass it back, verbatim, as `cursor` for the next page
+}
 ```
 <!-- /docs:snippet -->
 
@@ -1235,36 +1353,42 @@ do {
 		echo $customer->email, "\n";
 	}
 	$params = $params->withCursor($page->nextCursor);
-} while ($page->hasMore());
+} while ($page->hasMore);
 ```
 
 Each paginated list has an `iterate*()` twin returning a `Generator`: it fetches one page at a
-time, only as you consume it, keeps your filters and page size, and stops when you `break`. An
-error is thrown from the `foreach`, after the items before it.
+time, only as you consume it, keeps your filters and page size, stops after the page whose
+`hasMore` is false (and, defensively, on a page claiming more without a cursor, a cursor that did
+not move, or an empty page), and stops when you `break`. An error is thrown from the `foreach`,
+after the items before it.
 
 <!-- docs:snippet pagination-iterate -->
 ```php
-$total = 0.0;
+// The next page is fetched when the loop needs it; it stops after the page whose hasMore is false.
+$count = 0;
 foreach ($client->payments->iterate(new \QBitFlow\Params\PaymentListParams(limit: 50)) as $payment) {
-	$total += $payment->amount; // the next page is fetched when the loop needs it
+	$count++;
+	echo "{$payment->uuid} {$payment->amountUsd} USD\n";
 }
-printf("%.2f USD received\n", $total);
+echo "{$count} payments\n";
 ```
 <!-- /docs:snippet -->
 
 | Method | Iterator | Page size: default / max |
 |---|---|---|
-| `customers->list()` | `iterate()` | 10 / 100 |
-| `payments->list()`, `payments->listCombined()` | `iterate()`, `iterateCombined()` | 10 / 50 |
-| `failures->list()` | `iterate()` | 10 / 50 |
+| `products->list()`, `customers->list()` | `iterate()` | 20 / 100 |
+| `payments->list()`, `transactions->list()`, `failures->list()` | `iterate()` | 20 / 100 |
 | `subscriptions->list()`, `subscriptions->listBills()` | `iterate()`, `iterateBills()` | 20 / 100 |
-| `refunds->listInactive()` | `iterateInactive()` | 10 / 50 |
+| `refunds->list()` | `iterate()` | 20 / 100 |
 | `members->list()`, `invitations->list()` | `iterate()` | 20 / 100 |
-| `webhooks->events->list()` (cursor `evt_…`) | `iterate()` | 20 / 100 |
+| `webhooks->endpoints->list()`, `webhooks->events->list()` | `iterate()` | 20 / 100 |
 
-The other lists are short and return a plain array: `products->list()`, `refunds->list()`,
-`wallets->*`, `currencies->*`, `webhooks->endpoints->list()` (at most 10),
-`members->listHeldFunds()` and `subscriptions->getPublicHistory()` (the 10 latest bills).
+The bounded lists answer one page and return a plain array of its items: `currencies->list()`,
+`wallets->list()`, `wallets->listForMember()`, `wallets->listAcceptedCurrencies()`,
+`members->listHeldFunds()` and `accounting->exportJson()` (a page that ever claims more is
+followed, so nothing is cut short). `getByReference()` (products, customers, payments,
+subscriptions) runs its list's `?reference=` filter and returns the one item with exactly that
+reference, else a `NotFoundException` (status 404, code `not_found`).
 
 ## Errors
 
@@ -1274,7 +1398,7 @@ Every exception the SDK throws extends `QBitFlow\Exceptions\QBitFlowException` (
 | Exception | When | Codes and fields worth knowing |
 |---|---|---|
 | `ValidationException` | 400 `validation_failed`, or input the SDK refused **before sending** (`status` 0) | `fieldErrors`: each failing input by its wire name, dotted when nested (`frequency.unit`) |
-| `BadRequestException` | any other 400 | `bad_request`, `foreign_key_violation` (`details['field']`) |
+| `BadRequestException` | any other 400 | `foreign_key_violation` (`details['field']`), `test_mode_only`, `sender_is_receiver` |
 | `AuthenticationException` | 401 | a missing, unknown, expired or revoked key (a removed member's keys too) |
 | `PermissionDeniedException` | 403 | `forbidden`, `policy_disabled` (`details['policy']`), `plan_required` |
 | `NotFoundException` | 404 | unknown, deleted, or outside the request's space |
@@ -1319,19 +1443,24 @@ says when to retry (`$e->retryAfter`, seconds).
 
 **Client-side validation.** Each params class has a `validate()` method, run before every
 request: names and texts (lengths in characters, no markup characters), references
-(`A-Z a-z 0-9 . _ : @ -`, 1 to 100), emails, phone numbers, absolute `http(s)` URLs, prices above
-0, percents (at most 2 decimals), durations (a frequency between 1 unit and 1 year), UUIDs and
-transaction ids, dates, the checkout's product choice, and exclusive filters. A failure is a
-`ValidationException` with `status` 0 and nothing is sent. What depends on the key's mode or on
-stored data is left to the API: the 5 USD test-mode cap, `https`-only live URLs, the frequency
-minimum (1 hour live, 5 minutes test), the 95-day export window, uniqueness.
+(`A-Z a-z 0-9 . _ : @ -`, 1 to 100; the `getByReference()` argument too), emails, phone numbers,
+absolute `http(s)` URLs, USD amounts (decimal strings: above 0, at most 1,000,000, at most 2
+decimals, compared exactly), percents (decimal strings, at most 2 decimals), metadata (at most 50
+keys of 1 to 40 of `A-Z a-z 0-9 _ - . :`, values of at most 500 characters without control or
+bidirectional characters), durations (a frequency between 1 unit and 1 year), UUIDs and
+transaction ids, cursors (at most 200 characters), dates, the checkout's product choice, enum list
+filters, and exclusive filters. A failure is a `ValidationException` with `status` 0 and nothing
+is sent. What depends on the key's mode or on stored data is left to the API: the `"5"` USD
+test-mode cap, `https`-only live URLs, the live subscription price minimum (above `"0.25"`), the
+frequency minimum (1 hour live, 5 minutes test), the 92-day export window, the merged metadata key
+count, uniqueness, refund rounding.
 
 ## Retries and idempotency
 
 | | |
 |---|---|
-| Retried methods | every read (GET), and the 7 creates: `checkoutSessions->createPayment()`, `checkoutSessions->createSubscription()`, `products->create()`, `customers->create()`, `webhooks->endpoints->create()`, `invitations->create()`, `refunds->initiate()` |
-| Never retried | every other write: updates, deletes, `checkoutSessions->expire()`, `subscriptions->cancel()`, `subscriptions->executeTestBilling()`, `members->trust()`, `members->remove()`, `invitations->revoke()`, `webhooks->verifyRemote()` |
+| Retried methods | every read (GET), and the 7 creates: `checkoutSessions->createPayment()`, `checkoutSessions->createSubscription()`, `products->create()`, `customers->create()`, `webhooks->endpoints->create()`, `invitations->create()`, `refunds->create()` |
+| Never retried | every other write: updates (`subscriptions->update()` included), deletes, `checkoutSessions->expire()`, `subscriptions->cancel()`, `subscriptions->testBill()`, `members->trust()`, `members->remove()`, `invitations->revoke()`, `webhooks->verifyRemote()` |
 | Retried on | a network error or timeout, a 5xx, a 429, a 409 `idempotency_key_in_use` |
 | Not retried on | any other 4xx (422 `idempotency_key_reused` included), a 3xx, an unusable response |
 | Attempts | 3 retries by default (`maxRetries`; `0` disables them) |
@@ -1355,7 +1484,7 @@ $session = $client->checkoutSessions->createPayment(
 	new \QBitFlow\Params\CreatePaymentSessionParams(
 		productName: 'T-shirt',
 		description: 'Blue, size M',
-		price: 4.99,
+		priceUsd: '4.99',
 		reference: $orderId,
 		successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 		cancelUrl: 'https://shop.example.com/orders/cancel',
@@ -1398,7 +1527,7 @@ $client = new QBitFlow(
 
 | `RequestOptions` (every method, last argument) | |
 |---|---|
-| `onBehalfOf` | acts in that member's space for this call; `''` forces the organization's |
+| `onBehalfOf` | acts in that member's space for this call; `''` forces the organization's (the header is omitted, never sent blank) |
 | `idempotencyKey` | the 7 creates only: your own `Idempotency-Key` |
 | `requestId` | sends `X-Request-Id` (1 to 128 of `A-Z a-z 0-9 - _ . :`) |
 
@@ -1438,9 +1567,9 @@ use QBitFlow\Params\CreatePaymentSessionParams;
 
 $session = QBitFlow::checkoutSessions()->createPayment(new CreatePaymentSessionParams(
 	productName: 'Order 1042',
-	price: 19.99,
+	priceUsd: '19.99',
 	reference: 'order-1042',
-	successUrl: url('/orders/1042?session={{UUID}}'),
+	successUrl: url('/orders/1042?session=' . \QBitFlow\Placeholders::UUID),
 ));
 // Or inject QBitFlow\QBitFlow in your controllers and jobs.
 ```
@@ -1452,7 +1581,8 @@ Route::qbitflowWebhooks('webhooks/qbitflow'); // POST, verified, answered 200
 ```
 
 The middleware verifies the `QBitFlow-Signature` with `QBITFLOW_WEBHOOK_SECRET` (400
-`{"error":"invalid signature"}` or `{"error":"invalid event"}` for a v1 body, 413 over 1 MiB);
+`{"error":"invalid signature"}`, or `{"error":"invalid event"}` for a body that is not a v2
+event, 413 over 1 MiB);
 the controller then dispatches, through a [`WebhookRouter`](#2-handle-the-deliveries-with-a-router),
 the Laravel event of the webhook's type, followed by `WebhookReceived` for every delivery
 (unknown types included). A listener that throws makes it answer 500 `{"error":"internal error"}`
@@ -1463,7 +1593,7 @@ deduplicating on `$event->event->id`:
 |---|---|
 | `payment.completed` | `PaymentCompleted` |
 | `subscription.created` / `.billed` / `.statusChanged` / `.actionRequiredChanged` / `.billingFailed` / `.upcomingBill` | `SubscriptionCreated`, `SubscriptionBilled`, `SubscriptionStatusChanged`, `SubscriptionActionRequiredChanged`, `SubscriptionBillingFailed`, `SubscriptionUpcomingBill` |
-| `refund.requested` / `.completed` / `.denied` | `RefundRequested`, `RefundCompleted`, `RefundDenied` |
+| `refund.requested` / `.approved` / `.rejected` | `RefundRequested`, `RefundApproved`, `RefundRejected` |
 | `member.joined` / `member.removed` | `MemberJoined`, `MemberRemoved` |
 | `heldFunds.released` | `HeldFundsReleased` |
 | `checkout.expired` | `CheckoutExpired` |
@@ -1496,8 +1626,10 @@ tests).
 ## Migrating from 2.x
 
 3.0.0 is a rewrite for API v2: base URL `/v2`, a new constructor with named arguments, typed
-params classes, UUID ids, members and invitations instead of users and claims, a new webhook
-signature and typed events, a new exception taxonomy, and a rebuilt Laravel integration.
+params classes, REST routes (`PATCH` updates, `DELETE` answering 204), money as decimal strings,
+UUID ids, members and invitations instead of users and claims, a new webhook signature and typed
+events (`refund.approved` / `refund.rejected`), paginated lists with `hasMore`, a new exception
+taxonomy, and a rebuilt Laravel integration.
 **[MIGRATION-v3.md](MIGRATION-v3.md)** maps every 2.x method and class to its replacement, with
 before/after code for the common tasks.
 
@@ -1508,11 +1640,11 @@ Runnable scripts in [`examples/`](examples) (`QBITFLOW_API_KEY=sk_… php exampl
 | Example | Shows |
 |---|---|
 | [`client-setup.php`](examples/client-setup.php) | a client from the API key and `me()` (default server), and from the environment |
-| [`checkout.php`](examples/checkout.php) | a payment checkout, its status, waiting for it (`--wait`), expiry |
+| [`checkout.php`](examples/checkout.php) | a payment checkout, one with fees (a shipping line and the processing fee), its status, waiting for it (`--wait`), expiry |
 | [`catalog.php`](examples/catalog.php) | create and list products, one page of customers, a checkout for a product by its reference |
-| [`payments.php`](examples/payments.php) | list payments with a filter, get one by id and by reference, the iterator, exact amounts |
-| [`subscriptions.php`](examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, a test bill (`--bill`), cancel at period end (`--cancel`) |
-| [`refunds.php`](examples/refunds.php) | list the active refunds, refund half of a payment |
+| [`payments.php`](examples/payments.php) | list payments with a filter, get one by id and by reference, the iterator, the transactions feed (payments and bills), exact amounts |
+| [`subscriptions.php`](examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, metadata, a test bill (`--bill`), cancel at period end (`--cancel`) |
+| [`refunds.php`](examples/refunds.php) | list the pending refunds, read one, refund half of a payment |
 | [`marketplace.php`](examples/marketplace.php) | invite a seller, invitations, members, `onBehalfOf`, wallets, held funds, fee, trust (`--trust`), remove (`--remove`) |
 | [`webhooks.php`](examples/webhooks.php) | create a webhook endpoint (`--create`), the event log |
 | [`webhook-handler.php`](examples/webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, the right answers (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |

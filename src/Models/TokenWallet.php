@@ -8,7 +8,7 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A token enabled on a wallet.
+ * A currency a wallet accepts on its chain: a token (USDC on Base) or the chain's native coin.
  */
 final readonly class TokenWallet extends Model
 {
@@ -18,19 +18,14 @@ final readonly class TokenWallet extends Model
 	public string $uuid;
 
 	/**
-	 * When it was enabled.
+	 * When the wallet started accepting it.
 	 */
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * The token's currency id.
+	 * The currency accepted.
 	 */
-	public int $tokenId;
-
-	/**
-	 * The token's currency.
-	 */
-	public Currency $token;
+	public Currency $currency;
 
 	/**
 	 * The wallet it belongs to.
@@ -38,7 +33,8 @@ final readonly class TokenWallet extends Model
 	public string $walletUuid;
 
 	/**
-	 * Its balance; set only by `wallets->list()` with withBalances.
+	 * What the wallet holds of the currency, read on its chain now: set only by
+	 * `wallets->list()` with `withBalances`, and null when the chain couldn't be read.
 	 */
 	public ?Balance $balance;
 
@@ -49,8 +45,7 @@ final readonly class TokenWallet extends Model
 	{
 		$this->uuid = Cast::string($data, 'uuid');
 		$this->createdAt = Cast::date($data, 'createdAt');
-		$this->tokenId = Cast::uint($data, 'tokenId');
-		$this->token = Cast::object($data, 'token', Currency::fromArray(...));
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 		$this->walletUuid = Cast::string($data, 'walletUuid');
 		$this->balance = Cast::nullableObject($data, 'balance', Balance::fromArray(...));
 	}

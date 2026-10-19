@@ -2,8 +2,8 @@
 
 /**
  * A subscription checkout with a trial, the past-due subscriptions, and, given a sub@… id: the
- * subscription, access, its bills, a test bill (--bill, test mode) and a cancellation at the end
- * of the paid period (--cancel).
+ * subscription, access, its bills, its metadata, a test bill (--bill, test mode) and a
+ * cancellation at the end of the paid period (--cancel).
  *
  *     QBITFLOW_API_KEY=sk_… php examples/subscriptions.php [sub@…] [--bill] [--cancel]
  */
@@ -24,7 +24,7 @@ try {
 	$session = $client->checkoutSessions->createSubscription(new \QBitFlow\Params\CreateSubscriptionSessionParams(
 		productName: 'T-shirt',
 		description: 'Blue, size M',
-		price: 4.99, // USD per period
+		priceUsd: '4.99', // USD per period, a decimal string
 		reference: 'order-1043',
 		frequency: \QBitFlow\Models\Duration::months(1),
 		trialPeriod: \QBitFlow\Models\Duration::days(7), // the first bill comes after the trial
@@ -61,18 +61,27 @@ if ($subscription->hasAccess()) { // now < currentPeriodEnd, whatever the status
 // docs:end has-access
 
 foreach ($client->subscriptions->iterateBills($subscriptionUuid) as $bill) {
-	printf("  %s: %.2f USD, paid until %s\n", $bill->uuid, $bill->amount, $bill->periodEnd?->format('Y-m-d') ?? '?');
+	printf("  %s: %s USD, paid until %s\n", $bill->uuid, $bill->amountUsd, $bill->periodEnd?->format('Y-m-d') ?? '?');
 }
+
+// docs:start subscriptions-update
+// Metadata is merged into the subscription's: '' deletes a key, keys not named are kept. It is the
+// only thing a merchant edits on a subscription; webhooks carry it.
+$updated = $client->subscriptions->update($subscriptionUuid, new \QBitFlow\Params\UpdateSubscriptionParams(
+	metadata: ['plan' => 'pro', 'coupon' => ''],
+));
+echo ($updated->metadata['plan'] ?? '-') . "\n";
+// docs:end subscriptions-update
 
 if (in_array('--bill', $argv, true)) {
 	try {
 		// docs:start subscriptions-test-bill
 		// Test mode only: runs the next billing now instead of on its due date.
-		$state = $client->subscriptions->executeTestBilling($subscriptionUuid);
-		echo "Bill {$state->billUuid}: {$state->stage} {$state->outcome}\n";
+		$bill = $client->subscriptions->testBill($subscriptionUuid);
+		echo "Bill {$bill->billUuid}: {$bill->stage} " . ($bill->outcome ?? '-') . ' ' . ($bill->failureCode ?? '') . "\n"; // sub-hist@…
 		// docs:end subscriptions-test-bill
 	} catch (ConflictException $e) {
-		echo "Not billed ({$e->apiCode})\n"; // payment_not_due before nextBillingDate
+		echo "Not billed ({$e->apiCode})\n"; // payment_not_due before nextBillingAt; 400 test_mode_only for a live one
 	}
 }
 

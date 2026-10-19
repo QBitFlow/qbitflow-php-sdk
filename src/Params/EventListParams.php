@@ -18,11 +18,14 @@ final readonly class EventListParams
 	public function __construct(
 		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor` (`evt_…`); null for the first page. */
+		/** The previous page's `nextCursor`, verbatim (opaque: never an event id); null for the first page. */
 		public ?string $cursor = null,
-		/** Keeps only the events of this type ({@see EventType}). */
+		/**
+		 * Keeps only the events of this type ({@see EventType}). Not checked against the SDK's known
+		 * types (newer ones appear over time); an unknown type is the API's 400.
+		 */
 		public ?string $type = null,
-		/** Adds the members' events (organization space only). */
+		/** Adds the members' events (organization space only; 400 from a member's). */
 		public bool $includeMembers = false,
 	) {
 	}
@@ -31,11 +34,11 @@ final readonly class EventListParams
 	public function validate(): void
 	{
 		$v = new Validator();
-		$v->oneOf('type', $this->type, EventType::values());
+		$v->cursor($this->cursor);
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->page($this->limit, $this->cursor)->string('type', $this->type)->flag('includeMembers', $this->includeMembers)->toArray();

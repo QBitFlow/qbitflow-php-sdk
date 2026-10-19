@@ -6,9 +6,11 @@ namespace QBitFlow\Http;
 
 use Closure;
 use Generator;
+use QBitFlow\Exceptions\NotFoundException;
 use QBitFlow\Page;
 use QBitFlow\RequestOptions;
 use QBitFlow\Support\Cast;
+use QBitFlow\Support\Validator;
 use stdClass;
 
 /**
@@ -28,7 +30,7 @@ final class Requester
 	/**
 	 * Formats an API path, escaping every segment (`a/b` is sent as `a%2Fb`).
 	 *
-	 *     Requester::path('/product/reference/%s', $reference)
+	 *     Requester::path('/products/%s', $uuid)
 	 */
 	public static function path(string $format, string ...$segments): string
 	{
@@ -41,7 +43,7 @@ final class Requester
 	 * @template T
 	 *
 	 * @param callable(mixed): T                $hydrate
-	 * @param array<string,string>              $query
+	 * @param array<string,string|list<string>> $query
 	 * @param array<string,mixed>|stdClass|null $body
 	 *
 	 * @return T
@@ -59,12 +61,13 @@ final class Requester
 	}
 
 	/**
-	 * {@see call()} that also returns the HTTP status (force-cancel: 202 = still confirming).
+	 * {@see call()} that also returns the HTTP status (a subscription's cancel: 202 = still
+	 * confirming on-chain).
 	 *
 	 * @template T
 	 *
 	 * @param callable(mixed): T                $hydrate
-	 * @param array<string,string>              $query
+	 * @param array<string,string|list<string>> $query
 	 * @param array<string,mixed>|stdClass|null $body
 	 *
 	 * @return array{0: T, 1: int}
@@ -84,7 +87,7 @@ final class Requester
 	}
 
 	/**
-	 * Sends a call and ignores its answer's body (deletes answer `{"message": …}`, 204, or nothing).
+	 * Sends a call and ignores its answer's body (every DELETE answers 204, no body).
 	 *
 	 * @param array<string,mixed>|stdClass|null $body
 	 */
@@ -97,7 +100,7 @@ final class Requester
 	 * Sends a call and returns its answer's body as text (the CSV export); error answers are
 	 * still parsed as JSON errors.
 	 *
-	 * @param array<string,string> $query
+	 * @param array<string,string|list<string>> $query
 	 */
 	public function text(string $path, array $query, ?RequestOptions $options = null): string
 	{
@@ -119,21 +122,7 @@ final class Requester
 	}
 
 	/**
-	 * Hydrates a JSON list (null: empty) into models.
-	 *
-	 * @template T
-	 *
-	 * @param callable(array<string,mixed>): T $factory
-	 *
-	 * @return Closure(mixed): list<T>
-	 */
-	public static function list(callable $factory): Closure
-	{
-		return static fn (mixed $decoded): array => Cast::list($decoded, $factory);
-	}
-
-	/**
-	 * Hydrates a page `{items, nextCursor}`.
+	 * Hydrates a page `{items, hasMore, nextCursor?}`.
 	 *
 	 * @template T
 	 *
@@ -147,9 +136,83 @@ final class Requester
 	}
 
 	/**
+	 * Sends a bounded list's call (one page, `hasMore` false: currencies, wallets, held funds,
+	 * the accounting export) and returns its items. Defensively, a page that claims more is
+	 * followed with its `nextCursor` (the query kept) until `hasMore` is false, so a list the
+	 * server ever splits is never cut short silently; the walk stops on the same guards as
+	 * {@see walk()} (no next cursor, a cursor that did not move, an empty page).
+	 *
+	 * @template T
+	 *
+	 * @param callable(array<string,mixed>): T  $factory
+	 * @param array<string,string|list<string>> $query
+	 *
+	 * @return list<T>
+	 */
+	public function items(string $path, callable $factory, array $query = [], ?RequestOptions $options = null): array
+	{
+		$items = [];
+		$cursor = null;
+		while (true) {
+			$page = $this->call('GET', $path, self::page($factory), $query, options: $options);
+			array_push($items, ...$page->items);
+			if (! self::hasNext($page, $cursor)) {
+				return $items;
+			}
+			$cursor = $page->nextCursor;
+			$query['cursor'] = $cursor;
+		}
+	}
+
+	/**
+	 * Runs a list's `?reference=` filter (a page of 0 or 1 item) and returns the item whose
+	 * reference is exactly the one asked for: checking it means a server that ignored the filter
+	 * can never hand back another resource. None is a {@see NotFoundException}, like a 404
+	 * (status 404, code `not_found`), carrying the list answer's request id. The reference is
+	 * checked like a created one's (1 to 100 of `A-Z a-z 0-9 . _ : @ -`).
+	 *
+	 * @template T of object
+	 *
+	 * @param callable(array<string,mixed>): T $factory
+	 * @param callable(T): ?string             $reference Reads an item's reference.
+	 * @param string                           $what      Names the resource in the error's message (`product`).
+	 *
+	 * @return T
+	 *
+	 * @throws \QBitFlow\Exceptions\ValidationException For a blank or malformed reference (nothing is sent).
+	 * @throws NotFoundException                         When no item has this reference.
+	 */
+	public function getByReference(string $path, string $what, string $value, callable $factory, callable $reference, ?RequestOptions $options = null): object
+	{
+		$v = new Validator();
+		if ($v->required('reference', $value)) {
+			$v->reference('reference', $value);
+		}
+		$v->throwIfAny();
+
+		$response = $this->transport->send('GET', $path, ['reference' => $value], null, false, $this->onBehalfOf, $options);
+		$page = Transport::decode($response, self::page($factory));
+		foreach ($page->items as $item) {
+			if ($reference($item) === $value) {
+				return $item;
+			}
+		}
+
+		throw new NotFoundException(
+			sprintf('no %s with this reference', $what),
+			404,
+			'not_found',
+			requestId: $response->header('X-Request-Id'),
+		);
+	}
+
+	/**
 	 * Walks a cursor-paginated list lazily, one request per page, from `$cursor` (null: the
-	 * first page). It stops when the caller stops, on the last page (`nextCursor` null), on an
-	 * empty page, or on a cursor that does not move; an error is thrown from the iteration.
+	 * first page). It stops when the caller stops, or after the page whose `hasMore` is false;
+	 * an error is thrown from the iteration. Defensively, it also stops on a page claiming more
+	 * without a `nextCursor`, on one whose `nextCursor` is the cursor just requested (which would
+	 * loop on the same page forever), and on an empty page that claims more (the API never
+	 * answers one: a server fault, which could otherwise cycle between cursors).
 	 *
 	 * @template T
 	 *
@@ -164,10 +227,20 @@ final class Requester
 			foreach ($page->items as $item) {
 				yield $item;
 			}
-			if ($page->nextCursor === null || $page->items === [] || $page->nextCursor === $cursor) {
+			if (! self::hasNext($page, $cursor)) {
 				return;
 			}
 			$cursor = $page->nextCursor;
 		}
+	}
+
+	/**
+	 * Whether a walk goes on after `$page`, read with `$cursor`.
+	 *
+	 * @param Page<mixed> $page
+	 */
+	private static function hasNext(Page $page, ?string $cursor): bool
+	{
+		return $page->hasMore && $page->nextCursor !== null && $page->nextCursor !== '' && $page->nextCursor !== $cursor && $page->items !== [];
 	}
 }

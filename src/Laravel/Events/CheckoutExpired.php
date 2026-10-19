@@ -8,7 +8,8 @@ use QBitFlow\Events\CheckoutExpiredEvent;
 use QBitFlow\Models;
 
 /**
- * Dispatched for a verified `checkout.expired` webhook: A checkout session expired unpaid: release what the order holds.
+ * Dispatched for a verified `checkout.expired` webhook: A checkout session expired unpaid: release
+ * what the order holds.
  *
  * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
  * listener; the webhook is answered 200 as soon as the events are dispatched.

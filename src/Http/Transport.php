@@ -145,7 +145,7 @@ final class Transport
 	 * and runs the retry policy. Returns any 2xx response, else throws the typed error.
 	 *
 	 * @param string                $path       The route below the base URL, segments already escaped.
-	 * @param array<string,string>  $query      Sent as the query string (sorted).
+	 * @param array<string,string|list<string>> $query Sent as the query string (sorted; a list repeats its key).
 	 * @param array<string,mixed>|stdClass|null $body Encoded as JSON (null: no body, no Content-Type).
 	 * @param bool                  $idempotent One of the 7 creates: sends an Idempotency-Key, retried like a read.
 	 * @param string|null           $onBehalfOf The client's default On-Behalf-Of (already validated).

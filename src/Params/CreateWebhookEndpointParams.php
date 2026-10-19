@@ -14,7 +14,8 @@ final readonly class CreateWebhookEndpointParams
 {
 	/**
 	 * @param list<string>|null $events The event types to receive ({@see EventType}; at most 20, not
-	 *                                  `webhook.test`); null or empty: every type.
+	 *                                  `webhook.test`; an unknown type is the API's 400); null or
+	 *                                  empty: every type, including types added later.
 	 */
 	public function __construct(
 		/** Required: where the events are posted (https and a public host in live mode). */

@@ -61,7 +61,7 @@ final class VerifyCommand extends Command
 			['Organization', $space?->organizationName ?? ''],
 			['Space', $space?->uuid ?? ''],
 			['Mode', $space === null ? '' : ($space->test ? 'test' : 'live')],
-			['Member', $space?->member !== null ? trim($space->member->name . ' ' . $space->member->lastName) . ' (' . $space->member->userUuid . ')' : '—'],
+			['Member', $space?->member !== null ? trim($space->member->firstName . ' ' . ($space->member->lastName ?? '')) . ' (' . $space->member->userUuid . ')' : '—'],
 		]);
 
 		if ($me->role === Role::USER) {

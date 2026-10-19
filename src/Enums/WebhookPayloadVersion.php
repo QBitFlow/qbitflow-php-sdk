@@ -12,10 +12,7 @@ namespace QBitFlow\Enums;
  */
 final class WebhookPayloadVersion
 {
-	/** v1's bodies (endpoints migrated from v1; not parsed by this SDK). */
-	public const V1 = 'v1';
-
-	/** The event envelope. */
+	/** The event envelope `{id, type, version, createdAt, test, userUuid, data}`: the only version. */
 	public const V2 = 'v2';
 
 	/**
@@ -26,7 +23,6 @@ final class WebhookPayloadVersion
 	public static function values(): array
 	{
 		return [
-			self::V1,
 			self::V2,
 		];
 	}

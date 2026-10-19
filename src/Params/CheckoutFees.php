@@ -11,11 +11,11 @@ use stdClass;
  * What a checkout adds to its product's price: a one-time payment's
  * (`CreatePaymentSessionParams::$fees`) or a subscription's (`CreateSubscriptionSessionParams::$fees`,
  * each of its bills then charging the price and the same lines). Your own lines and QBitFlow's
- * processing fee: the customer sees them line by line and pays them with the price. The session's
- * and the payment's `amount` (a subscription's: each bill's) is the price plus every line, and
+ * processing fee: the customer sees them line by line and pays them with the price. The payment's
+ * `amountUsd` (a subscription's: each bill's) is the price plus every line, and
  * QBitFlow's fee (and a marketplace's organization fee) is taken on that amount. The network fee
  * comes on top, once the customer picks a currency. Test mode caps the amount, fees included, at
- * 5 USD (the API answers 400 `validation_failed` on `fees`).
+ * `"5"` USD (the API answers 400 `validation_failed` on `fees`).
  */
 final readonly class CheckoutFees
 {
@@ -23,7 +23,7 @@ final readonly class CheckoutFees
 	public const MAX_ITEMS = 10;
 
 	/** The most a line can be, in USD. */
-	public const MAX_AMOUNT_USD = 1000000;
+	public const MAX_AMOUNT_USD = Validator::MAX_USD;
 
 	/**
 	 * @param list<FeeItem> $items
@@ -46,7 +46,11 @@ final readonly class CheckoutFees
 	) {
 	}
 
-	/** Checks the lines; field errors on `fees.items[<i>].<field>` (`fees.items` for the count). */
+	/**
+	 * Checks the lines (behaviour §8): at most 10; each label the name rule, 1 to 40; each
+	 * description the text rule, at most 200; each amount the usd rule. Field errors on
+	 * `fees.items[<i>].<field>` (`fees.items` for the count).
+	 */
 	public function check(Validator $v): void
 	{
 		$items = array_values($this->items);
@@ -64,7 +68,9 @@ final readonly class CheckoutFees
 				$v->name($path . '.label', $item->label, 1, 40);
 			}
 			$v->text($path . '.description', $item->description, 0, 200);
-			$v->usd($path . '.amountUsd', $item->amountUsd, self::MAX_AMOUNT_USD);
+			if ($v->required($path . '.amountUsd', $item->amountUsd)) {
+				$v->usd($path . '.amountUsd', $item->amountUsd, self::MAX_AMOUNT_USD);
+			}
 		}
 	}
 

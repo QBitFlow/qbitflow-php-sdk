@@ -7,7 +7,8 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * A subscription product's terms.
+ * A subscription product's terms: billed every `frequency`, after an optional free trial, for
+ * at least an optional number of periods.
  */
 final readonly class SubscriptionTerms extends Model
 {
@@ -22,7 +23,7 @@ final readonly class SubscriptionTerms extends Model
 	public ?Duration $trialPeriod;
 
 	/**
-	 * The periods the customer commits to before cancelling; null without a minimum.
+	 * The periods the customer commits to before they can cancel; null without a minimum.
 	 */
 	public ?int $minPeriods;
 

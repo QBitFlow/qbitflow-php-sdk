@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Params;
 
 use QBitFlow\Support\Query;
+use QBitFlow\Support\Validator;
 
 /**
  * Pages `members->list()` / `iterate()`.
@@ -16,17 +17,20 @@ final readonly class MemberListParams
 	public function __construct(
 		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor` (a member's userUuid); null for the first page. */
+		/** The previous page's `nextCursor`, verbatim (opaque); null for the first page. */
 		public ?string $cursor = null,
 	) {
 	}
 
-	/** Nothing to check: present for uniformity. */
+	/** @throws \QBitFlow\Exceptions\ValidationException */
 	public function validate(): void
 	{
+		$v = new Validator();
+		$v->cursor($this->cursor);
+		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->page($this->limit, $this->cursor)->toArray();

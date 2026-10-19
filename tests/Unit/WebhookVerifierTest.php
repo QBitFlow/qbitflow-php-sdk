@@ -217,29 +217,29 @@ final class WebhookVerifierTest extends TestCase
 	#[Test]
 	public function every_event_type_is_typed(): void
 	{
-		$sub = '"uuid":"sub@1","status":"pastDue","frequency":{"value":1,"unit":"months"},"priceUsd":"9.99","currentPeriodEnd":"2026-10-31T12:00:00Z"';
+		$sub = '"uuid":"sub@1","status":"pastDue","frequency":{"value":1,"unit":"months"},"priceUsd":"9.99","currentPeriodEnd":"2026-10-31T12:00:00Z","managementPageLink":"https://m"';
 		$cases = [
 			EventType::PAYMENT_COMPLETED => [Events\PaymentCompletedEvent::class, Models\PaymentCompleted::class,
-				'{"uuid":"pay@1","amount":10,"amountMinUnits":"10000000","reference":"order-1042","chain":"BASE","paidMinUnits":"10004200","paidUsd":10.0042,"managementPageLink":"https://m","metadata":{"feePercent":1.5}}'],
-			EventType::SUBSCRIPTION_CREATED => [Events\SubscriptionCreatedEvent::class, Models\SubscriptionCreated::class, '{' . $sub . ',"managementPageLink":"https://m"}'],
+				'{"uuid":"pay@1","amount":"10","amountMinUnits":"10000000","amountUsd":"10","reference":"order-1042","chain":"BASE","paidMinUnits":"10004200","paidUsd":"10.0042","managementPageLink":"https://m","metadata":{"orderId":"order-1042"},"settlement":{"feePercent":"0.99"}}'],
+			EventType::SUBSCRIPTION_CREATED => [Events\SubscriptionCreatedEvent::class, Models\Subscription::class, '{' . $sub . '}'],
 			EventType::SUBSCRIPTION_BILLED => [Events\SubscriptionBilledEvent::class, Models\SubscriptionBilled::class,
-				'{"uuid":"sub-hist@1","subscriptionUuid":"sub@1","subscriptionReference":"r","subscriptionStatus":"active","periodEnd":"2026-10-31T12:00:00Z"}'],
+				'{"bill":{"uuid":"sub-hist@1","subscriptionUuid":"sub@1","periodEnd":"2026-10-31T12:00:00Z"},"subscription":{"uuid":"sub@1","reference":"r","status":"active"}}'],
 			EventType::SUBSCRIPTION_STATUS_CHANGED => [Events\SubscriptionStatusChangedEvent::class, Models\SubscriptionStatusChanged::class, '{' . $sub . ',"previousStatus":"active"}'],
 			EventType::SUBSCRIPTION_ACTION_REQUIRED_CHANGED => [Events\SubscriptionActionRequiredChangedEvent::class, Models\SubscriptionActionRequiredChanged::class,
 				'{' . $sub . ',"actionRequired":"topUpAllowance"}'],
 			EventType::SUBSCRIPTION_BILLING_FAILED => [Events\SubscriptionBillingFailedEvent::class, Models\SubscriptionBillingFailed::class,
 				'{' . $sub . ',"reason":"insufficientBalance","failureCode":"insufficient_funds","billUuid":"sub-hist@1","amountUsd":"10","attempt":1,"remainingAttempts":4,"nextAttemptAt":"2026-10-02T12:00:00Z"}'],
 			EventType::SUBSCRIPTION_UPCOMING_BILL => [Events\SubscriptionUpcomingBillEvent::class, Models\SubscriptionUpcomingBill::class,
-				'{' . $sub . ',"billingDate":"2026-10-31T12:00:00Z","amountUsd":9.99,"trialEnding":false,"balanceSufficient":true,"allowanceSufficient":false}'],
-			EventType::REFUND_REQUESTED => [Events\RefundRequestedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"pending","txUuid":"pay@1","refundPercent":100}'],
-			EventType::REFUND_COMPLETED => [Events\RefundCompletedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"approved","respondedAt":"2026-10-02T12:00:00Z"}'],
-			EventType::REFUND_DENIED => [Events\RefundDeniedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"rejected"}'],
+				'{' . $sub . ',"billingAt":"2026-10-31T12:00:00Z","amountUsd":"9.99","trialEnding":false,"balanceSufficient":true,"allowanceSufficient":false}'],
+			EventType::REFUND_REQUESTED => [Events\RefundRequestedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"pending","txUuid":"pay@1","refundPercent":"100"}'],
+			EventType::REFUND_APPROVED => [Events\RefundApprovedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"approved","respondedAt":"2026-10-02T12:00:00Z"}'],
+			EventType::REFUND_REJECTED => [Events\RefundRejectedEvent::class, Models\Refund::class, '{"uuid":"refund@1","status":"rejected"}'],
 			EventType::MEMBER_JOINED => [Events\MemberJoinedEvent::class, Models\MemberJoined::class, '{"userUuid":"u-1","invitationUuid":"i-1","joinedAt":"2026-10-01T12:00:00Z"}'],
 			EventType::MEMBER_REMOVED => [Events\MemberRemovedEvent::class, Models\Member::class, '{"userUuid":"u-1"}'],
 			EventType::HELD_FUNDS_RELEASED => [Events\HeldFundsReleasedEvent::class, Models\HeldFundsReleased::class,
-				'{"uuid":"transfer@1","received":true,"type":"heldFundsRelease","txMetadata":{"mainCurrencyPriceUsd":4512.37},"ledgers":[{"txUuid":"pay@1","type":"payment","owedMinUnits":"98500000","owedUsd":98.5,"metadata":{"feePercent":1.5}},{"txUuid":"refund@1","type":"refund","refundedTxUuid":"pay@1","owedMinUnits":"-1","metadata":null}]}'],
+				'{"uuid":"transfer@1","received":true,"type":"heldFundsRelease","settlement":{"transaction":null},"ledgers":[{"txUuid":"pay@1","type":"payment","owedMinUnits":"98500000","owedUsd":"98.5","settlement":{"feePercent":"0.99"}},{"txUuid":"refund@1","type":"refund","refundedTxUuid":"pay@1","owedMinUnits":"-1"}]}'],
 			EventType::CHECKOUT_EXPIRED => [Events\CheckoutExpiredEvent::class, Models\PaymentSessionData::class,
-				'{"uuid":"pay@1","txType":"payment","price":10,"availableCurrencyIds":[2,5,8],"organizationName":"Example Shop","expiresAt":"2026-10-01T12:00:00Z"}'],
+				'{"uuid":"pay@1","txType":"payment","priceUsd":"10","amountUsd":"10","availableCurrencies":[{"id":8,"code":"BASE:USDC"}],"organizationName":"Example Shop","expiresAt":"2026-10-01T12:00:00Z"}'],
 			EventType::WEBHOOK_TEST => [Events\WebhookTestEvent::class, Models\WebhookTest::class, '{"endpointUuid":"e-1","message":"hi"}'],
 		];
 		$this->assertCount(count(EventType::values()), $cases);
@@ -250,42 +250,55 @@ final class WebhookVerifierTest extends TestCase
 		}
 
 		$failed = Webhook::parseEvent(self::envelope(EventType::SUBSCRIPTION_BILLING_FAILED, $cases[EventType::SUBSCRIPTION_BILLING_FAILED][2]))->data;
-		$this->assertSame('10', $failed->amountUsd, 'billingFailed amountUsd is a decimal string');
-		$this->assertSame(SubscriptionStatus::PAST_DUE, $failed->status);
-		$this->assertSame(4, $failed->remainingAttempts);
+		$this->assertSame(['10', SubscriptionStatus::PAST_DUE, 4, 'https://m'], [$failed->amountUsd, $failed->status, $failed->remainingAttempts, $failed->managementPageLink]);
 		$upcoming = Webhook::parseEvent(self::envelope(EventType::SUBSCRIPTION_UPCOMING_BILL, $cases[EventType::SUBSCRIPTION_UPCOMING_BILL][2]))->data;
-		$this->assertSame(9.99, $upcoming->amountUsd, 'upcomingBill amountUsd is a number');
-		$this->assertFalse($upcoming->allowanceSufficient);
+		$this->assertSame(['9.99', false], [$upcoming->amountUsd, $upcoming->allowanceSufficient], 'upcomingBill amountUsd is a decimal string too');
+		$billed = Webhook::parseEvent(self::envelope(EventType::SUBSCRIPTION_BILLED, $cases[EventType::SUBSCRIPTION_BILLED][2]))->data;
+		$this->assertSame(['sub-hist@1', 'r', SubscriptionStatus::ACTIVE], [$billed->bill->uuid, $billed->subscription->reference, $billed->subscription->status], 'nested: data->bill, data->subscription');
 
 		$released = Webhook::parseEvent(self::envelope(EventType::HELD_FUNDS_RELEASED, $cases[EventType::HELD_FUNDS_RELEASED][2], ',"userUuid":"u-1"'));
 		$this->assertSame('u-1', $released->userUuid);
 		$this->assertSame(TransferType::HELD_FUNDS_RELEASE, $released->data->type);
 		$this->assertSame(LedgerEntryType::PAYMENT, $released->data->ledgers[0]->type);
-		$this->assertNull($released->data->ledgers[1]->metadata);
+		$this->assertNull($released->data->ledgers[1]->settlement);
+		$this->assertNull($released->data->settlement->transaction);
 
 		$refund = Webhook::parseEvent(self::envelope(EventType::REFUND_REQUESTED, $cases[EventType::REFUND_REQUESTED][2]))->data;
 		$this->assertSame(RefundStatus::PENDING, $refund->status);
 		$this->assertNull($refund->respondedAt);
 		$this->assertNull($refund->approval, 'webhook data never carries the API-only fields');
+
+		// The retired refund.completed / refund.denied are unknown types now: kept raw.
+		foreach (['refund.completed', 'refund.denied'] as $retired) {
+			$this->assertInstanceOf(Events\UnknownEvent::class, Webhook::parseEvent(self::envelope($retired, '{"uuid":"refund@1"}')));
+		}
 	}
 
 	#[Test]
 	public function checkout_expired_picks_its_shape(): void
 	{
-		$payment = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"pay@1","txType":"payment","price":10,"availableCurrencyIds":[2,5,8]}'));
+		$payment = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"pay@1","txType":"payment","priceUsd":"10","availableCurrencies":[]}'));
 		$this->assertInstanceOf(Models\PaymentSessionData::class, $payment->data);
 		$this->assertNotInstanceOf(Models\SubscriptionSessionData::class, $payment->data);
-		$this->assertSame(10.0, $payment->data->price);
+		$this->assertSame('10', $payment->data->priceUsd);
 
 		$sub = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED,
-			'{"uuid":"sub@1","txType":"createSubscription","organizationName":"Shop","test":true,"availableCurrencyIds":[8],"frequency":{"value":1,"unit":"weeks"},"trialPeriod":{"value":14,"unit":"days"},"minPeriods":3}'));
+			'{"uuid":"sub@1","txType":"createSubscription","organizationName":"Shop","test":true,"priceUsd":"9.99","amountUsd":"9.99","fees":[],"availableCurrencies":[{"id":8,"code":"BASE:USDC"}],'
+			. '"metadata":{"plan":"pro"},"frequency":{"value":1,"unit":"weeks"},"trialPeriod":{"value":14,"unit":"days"},"minPeriods":3,"upgradingFromTrial":false}'));
 		$this->assertInstanceOf(Models\SubscriptionSessionData::class, $sub->data);
-		$this->assertSame(3, $sub->data->minPeriods);
-		$this->assertSame('weeks', $sub->data->frequency->unit);
+		$this->assertSame([3, 'weeks', 14, false, 'pro', 'BASE:USDC'], [$sub->data->minPeriods, $sub->data->frequency->unit, $sub->data->trialPeriod?->value,
+			$sub->data->upgradingFromTrial, $sub->data->metadata['plan'], $sub->data->availableCurrencies[0]->code]);
+
+		$fees = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"pay@2","txType":"payment","organizationName":"Shop","priceUsd":"3.99","amountUsd":"4.81",'
+			. '"fees":[{"type":"custom","label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":"0.75"},{"type":"processingFee","label":"Processing fee","amountUsd":"0.07"}],"availableCurrencies":[],"metadata":{}}'))->data;
+		$this->assertSame(['Shipping', '0.75', 'processingFee', null, '4.81'], [$fees->fees[0]->label, $fees->fees[0]->amountUsd, $fees->fees[1]->type, $fees->fees[1]->description, $fees->amountUsd]);
 
 		$unknown = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"x@1","txType":"payAsYouGo","organizationName":"Shop"}'));
 		$this->assertInstanceOf(Models\PaymentSessionData::class, $unknown->data);
 		$this->assertSame('payAsYouGo', $unknown->data->txType);
+
+		// The session's amounts are decimal strings: a number is refused.
+		$this->assertSame(['body'], $this->failingFields(static fn () => Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"pay@3","txType":"payment","priceUsd":10}'))));
 	}
 
 	#[Test]
@@ -313,9 +326,10 @@ final class WebhookVerifierTest extends TestCase
 	#[Test]
 	public function decode_data_reads_another_shape(): void
 	{
-		$event = Webhook::parseEvent(self::envelope(EventType::SUBSCRIPTION_BILLING_FAILED, '{"uuid":"sub@1","status":"pastDue","amountUsd":"10"}'));
+		$event = Webhook::parseEvent(self::envelope(EventType::SUBSCRIPTION_BILLING_FAILED, '{"uuid":"sub@1","status":"pastDue","amountUsd":"10","attempt":1}'));
 		$this->assertSame(SubscriptionStatus::PAST_DUE, $event->decodeData(Models\Subscription::fromArray(...))->status);
-		$this->assertSame(['data'], $this->failingFields(static fn () => $event->decodeData(Models\SubscriptionUpcomingBill::fromArray(...))), 'a float target refuses the billingFailed string');
+		$bad = Webhook::parseEvent(self::envelope('invoice.paid', '{"uuid":"sub@1","amountUsd":10}'));
+		$this->assertSame(['data'], $this->failingFields(static fn () => $bad->decodeData(Models\SubscriptionBillingFailed::fromArray(...))), 'a number where the model wants a decimal string');
 	}
 
 	/** @return array<string,array{0: string}> */
@@ -330,7 +344,8 @@ final class WebhookVerifierTest extends TestCase
 			'no version' => ['{"id":"evt_1","type":"payment.completed","data":{}}'],
 			'wrong type in the envelope' => ['{"id":"evt_1","type":"payment.completed","version":"v2","test":"yes"}'],
 			'bad createdAt' => ['{"id":"evt_1","type":"webhook.test","version":"v2","createdAt":"today"}'],
-			'wrong type in data' => ['{"id":"evt_1","type":"subscription.upcomingBill","version":"v2","data":{"amountUsd":"10"}}'],
+			'wrong type in data' => ['{"id":"evt_1","type":"subscription.billingFailed","version":"v2","data":{"amountUsd":10}}'],
+			'nested wrong type in data' => ['{"id":"evt_1","type":"subscription.billed","version":"v2","data":{"bill":{"amount":10}}}'],
 			'data a list' => ['{"id":"evt_1","type":"webhook.test","version":"v2","data":[1]}'],
 		];
 	}
@@ -346,8 +361,8 @@ final class WebhookVerifierTest extends TestCase
 	#[Test]
 	public function api_events_go_through_event_from_array(): void
 	{
-		$event = Event::fromArray(['id' => 'evt_1', 'type' => 'refund.denied', 'version' => 'v2', 'data' => ['uuid' => 'refund@1', 'status' => 'rejected']]);
-		$this->assertInstanceOf(Events\RefundDeniedEvent::class, $event);
+		$event = Event::fromArray(['id' => 'evt_1', 'type' => 'refund.rejected', 'version' => 'v2', 'data' => ['uuid' => 'refund@1', 'status' => 'rejected']]);
+		$this->assertInstanceOf(Events\RefundRejectedEvent::class, $event);
 		$this->assertSame(RefundStatus::REJECTED, $event->data->status);
 	}
 }

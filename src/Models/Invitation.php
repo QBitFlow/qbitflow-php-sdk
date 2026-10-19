@@ -8,9 +8,11 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * An invitation to join the organization.
+ * An invitation to the organization: to be a member in one mode (role `user`), or to its team
+ * (role `admin`, from the dashboard: mode-free, so `test`, `holdFunds` and
+ * `organizationFeePercent` are absent).
  */
-final readonly class Invitation extends Model
+readonly class Invitation extends Model
 {
 	/**
 	 * The invitation's id.
@@ -18,7 +20,7 @@ final readonly class Invitation extends Model
 	public string $uuid;
 
 	/**
-	 * A member invitation's mode; null for a team invitation.
+	 * A member invitation's mode; null (absent) for a team invitation.
 	 */
 	public ?bool $test;
 
@@ -28,22 +30,24 @@ final readonly class Invitation extends Model
 	public string $email;
 
 	/**
-	 * `admin` (the team) or `user` (a member).
+	 * `admin` (the team) or `user` (a member); see {@see \QBitFlow\Enums\Role}.
 	 */
 	public string $role;
 
 	/**
-	 * True when the organization holds the member's payments until it trusts them; null for the team.
+	 * For a member, true when the organization holds their payments until it trusts them
+	 * (`members->trust()`), false when they are paid directly; null (absent) for the team.
 	 */
-	public ?bool $trustLayer;
+	public ?bool $holdFunds;
 
 	/**
-	 * The organization's fee on the member's payments, in percent.
+	 * For a member, the organization's fee on their payments, a percent string (`"0"`: none);
+	 * null (absent) for the team.
 	 */
-	public float $organizationFeePercent;
+	public ?string $organizationFeePercent;
 
 	/**
-	 * Where the person goes once they accepted (with `?invitationUuid=<uuid>`).
+	 * Where the person goes once they accepted (with `?invitationUuid=<uuid>`); null when none.
 	 */
 	public ?string $redirectUrl;
 
@@ -53,7 +57,7 @@ final readonly class Invitation extends Model
 	public DateTimeImmutable $expiresAt;
 
 	/**
-	 * The account that accepted it.
+	 * The account that accepted it; null until accepted.
 	 */
 	public ?string $acceptedByUserUuid;
 
@@ -63,7 +67,7 @@ final readonly class Invitation extends Model
 	public ?DateTimeImmutable $acceptedAt;
 
 	/**
-	 * When it was revoked; null unless revoked.
+	 * When it was revoked (or replaced by a newer one); null unless revoked.
 	 */
 	public ?DateTimeImmutable $revokedAt;
 
@@ -73,7 +77,8 @@ final readonly class Invitation extends Model
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * `pending`, `accepted`, `revoked` or `expired` ({@see \QBitFlow\Enums\InvitationStatus}).
+	 * `pending`, `accepted`, `revoked` or `expired`, computed when read
+	 * ({@see \QBitFlow\Enums\InvitationStatus}).
 	 */
 	public string $status;
 
@@ -86,8 +91,8 @@ final readonly class Invitation extends Model
 		$this->test = Cast::nullableBool($data, 'test');
 		$this->email = Cast::string($data, 'email');
 		$this->role = Cast::string($data, 'role');
-		$this->trustLayer = Cast::nullableBool($data, 'trustLayer');
-		$this->organizationFeePercent = Cast::float($data, 'organizationFeePercent');
+		$this->holdFunds = Cast::nullableBool($data, 'holdFunds');
+		$this->organizationFeePercent = Cast::nullableString($data, 'organizationFeePercent');
 		$this->redirectUrl = Cast::nullableString($data, 'redirectUrl');
 		$this->expiresAt = Cast::date($data, 'expiresAt');
 		$this->acceptedByUserUuid = Cast::nullableString($data, 'acceptedByUserUuid');

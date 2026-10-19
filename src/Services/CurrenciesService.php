@@ -11,43 +11,35 @@ use QBitFlow\RequestOptions;
 use QBitFlow\Support\Validator;
 
 /**
- * Reads the currency catalog (`/utils…`, public routes; the key is sent anyway). Rate limited to
- * 60 requests a minute per IP: cache the lists.
+ * Reads the currency catalog (`/currencies…`, public routes; the key is sent anyway). Rate
+ * limited to 60 requests a minute per IP: cache the list.
  */
 final class CurrenciesService extends Service
 {
 	/**
-	 * Every currency checkouts can take (`GET /utils/all-available-currencies`); `test` lists the
-	 * testnet currencies, whatever the key's mode.
+	 * The currency catalog (`GET /currencies`; a bounded list): the live currencies, or the test
+	 * networks' with `test` (whatever the key's mode); `main` keeps only the chains' native coins
+	 * (ETH, BASE, SOL).
 	 *
 	 * @return list<Currency>
 	 */
-	public function listAvailable(?CurrencyListParams $params = null, ?RequestOptions $options = null): array
+	public function list(?CurrencyListParams $params = null, ?RequestOptions $options = null): array
 	{
 		$params?->validate();
 
-		return $this->requester->call('GET', '/utils/all-available-currencies', Requester::list(Currency::fromArray(...)), $params?->toQuery() ?? [], options: $options);
+		return $this->requester->items('/currencies', Currency::fromArray(...), $params?->toQuery() ?? [], $options);
 	}
 
 	/**
-	 * The chains' main currencies (`GET /utils/all-main-currencies`).
-	 *
-	 * @return list<Currency>
+	 * A currency by its id (`GET /currencies/:id`), e.g. a token's `mainCurrencyId`. Ids are
+	 * unique across test and live.
 	 */
-	public function listMain(?CurrencyListParams $params = null, ?RequestOptions $options = null): array
-	{
-		$params?->validate();
-
-		return $this->requester->call('GET', '/utils/all-main-currencies', Requester::list(Currency::fromArray(...)), $params?->toQuery() ?? [], options: $options);
-	}
-
-	/** A currency by its id (`GET /utils/currency/id/:id`): resolves the `currencyId` fields. */
 	public function get(int $id, ?RequestOptions $options = null): Currency
 	{
 		if ($id <= 0) {
 			throw Validator::fieldError('id', 'must be a currency id (above 0)');
 		}
 
-		return $this->requester->call('GET', '/utils/currency/id/' . $id, Requester::one(Currency::fromArray(...)), options: $options);
+		return $this->requester->call('GET', '/currencies/' . $id, Requester::one(Currency::fromArray(...)), options: $options);
 	}
 }

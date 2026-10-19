@@ -8,12 +8,13 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A failed attempt to pay a checkout or a bill (the failures log).
+ * A failed payment attempt (the failures log): what the customer tried to pay, and why it
+ * failed. Recorded once per attempt, never changed; it never moved money.
  */
 final readonly class Failure extends Model
 {
 	/**
-	 * The failure's id.
+	 * The failure's own id, a plain UUID (a failed attempt is no transaction: no prefix).
 	 */
 	public string $uuid;
 
@@ -23,7 +24,8 @@ final readonly class Failure extends Model
 	public string $kind;
 
 	/**
-	 * What failed: the checkout (`pay@…`, `sub@…`) or the bill (`sub-hist@…`).
+	 * What failed: the checkout (`pay@…`, `sub@…`: the id its payment or subscription would have
+	 * had) or the bill (`sub-hist@…`: its id once paid).
 	 */
 	public string $txUuid;
 
@@ -48,24 +50,30 @@ final readonly class Failure extends Model
 	public string $category;
 
 	/**
-	 * What the customer was told.
+	 * What the customer was told; null without a message.
 	 */
 	public ?string $message;
 
 	/**
-	 * What the customer tried to pay, in USD: never received.
+	 * What the customer tried to pay, in the currency's units, exact (a decimal string): never
+	 * received.
 	 */
-	public float $attemptedUsd;
+	public string $attempted;
 
 	/**
-	 * The same in the currency's min units (a decimal string).
+	 * The same in the currency's smallest unit, a string of digits.
 	 */
 	public string $attemptedMinUnits;
 
 	/**
+	 * The same in USD, a decimal string.
+	 */
+	public string $attemptedUsd;
+
+	/**
 	 * The currency it was tried in.
 	 */
-	public int $currencyId;
+	public Currency $currency;
 
 	/**
 	 * The customer's wallet.
@@ -103,7 +111,7 @@ final readonly class Failure extends Model
 	public bool $test;
 
 	/**
-	 * The member whose space it is in; null for the organization's own.
+	 * The member whose space it was paid to; null for the organization's own.
 	 */
 	public ?string $userUuid;
 
@@ -120,9 +128,10 @@ final readonly class Failure extends Model
 		$this->code = Cast::string($data, 'code');
 		$this->category = Cast::string($data, 'category');
 		$this->message = Cast::nullableString($data, 'message');
-		$this->attemptedUsd = Cast::float($data, 'attemptedUsd');
+		$this->attempted = Cast::string($data, 'attempted');
 		$this->attemptedMinUnits = Cast::string($data, 'attemptedMinUnits');
-		$this->currencyId = Cast::uint($data, 'currencyId');
+		$this->attemptedUsd = Cast::string($data, 'attemptedUsd');
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 		$this->from = Cast::string($data, 'from');
 		$this->txHash = Cast::nullableString($data, 'txHash');
 		$this->customerUuid = Cast::nullableString($data, 'customerUuid');

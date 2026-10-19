@@ -22,7 +22,7 @@ $client = QBitFlow::fromEnv();
 
 // Client-side validation: nothing is sent.
 try {
-	$client->customers->create(new CreateCustomerParams(name: 'A', email: 'not-an-email'));
+	$client->customers->create(new CreateCustomerParams(firstName: 'A', email: 'not-an-email'));
 } catch (ValidationException $e) {
 	foreach ($e->fieldErrors as $fieldError) {
 		echo "{$fieldError->field}: {$fieldError->message}\n"; // status 0: refused before sending
@@ -56,7 +56,7 @@ try {
 		new \QBitFlow\Params\CreatePaymentSessionParams(
 			productName: 'T-shirt',
 			description: 'Blue, size M',
-			price: 4.99,
+			priceUsd: '4.99',
 			reference: $orderId,
 			successUrl: 'https://shop.example.com/orders/success?uuid=' . \QBitFlow\Placeholders::UUID,
 			cancelUrl: 'https://shop.example.com/orders/cancel',

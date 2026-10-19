@@ -7,19 +7,15 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.statusChanged`'s data.
+ * `subscription.statusChanged`'s data: the subscription with its new `status`, and the one
+ * before. Every status change sends it, once.
  */
 final readonly class SubscriptionStatusChanged extends Subscription
 {
 	/**
-	 * The status before the change.
+	 * The status before the change ({@see \QBitFlow\Enums\SubscriptionStatus}).
 	 */
 	public string $previousStatus;
-
-	/**
-	 * The subscription's management page for its customer.
-	 */
-	public ?string $managementPageLink;
 
 	/**
 	 * @param array<string,mixed> $data
@@ -28,6 +24,5 @@ final readonly class SubscriptionStatusChanged extends Subscription
 	{
 		parent::__construct($data);
 		$this->previousStatus = Cast::string($data, 'previousStatus');
-		$this->managementPageLink = Cast::nullableString($data, 'managementPageLink');
 	}
 }

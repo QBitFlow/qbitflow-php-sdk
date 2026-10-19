@@ -7,13 +7,15 @@ namespace QBitFlow\Params;
 use QBitFlow\Support\Query;
 
 /**
- * `currencies->listAvailable()`'s and `listMain()`'s options.
+ * `currencies->list()`'s options.
  */
 final readonly class CurrencyListParams
 {
 	public function __construct(
-		/** Lists the testnet currencies (whatever the key's mode). */
+		/** Lists the test networks' currencies (whatever the key's mode); false: mainnet. */
 		public bool $test = false,
+		/** Lists only the chains' native coins (ETH, BASE, SOL), no tokens. */
+		public bool $main = false,
 	) {
 	}
 
@@ -22,9 +24,9 @@ final readonly class CurrencyListParams
 	{
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
-		return (new Query())->flag('test', $this->test)->toArray();
+		return (new Query())->flag('test', $this->test)->flag('main', $this->main)->toArray();
 	}
 }

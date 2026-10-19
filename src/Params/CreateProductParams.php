@@ -11,17 +11,34 @@ use QBitFlow\Support\Validator;
  */
 final readonly class CreateProductParams
 {
+	/**
+	 * @param array<string,string>|null $metadata
+	 */
 	public function __construct(
 		/** Required: 2 to 100 characters, one line. */
 		public string $name,
-		/** Required: in USD, above 0 (at most 5 in test mode). */
-		public float $price,
+		/**
+		 * Required: the price in USD, a decimal string (`"12.50"`): above 0, at most 2 decimals, at
+		 * most 1,000,000. The API also caps it at `"5"` in test mode (400 with `details.max` `"5"`)
+		 * and requires more than `"0.25"` for a live subscription product (`details.min`).
+		 */
+		public string $priceUsd,
 		/** Optional: 2 to 500 characters. */
 		public ?string $description = null,
-		/** Your reference, unique per space; generated when not set. */
+		/**
+		 * Your reference, unique per space and mode (1 to 100 of `A-Z a-z 0-9 . _ : @ -`); the
+		 * product's uuid when not set.
+		 */
 		public ?string $reference = null,
-		/** Makes it a subscription product (`frequency` required). */
+		/** Makes it a subscription product (`frequency` required); null: a one-time product. */
 		public ?SubscriptionTermsParams $subscription = null,
+		/**
+		 * Your own data on the product (an id in your catalog): at most 50 keys of 1 to 40
+		 * characters among `A-Z a-z 0-9 _ - . :`, values of at most 500 characters without control
+		 * or bidirectional characters. A key set to `''` is not stored. Never put secrets or
+		 * personal data in it.
+		 */
+		public ?array $metadata = null,
 	) {
 	}
 
@@ -33,9 +50,12 @@ final readonly class CreateProductParams
 			$v->name('name', $this->name, 2, 100);
 		}
 		$v->text('description', $this->description, 2, 500);
-		$v->price('price', $this->price);
+		if ($v->required('priceUsd', $this->priceUsd)) {
+			$v->usd('priceUsd', $this->priceUsd);
+		}
 		$v->reference('reference', $this->reference);
 		$this->subscription?->check($v, 'subscription.', true);
+		$v->metadata('metadata', $this->metadata);
 		$v->throwIfAny();
 	}
 
@@ -46,12 +66,15 @@ final readonly class CreateProductParams
 		if ($this->description !== null && $this->description !== '') {
 			$out['description'] = $this->description;
 		}
-		$out['price'] = $this->price;
+		$out['priceUsd'] = $this->priceUsd;
 		if ($this->reference !== null && $this->reference !== '') {
 			$out['reference'] = $this->reference;
 		}
 		if ($this->subscription !== null) {
 			$out['subscription'] = $this->subscription->toObject();
+		}
+		if ($this->metadata !== null && $this->metadata !== []) {
+			$out['metadata'] = (object) $this->metadata;
 		}
 
 		return $out;

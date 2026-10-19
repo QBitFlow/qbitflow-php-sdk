@@ -28,7 +28,8 @@ readonly class WebhookEndpoint extends Model
 	public string $url;
 
 	/**
-	 * The event types it receives ({@see \QBitFlow\Enums\EventType}); empty: every type.
+	 * The event types it receives ({@see \QBitFlow\Enums\EventType}; stored sorted, without
+	 * duplicates); `[]`: every type, including types added later.
 	 *
 	 * @var list<string>
 	 */
@@ -40,14 +41,14 @@ readonly class WebhookEndpoint extends Model
 	public bool $includeMembers;
 
 	/**
-	 * `v2` (the event envelope), or `v1` for an endpoint migrated from v1.
+	 * The payload it receives: `v2` (the event envelope), the only version.
 	 */
 	public string $payloadVersion;
 
 	/**
-	 * A note for the dashboard.
+	 * A note for the dashboard; null (absent) when none.
 	 */
-	public string $description;
+	public ?string $description;
 
 	/**
 	 * When it was created.
@@ -60,13 +61,15 @@ readonly class WebhookEndpoint extends Model
 	public ?DateTimeImmutable $rotatedAt;
 
 	/**
-	 * When it was disabled; null while enabled.
+	 * When it was disabled (it receives nothing): after 3 days without a successful delivery
+	 * (live mode only), or by its owner; null while enabled. `update()` with `enabled` true
+	 * enables it again.
 	 */
 	public ?DateTimeImmutable $disabledAt;
 
 	/**
-	 * Why: `failing` (live mode only: a test-mode endpoint is never disabled for failing), `owner`
-	 * or `closed` ({@see \QBitFlow\Enums\EndpointDisabledReason}).
+	 * Why: `failing` (live mode only: a test-mode endpoint is never disabled for failing),
+	 * `owner` or `closed` ({@see \QBitFlow\Enums\EndpointDisabledReason}).
 	 */
 	public ?string $disabledReason;
 
@@ -91,7 +94,7 @@ readonly class WebhookEndpoint extends Model
 		$this->events = Cast::stringList($data, 'events');
 		$this->includeMembers = Cast::bool($data, 'includeMembers');
 		$this->payloadVersion = Cast::string($data, 'payloadVersion');
-		$this->description = Cast::string($data, 'description');
+		$this->description = Cast::nullableString($data, 'description');
 		$this->createdAt = Cast::date($data, 'createdAt');
 		$this->rotatedAt = Cast::nullableDate($data, 'rotatedAt');
 		$this->disabledAt = Cast::nullableDate($data, 'disabledAt');

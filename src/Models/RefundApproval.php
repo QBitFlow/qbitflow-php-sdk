@@ -7,12 +7,14 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * A refund's approval in progress.
+ * Where a pending refund's transfer stands once sent (`Refund::$approval`).
  */
 final readonly class RefundApproval extends Model
 {
 	/**
-	 * `waitingConfirmation` (sent, being confirmed) or `created` (its last attempt failed).
+	 * `waitingConfirmation` (sent, being confirmed on-chain) or `created` (its last attempt
+	 * failed: `lastAttempt`; send it again from the dashboard); see
+	 * {@see \QBitFlow\Enums\CheckoutSessionStatusValue}.
 	 */
 	public string $status;
 

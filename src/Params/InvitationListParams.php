@@ -18,9 +18,9 @@ final readonly class InvitationListParams
 	public function __construct(
 		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor`; null for the first page. */
+		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
-		/** Keeps only the invitations with this status ({@see InvitationStatus}). */
+		/** Keeps only the invitations with this status: `pending`, `accepted`, `revoked` or `expired` ({@see InvitationStatus}). */
 		public ?string $status = null,
 	) {
 	}
@@ -29,11 +29,12 @@ final readonly class InvitationListParams
 	public function validate(): void
 	{
 		$v = new Validator();
+		$v->cursor($this->cursor);
 		$v->oneOf('status', $this->status, InvitationStatus::values());
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		return (new Query())->page($this->limit, $this->cursor)->string('status', $this->status)->toArray();

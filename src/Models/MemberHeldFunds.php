@@ -8,9 +8,9 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * One member's held funds, in the organization's overview.
+ * What the organization owes one member (`members->listHeldFunds()`).
  */
-final readonly class MemberHeldFundsSummary extends Model
+final readonly class MemberHeldFunds extends Model
 {
 	/**
 	 * The member (a removed member still owed too).
@@ -18,17 +18,18 @@ final readonly class MemberHeldFundsSummary extends Model
 	public string $userUuid;
 
 	/**
-	 * What the organization owes them, in USD.
+	 * What the organization owes them, in USD, a decimal string (`"0"` or negative when refunds
+	 * cancel out the payments).
 	 */
-	public float $totalAmount;
+	public string $totalUsd;
 
 	/**
-	 * Their lines not settled.
+	 * Their lines not settled: payments and bills held, refunds of them.
 	 */
 	public int $count;
 
 	/**
-	 * Their oldest line not settled.
+	 * Their oldest line not settled: how long the organization has held funds for them.
 	 */
 	public DateTimeImmutable $oldestAt;
 
@@ -38,7 +39,7 @@ final readonly class MemberHeldFundsSummary extends Model
 	protected function __construct(array $data)
 	{
 		$this->userUuid = Cast::string($data, 'userUuid');
-		$this->totalAmount = Cast::float($data, 'totalAmount');
+		$this->totalUsd = Cast::string($data, 'totalUsd');
 		$this->count = Cast::int($data, 'count');
 		$this->oldestAt = Cast::date($data, 'oldestAt');
 	}

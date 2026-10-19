@@ -35,7 +35,10 @@ $page = $client->webhooks->events->list(new \QBitFlow\Params\EventListParams(
 	type: \QBitFlow\Enums\EventType::PAYMENT_COMPLETED,
 	limit: 20,
 ));
-foreach ($page->items as $event) { // newest first
+foreach ($page->items as $event) { // newest first, each exactly as delivered
 	echo "{$event->id} {$event->type} {$event->createdAt->format(DATE_ATOM)}\n";
+}
+if ($page->hasMore) {
+	echo "More: pass {$page->nextCursor} as cursor\n"; // opaque, never an event id
 }
 // docs:end events-list

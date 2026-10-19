@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\Test;
 use QBitFlow\Events\Event;
 use QBitFlow\Events\UnknownEvent;
 use QBitFlow\Exceptions\FieldError;
+use QBitFlow\Exceptions\NotFoundException;
 use QBitFlow\Exceptions\QBitFlowException;
 use QBitFlow\Exceptions\ServerException;
 use QBitFlow\Exceptions\ValidationException;
@@ -199,6 +200,13 @@ final class ConformanceVectorsTest extends TestCase
 			$this->assertSame('serverError', $case['expect'], 'unexpected ServerException: ' . $e->getMessage());
 
 			return;
+		} catch (NotFoundException $e) {
+			// A getByReference whose list answered no item with that reference: like a 404.
+			$this->assertSame('notFound', $case['expect'], 'unexpected NotFoundException: ' . $e->getMessage());
+			$this->assertSame(404, $e->status);
+			$this->assertSame('not_found', $e->apiCode);
+
+			return;
 		}
 
 		$this->assertSame('ok', $case['expect'], 'decoded a body Go refuses');
@@ -215,8 +223,9 @@ final class ConformanceVectorsTest extends TestCase
 
 		try {
 			$this->invoke($http, $case);
-		} catch (ServerException) {
-			// The stub's answer may not fit the method's model: only the request matters here.
+		} catch (ServerException|NotFoundException) {
+			// The stub's answer may not fit the method's model (a getByReference finds an empty
+			// page: a NotFoundException): only the request matters here.
 		}
 
 		$this->assertSame(1, $http->count(), 'one request');
@@ -378,7 +387,7 @@ final class ConformanceVectorsTest extends TestCase
 				$value['processingFee'] ?? null,
 				array_map(static fn (array $item): FeeItem => new FeeItem(
 					$item['label'] ?? '',
-					self::amount($item['amountUsd'] ?? 0),
+					$item['amountUsd'] ?? '',
 					$item['description'] ?? null,
 				), $value['items'] ?? []),
 			),
@@ -389,17 +398,6 @@ final class ConformanceVectorsTest extends TestCase
 				'-Infinity' => -INF,
 				default => (float) $value,
 			},
-			default => $value,
-		};
-	}
-
-	/** A vector's amount: a number, a string as typed, or a non-finite float's marker (`NaN`, `Infinity`). */
-	private static function amount(int|float|string $value): int|float|string
-	{
-		return match ($value) {
-			'NaN' => NAN,
-			'Infinity' => INF,
-			'-Infinity' => -INF,
 			default => $value,
 		};
 	}

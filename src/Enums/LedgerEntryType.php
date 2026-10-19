@@ -12,10 +12,13 @@ namespace QBitFlow\Enums;
  */
 final class LedgerEntryType
 {
+	/** A payment made to the member while the organization held their funds. */
 	public const PAYMENT = 'payment';
 
-	public const SUBSCRIPTION_HISTORY = 'subscriptionHistory';
+	/** A subscription bill paid to the member while held (was `subscriptionHistory`). */
+	public const BILL = 'bill';
 
+	/** A refund the organization sent of one of them. */
 	public const REFUND = 'refund';
 
 	/**
@@ -27,7 +30,7 @@ final class LedgerEntryType
 	{
 		return [
 			self::PAYMENT,
-			self::SUBSCRIPTION_HISTORY,
+			self::BILL,
 			self::REFUND,
 		];
 	}

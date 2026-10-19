@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace QBitFlow\Tests\Unit;
 
+use Closure;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -82,7 +83,7 @@ final class ClientBehaviourTest extends TestCase
 	{
 		$client = $this->client(MockHttpClient::static(200, '{"credential":"apiKey"}'));
 		$client->me();
-		(new Requester($this->transport()))->call('POST', '/product', static fn ($d) => $d, body: ['name' => 'x'], idempotent: true,
+		(new Requester($this->transport()))->call('POST', '/products', static fn ($d) => $d, body: ['name' => 'x'], idempotent: true,
 			options: new RequestOptions(requestId: 'req-1.a:b_c'));
 
 		[$get, $post] = $this->http->requests;
@@ -161,26 +162,27 @@ final class ClientBehaviourTest extends TestCase
 	{
 		$client = $this->client(MockHttpClient::static(200, '{
 			"credential": "apiKey", "apiKeyUuid": "019cadfd-8900-7b00-8000-0000000000f1", "role": "user",
-			"onBehalfOf": "019eca82-5680-7b00-8000-0000000000b1",
+			"onBehalfOfUserUuid": "019eca82-5680-7b00-8000-0000000000b1",
 			"space": {"uuid": "019eca82-5680-7c00-8000-0000000000b2", "organizationUuid": "019cadfd-8900-7a00-8000-0000000000a1",
 				"organizationName": "Example Shop", "userUuid": "019eca82-5680-7b00-8000-0000000000b1",
-				"member": {"userUuid": "019eca82-5680-7b00-8000-0000000000b1", "name": "Ada", "lastName": "Lovelace", "email": "ada@example.com"},
-				"test": true},
+				"member": {"userUuid": "019eca82-5680-7b00-8000-0000000000b1", "firstName": "Ada", "lastName": "Lovelace", "email": "ada@example.com"},
+				"test": true, "role": "admin", "organizationFeePercent": "7.5", "createdAt": "2026-09-01T12:00:00Z"},
 			"user": {"ignored": true}}'));
 		$me = $client->me();
 		$this->assertSame(Credential::API_KEY, $me->credential);
 		$this->assertSame(Role::USER, $me->role);
-		$this->assertSame(self::MEMBER_UUID, $me->onBehalfOf);
+		$this->assertSame(self::MEMBER_UUID, $me->onBehalfOfUserUuid);
 		$this->assertNull($me->userUuid);
 		$this->assertNotNull($me->space);
 		$this->assertTrue($me->space->test);
 		$this->assertSame('Example Shop', $me->space->organizationName);
-		$this->assertSame('Ada', $me->space->member?->name);
+		$this->assertSame('Ada', $me->space->member?->firstName);
+		$this->assertSame(['7.5', Role::ADMIN], [$me->space->organizationFeePercent, $me->space->role]);
 	}
 
 	// ---- Pagination -----------------------------------------------------------------------
 
-	/** Serves /customer/all in pages of 2 over 5 customers (c0…c4), keyed by cursor. */
+	/** Serves /customers in pages of 2 over 5 customers (c0…c4), keyed by cursor. */
 	private function pagedClient(string $failOn = ''): QBitFlow
 	{
 		return $this->client(new MockHttpClient(static function (RequestInterface $r) use ($failOn): ResponseInterface {
@@ -191,9 +193,9 @@ final class ClientBehaviourTest extends TestCase
 			}
 
 			return MockHttpClient::response(200, [
-				'' => '{"items":[{"uuid":"c0"},{"uuid":"c1"}],"nextCursor":"c1"}',
-				'c1' => '{"items":[{"uuid":"c2"},{"uuid":"c3"}],"nextCursor":"c3"}',
-				'c3' => '{"items":[{"uuid":"c4"}],"nextCursor":null}',
+				'' => '{"items":[{"uuid":"c0"},{"uuid":"c1"}],"hasMore":true,"nextCursor":"c1"}',
+				'c1' => '{"items":[{"uuid":"c2"},{"uuid":"c3"}],"hasMore":true,"nextCursor":"c3"}',
+				'c3' => '{"items":[{"uuid":"c4"}],"hasMore":false}',
 			][$cursor]);
 		}));
 	}
@@ -259,37 +261,37 @@ final class ClientBehaviourTest extends TestCase
 	}
 
 	#[Test]
-	public function the_walk_stops_on_an_empty_or_stuck_page(): void
+	public function the_walk_stops_on_its_guards(): void
 	{
-		$calls = 0;
-		$got = [];
-		foreach (Requester::walk(null, static function () use (&$calls): Page {
-			$calls++;
+		$walk = static function (?string $start, Closure $page): array {
+			$calls = 0;
+			$got = [];
+			foreach (Requester::walk($start, static function (?string $cursor) use (&$calls, $page): Page {
+				$calls++;
 
-			return new Page($calls === 2 ? [] : [$calls], 'n' . $calls);
-		}) as $value) {
-			$got[] = $value;
-		}
-		$this->assertSame([1], $got);
-		$this->assertSame(2, $calls);
+				return $page($calls, $cursor);
+			}) as $value) {
+				$got[] = $value;
+			}
 
-		$calls = 0;
-		foreach (Requester::walk('same', static function () use (&$calls): Page {
-			$calls++;
+			return [$got, $calls];
+		};
 
-			return new Page([1], 'same');
-		}) as $value) {
-		}
-		$this->assertSame(1, $calls, 'a cursor that does not move stops the walk');
+		$this->assertSame([[1, 2, 3], 3], $walk(null, static fn (int $n): Page => new Page([$n], $n < 3, $n < 3 ? 'n' . $n : null)), 'until hasMore is false');
+		$this->assertSame([[1], 1], $walk(null, static fn (int $n): Page => new Page([$n], false, 'ignored')), 'hasMore false ends it, whatever the cursor');
+		$this->assertSame([[1], 1], $walk(null, static fn (int $n): Page => new Page([$n], true)), 'more without a cursor');
+		$this->assertSame([[1], 1], $walk(null, static fn (int $n): Page => new Page([$n], true, '')), 'more with an empty cursor');
+		$this->assertSame([[1], 1], $walk('same', static fn (int $n): Page => new Page([$n], true, 'same')), 'a cursor that does not move');
+		$this->assertSame([[1], 2], $walk(null, static fn (int $n): Page => new Page($n === 2 ? [] : [$n], true, 'n' . $n)), 'an empty page that claims more');
 	}
 
 	#[Test]
 	public function a_page_says_whether_more_follow(): void
 	{
-		$this->assertTrue((new Page([], 'x'))->hasMore());
-		$this->assertFalse((new Page())->hasMore());
-		$page = Page::fromArray(['items' => null, 'nextCursor' => null], Customer::fromArray(...));
-		$this->assertSame([], $page->items);
-		$this->assertFalse($page->hasMore());
+		$this->assertTrue((new Page([], true, 'x'))->hasMore);
+		$this->assertFalse((new Page())->hasMore);
+		$page = Page::fromArray(['items' => null, 'hasMore' => null, 'nextCursor' => null], Customer::fromArray(...));
+		$this->assertSame([[], false, null], [$page->items, $page->hasMore, $page->nextCursor]);
+		$this->assertNull(Page::fromArray(['items' => [], 'hasMore' => false, 'nextCursor' => ''], Customer::fromArray(...))->nextCursor, '"" is no cursor');
 	}
 }

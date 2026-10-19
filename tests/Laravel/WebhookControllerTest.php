@@ -47,12 +47,12 @@ final class WebhookControllerTest extends TestCase
 		return new WebhookController($dispatcher, new WebhookRouter(self::SECRET), $exceptions);
 	}
 
-	private static function verified(string $type, string $data = '{}'): Request
+	/** A request the middleware verified: `$data` is the event's data (`$raw`: the whole body). */
+	private static function verified(string $type, string $data = '{}', bool $raw = false): Request
 	{
 		$request = Request::create('/webhooks/qbitflow', 'POST');
-		$request->attributes->set(VerifyQBitFlowWebhook::EVENT_ATTRIBUTE, Webhook::parseEvent(
-			'{"id":"evt_1","type":"' . $type . '","version":"v2","createdAt":"2026-10-01T12:00:00Z","test":false,"data":' . $data . '}',
-		));
+		$request->attributes->set(VerifyQBitFlowWebhook::EVENT_ATTRIBUTE, Webhook::parseEvent($raw ? $data
+			: '{"id":"evt_1","type":"' . $type . '","version":"v2","createdAt":"2026-10-01T12:00:00Z","test":false,"data":' . $data . '}'));
 
 		return $request;
 	}
@@ -69,8 +69,8 @@ final class WebhookControllerTest extends TestCase
 			EventType::SUBSCRIPTION_BILLING_FAILED => Events\SubscriptionBillingFailed::class,
 			EventType::SUBSCRIPTION_UPCOMING_BILL => Events\SubscriptionUpcomingBill::class,
 			EventType::REFUND_REQUESTED => Events\RefundRequested::class,
-			EventType::REFUND_COMPLETED => Events\RefundCompleted::class,
-			EventType::REFUND_DENIED => Events\RefundDenied::class,
+			EventType::REFUND_APPROVED => Events\RefundApproved::class,
+			EventType::REFUND_REJECTED => Events\RefundRejected::class,
 			EventType::MEMBER_JOINED => Events\MemberJoined::class,
 			EventType::MEMBER_REMOVED => Events\MemberRemoved::class,
 			EventType::HELD_FUNDS_RELEASED => Events\HeldFundsReleased::class,
@@ -94,9 +94,20 @@ final class WebhookControllerTest extends TestCase
 	#[Test]
 	public function a_payment_carries_its_typed_data(): void
 	{
-		$this->controller()(self::verified(EventType::PAYMENT_COMPLETED, '{"uuid":"pay@1","reference":"order-1042","amount":10}'));
+		$this->controller()(self::verified(EventType::PAYMENT_COMPLETED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/payment.completed.json'), raw: true));
 		$this->assertSame('order-1042', $this->dispatched[0]->data->reference);
-		$this->assertSame(10.0, $this->dispatched[0]->data->amount);
+		$this->assertSame(['10', '10', 'BASE:USDC'], [$this->dispatched[0]->data->amount, $this->dispatched[0]->data->amountUsd, $this->dispatched[0]->data->currency->code]);
+
+		$this->dispatched = [];
+		$this->controller()(self::verified(EventType::SUBSCRIPTION_BILLED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/subscription.billed.json'), raw: true));
+		$this->assertInstanceOf(Events\SubscriptionBilled::class, $this->dispatched[0]);
+		$this->assertNotNull($this->dispatched[0]->data->bill->periodEnd, 'nested: data->bill');
+		$this->assertSame('customer-7731', $this->dispatched[0]->data->subscription->reference);
+
+		$this->dispatched = [];
+		$this->controller()(self::verified(EventType::REFUND_APPROVED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/refund.approved.json'), raw: true));
+		$this->assertInstanceOf(Events\RefundApproved::class, $this->dispatched[0]);
+		$this->assertSame('50', $this->dispatched[0]->data->refundPercent);
 	}
 
 	#[Test]

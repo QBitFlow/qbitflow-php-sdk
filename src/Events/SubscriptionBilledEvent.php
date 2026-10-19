@@ -8,7 +8,8 @@ use QBitFlow\Models\SubscriptionBilled;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.billed`: A subscription's bill was paid (paid until `data->periodEnd`).
+ * `subscription.billed`: A subscription's bill was paid: `data->bill` (paid until
+ * `data->bill->periodEnd`) and `data->subscription` as the bill leaves it.
  */
 final readonly class SubscriptionBilledEvent extends Event
 {

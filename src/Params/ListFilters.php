@@ -9,7 +9,7 @@ use QBitFlow\Support\Query;
 use QBitFlow\Support\Validator;
 
 /**
- * The filters every transaction list shares (payments, combined feed, failures,
+ * The filters every transaction list shares (payments, the transactions feed, failures,
  * subscriptions): encoding and checks.
  *
  * @internal

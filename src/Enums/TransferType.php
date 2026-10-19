@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * A transfer's kind (`heldFunds.released`).
+ * A transfer's kind (`HeldFundsReleased::$type`: `heldFundsRelease`).
  *
  * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
  * know yet is kept as is, never rejected. Compare against these constants.

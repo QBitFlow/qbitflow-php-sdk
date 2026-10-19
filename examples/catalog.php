@@ -1,7 +1,7 @@
 <?php
 
 /**
- * The catalog: create a product (or reuse it), list the products and one page of customers, and
+ * The catalog: create a product (or reuse it), list every product and one page of customers, and
  * open a checkout for the product by its reference (expired at once, so the example can run again).
  *
  *     QBITFLOW_API_KEY=sk_… php examples/catalog.php
@@ -20,7 +20,7 @@ try {
 	// docs:start products-create
 	$product = $client->products->create(new \QBitFlow\Params\CreateProductParams(
 		name: 'T-shirt',
-		price: 4.99,
+		priceUsd: '4.99', // a decimal string, never a float
 		description: 'Blue, size M',
 		reference: 'tshirt-blue-m', // your own reference, unique per space
 	));
@@ -30,12 +30,14 @@ try {
 	if ($e->apiCode !== 'unique_violation') {
 		throw $e;
 	}
-	$product = $client->products->getByReference('tshirt-blue-m'); // created by an earlier run
+	// Created by an earlier run: runs GET /products?reference= and returns its one product.
+	$product = $client->products->getByReference('tshirt-blue-m');
 }
 
 // docs:start products-list
-foreach ($client->products->list() as $product) {
-	printf("%s %s: %.2f USD\n", $product->reference, $product->name, $product->price);
+// iterate() walks every page (list() returns one); hidden products only with includeHidden.
+foreach ($client->products->iterate() as $product) {
+	echo "{$product->reference} {$product->name}: {$product->priceUsd} USD\n";
 }
 // docs:end products-list
 
@@ -44,7 +46,9 @@ $page = $client->customers->list(new \QBitFlow\Params\CustomerListParams(limit: 
 foreach ($page->items as $customer) {
 	echo "{$customer->uuid} {$customer->email}\n";
 }
-$cursor = $page->nextCursor; // null on the last page; else pass it back as `cursor` for the next one
+if ($page->hasMore) {
+	$cursor = $page->nextCursor; // pass it back, verbatim, as `cursor` for the next page
+}
 // docs:end customers-list
 
 try {

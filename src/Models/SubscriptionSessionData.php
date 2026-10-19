@@ -7,12 +7,13 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * A subscription checkout session, as `checkout.expired` sends it.
+ * A subscription's checkout session, as `checkout.expired` sends it: the payment session's
+ * fields and its terms.
  */
 final readonly class SubscriptionSessionData extends PaymentSessionData
 {
 	/**
-	 * How often it bills.
+	 * How often it would have billed.
 	 */
 	public Duration $frequency;
 
@@ -22,14 +23,15 @@ final readonly class SubscriptionSessionData extends PaymentSessionData
 	public ?Duration $trialPeriod;
 
 	/**
-	 * The periods the customer commits to; null without a minimum.
+	 * The periods the customer would have committed to; null without a minimum.
 	 */
 	public ?int $minPeriods;
 
 	/**
-	 * True when it upgrades a trial.
+	 * True for a checkout confirming a free trial already started (always false in
+	 * `checkout.expired`: such a session sends nothing when it expires).
 	 */
-	public ?bool $upgradingFromTrial;
+	public bool $upgradingFromTrial;
 
 	/**
 	 * @param array<string,mixed> $data
@@ -40,6 +42,6 @@ final readonly class SubscriptionSessionData extends PaymentSessionData
 		$this->frequency = Cast::object($data, 'frequency', Duration::fromArray(...));
 		$this->trialPeriod = Cast::nullableObject($data, 'trialPeriod', Duration::fromArray(...));
 		$this->minPeriods = Cast::nullableUint($data, 'minPeriods', 4294967295);
-		$this->upgradingFromTrial = Cast::nullableBool($data, 'upgradingFromTrial');
+		$this->upgradingFromTrial = Cast::bool($data, 'upgradingFromTrial');
 	}
 }

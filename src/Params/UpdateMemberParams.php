@@ -12,8 +12,12 @@ use QBitFlow\Support\Validator;
 final readonly class UpdateMemberParams
 {
 	public function __construct(
-		/** The organization's fee on the member's payments from now on: 0 to 50, at most 2 decimals. Always sent. */
-		public float $organizationFeePercent,
+		/**
+		 * Required: the organization's fee on the member's payments from now on, a percent string
+		 * from `"0"` to `"50"` with at most 2 decimals. A checkout already created keeps its fee; a
+		 * running subscription's next bills take the new one.
+		 */
+		public string $organizationFeePercent,
 	) {
 	}
 
@@ -21,7 +25,9 @@ final readonly class UpdateMemberParams
 	public function validate(): void
 	{
 		$v = new Validator();
-		$v->percent('organizationFeePercent', $this->organizationFeePercent, 50, false);
+		if ($v->required('organizationFeePercent', $this->organizationFeePercent)) {
+			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50, false);
+		}
 		$v->throwIfAny();
 	}
 

@@ -8,49 +8,61 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * A customer of a space.
+ * A merchant's customer: who pays, named on the payments and subscriptions it makes.
  */
 final readonly class Customer extends Model
 {
 	/**
-	 * The customer's id.
+	 * The customer's id (a UUIDv7).
 	 */
 	public string $uuid;
 
 	/**
 	 * The first name.
 	 */
-	public string $name;
+	public string $firstName;
 
 	/**
-	 * The last name, when given.
+	 * The last name; null (absent) when not given.
 	 */
 	public ?string $lastName;
 
 	/**
-	 * The email address, lowercase. Several customers of a space may share one.
+	 * The email address, lowercase (matched case-insensitively). Several customers of a space may
+	 * share one (see `verified`).
 	 */
 	public string $email;
 
 	/**
-	 * True for a customer the merchant created, false for one created from the email a payer typed at checkout.
+	 * True for a customer the merchant created (the API, the dashboard), who vouches for its
+	 * details; false for one QBitFlow created from the email a payer typed at a checkout that
+	 * named no customer (nobody proved the payer owns that address). A checkout never links a
+	 * typed email to a verified customer.
 	 */
 	public bool $verified;
 
 	/**
-	 * The phone number, when given.
+	 * The phone number; null (absent) when not given.
 	 */
 	public ?string $phoneNumber;
 
 	/**
-	 * The physical address, when given.
+	 * The physical address; null (absent) when not given.
 	 */
 	public ?string $address;
 
 	/**
-	 * The merchant's reference, when given.
+	 * The merchant's reference (its id in your system), unique per space; null (absent) without one.
 	 */
 	public ?string $reference;
+
+	/**
+	 * The merchant's own data on the customer (never copied onto its payments or subscriptions);
+	 * `[]` without any.
+	 *
+	 * @var array<string,string>
+	 */
+	public array $metadata;
 
 	/**
 	 * When it was created.
@@ -73,13 +85,14 @@ final readonly class Customer extends Model
 	protected function __construct(array $data)
 	{
 		$this->uuid = Cast::string($data, 'uuid');
-		$this->name = Cast::string($data, 'name');
+		$this->firstName = Cast::string($data, 'firstName');
 		$this->lastName = Cast::nullableString($data, 'lastName');
 		$this->email = Cast::string($data, 'email');
 		$this->verified = Cast::bool($data, 'verified');
 		$this->phoneNumber = Cast::nullableString($data, 'phoneNumber');
 		$this->address = Cast::nullableString($data, 'address');
 		$this->reference = Cast::nullableString($data, 'reference');
+		$this->metadata = Cast::stringMap($data, 'metadata');
 		$this->createdAt = Cast::date($data, 'createdAt');
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');

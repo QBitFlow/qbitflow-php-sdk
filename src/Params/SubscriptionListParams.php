@@ -19,7 +19,7 @@ final readonly class SubscriptionListParams
 	public function __construct(
 		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor`; null for the first page. */
+		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
 		/** Keeps only this customer's. */
 		public ?string $customerUuid = null,
@@ -33,9 +33,15 @@ final readonly class SubscriptionListParams
 		public bool $includeMembers = false,
 		/** Reads one member's rows (organization space only); not with `includeMembers`. */
 		public ?string $userUuid = null,
-		/** Keeps only those in this status ({@see SubscriptionStatus}). */
+		/**
+		 * Keeps only those in this status ({@see SubscriptionStatus}; cancelled ones are listed
+		 * unless filtered out). Not checked against the known statuses: a newer one is sent as is.
+		 */
 		public ?string $status = null,
-		/** Keeps only the one with this reference. */
+		/**
+		 * Keeps only the one with this reference (a page of 0 or 1 subscription;
+		 * `subscriptions->getByReference()` reads it).
+		 */
 		public ?string $reference = null,
 	) {
 	}
@@ -44,13 +50,13 @@ final readonly class SubscriptionListParams
 	public function validate(): void
 	{
 		$v = new Validator();
+		$v->cursor($this->cursor);
 		ListFilters::validate($v, $this->customerUuid, $this->productUuid, $this->includeMembers, $this->userUuid);
-		$v->oneOf('status', $this->status, SubscriptionStatus::values());
 		$v->reference('reference', $this->reference);
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		$q = (new Query())->page($this->limit, $this->cursor);

@@ -7,27 +7,31 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * `subscription.billed`'s data: the paid bill.
+ * `subscription.billed`'s data: the bill paid, and its subscription as the bill leaves it.
+ * Access is paid until `bill->periodEnd`, unless `subscription->status` is `cancelled` (a charge
+ * that landed just after a cancellation: record it, grant nothing).
  */
-final readonly class SubscriptionBilled extends Bill
+final readonly class SubscriptionBilled extends Model
 {
 	/**
-	 * The subscription's merchant reference, if it has one.
+	 * The bill paid (as `subscriptions->getBill()` returns it): its currency, settlement, and the
+	 * period it pays, `periodStart` → `periodEnd`.
 	 */
-	public ?string $subscriptionReference;
+	public Bill $bill;
 
 	/**
-	 * The subscription's status once the bill is paid.
+	 * The subscription once the bill is paid: active (stopped, paused or cancelled if that
+	 * happened while the charge was on its way), its next bill, its allowance, its reference and
+	 * its metadata.
 	 */
-	public string $subscriptionStatus;
+	public Subscription $subscription;
 
 	/**
 	 * @param array<string,mixed> $data
 	 */
 	protected function __construct(array $data)
 	{
-		parent::__construct($data);
-		$this->subscriptionReference = Cast::nullableString($data, 'subscriptionReference');
-		$this->subscriptionStatus = Cast::string($data, 'subscriptionStatus');
+		$this->bill = Cast::object($data, 'bill', Bill::fromArray(...));
+		$this->subscription = Cast::object($data, 'subscription', Subscription::fromArray(...));
 	}
 }

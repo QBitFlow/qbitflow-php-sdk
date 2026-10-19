@@ -7,32 +7,27 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * A token wallet's balance.
+ * What a wallet holds of a currency, read on its chain now. `amount`, `amountMinUnits` and
+ * `amountUsd` (its value at today's price; null when QBitFlow has no price it can trust right
+ * now) come from {@see TokenAmount}.
+ *
+ * ```json
+ * {"currency": {…}, "amount": "12.5", "amountMinUnits": "12500000", "amountUsd": "12.5"}
+ * ```
  */
-final readonly class Balance extends Model
+final readonly class Balance extends TokenAmount
 {
 	/**
-	 * The token (e.g. "SOL:USDC").
+	 * The currency held.
 	 */
-	public string $currency;
-
-	/**
-	 * The balance in the token (a decimal string).
-	 */
-	public string $balance;
-
-	/**
-	 * The same in USD.
-	 */
-	public float $balanceUsd;
+	public Currency $currency;
 
 	/**
 	 * @param array<string,mixed> $data
 	 */
 	protected function __construct(array $data)
 	{
-		$this->currency = Cast::string($data, 'currency');
-		$this->balance = Cast::string($data, 'balance');
-		$this->balanceUsd = Cast::float($data, 'balanceUsd');
+		parent::__construct($data);
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 	}
 }

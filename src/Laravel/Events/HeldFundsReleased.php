@@ -8,7 +8,8 @@ use QBitFlow\Events\HeldFundsReleasedEvent;
 use QBitFlow\Models;
 
 /**
- * Dispatched for a verified `heldFunds.released` webhook: The funds held for a member were paid out to them.
+ * Dispatched for a verified `heldFunds.released` webhook: The funds held for a member were paid
+ * out to them.
  *
  * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
  * listener; the webhook is answered 200 as soon as the events are dispatched.

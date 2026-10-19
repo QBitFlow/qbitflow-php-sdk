@@ -15,10 +15,11 @@ use QBitFlow\QBitFlow;
 $client = QBitFlow::fromEnv();
 
 // docs:start accounting-export
-// The API exports at most 95 days at a time: the range helpers split any range and join the parts.
+// The API exports at most 92 days at a time (both included): the range helpers split any range
+// into windows, request them in order and join the results (the CSV header once).
 $events = $client->accounting->exportJsonRange('2026-01-01', '2026-12-31');
 foreach ($events as $event) {
-	echo "{$event->type} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmount} {$event->currency}\n";
+	echo "{$event->type} {$event->txUuid} {$event->txTimeUtc->format('Y-m-d')} {$event->grossAmountUsd} USD {$event->productName}\n";
 }
 
 $csv = $client->accounting->exportCsvRange('2026-01-01', '2026-12-31'); // one header line, then the rows

@@ -8,13 +8,14 @@ use DateTimeInterface;
 
 /**
  * Builds a query string: an unset value is omitted, booleans are `true`/`false`, times are
- * RFC 3339 (with their offset; a `+` is sent as `%2B`), numbers are decimal.
+ * RFC 3339 (with their offset; a `+` is sent as `%2B`), numbers are decimal, a list is the key
+ * repeated (`status=pending&status=approved`).
  *
  * @internal
  */
 final class Query
 {
-	/** @var array<string,string> */
+	/** @var array<string,string|list<string>> */
 	private array $values = [];
 
 	/** Sets a string when it is neither null nor empty. */
@@ -22,6 +23,21 @@ final class Query
 	{
 		if ($value !== null && $value !== '') {
 			$this->values[$key] = $value;
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Sets a list, the key repeated once per value in order (`status=a&status=b`); an empty list
+	 * is omitted.
+	 *
+	 * @param list<string> $values
+	 */
+	public function strings(string $key, array $values): self
+	{
+		if ($values !== []) {
+			$this->values[$key] = array_values($values);
 		}
 
 		return $this;
@@ -73,24 +89,26 @@ final class Query
 		return $this->int('limit', $limit)->string('cursor', $cursor);
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toArray(): array
 	{
 		return $this->values;
 	}
 
 	/**
-	 * Encodes a query, keys sorted, every byte but `A-Z a-z 0-9 - _ . ~` percent-encoded (a
-	 * space as `+`).
+	 * Encodes a query, keys sorted (a list's values kept in their order), every byte but
+	 * `A-Z a-z 0-9 - _ . ~` percent-encoded (a space as `+`).
 	 *
-	 * @param array<string,string> $values
+	 * @param array<string,string|list<string>> $values
 	 */
 	public static function encode(array $values): string
 	{
 		ksort($values, SORT_STRING);
 		$parts = [];
 		foreach ($values as $key => $value) {
-			$parts[] = self::escape((string) $key) . '=' . self::escape($value);
+			foreach (is_array($value) ? $value : [$value] as $item) {
+				$parts[] = self::escape((string) $key) . '=' . self::escape($item);
+			}
 		}
 
 		return implode('&', $parts);

@@ -18,9 +18,9 @@ final readonly class FailureListParams
 	use WithCursor;
 
 	public function __construct(
-		/** The page size (server default 10, max 50). */
+		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,
-		/** The previous page's `nextCursor`; null for the first page. */
+		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
 		/** Keeps only this customer's. */
 		public ?string $customerUuid = null,
@@ -38,7 +38,7 @@ final readonly class FailureListParams
 		public ?string $kind = null,
 		/** Keeps only one category ({@see FailureCategory}). */
 		public ?string $category = null,
-		/** Keeps only this subscription's bills (`sub@…`). */
+		/** Keeps only this subscription's bills (`sub@…` or the bare UUID). */
 		public ?string $subscriptionUuid = null,
 	) {
 	}
@@ -47,6 +47,7 @@ final readonly class FailureListParams
 	public function validate(): void
 	{
 		$v = new Validator();
+		$v->cursor($this->cursor);
 		ListFilters::validate($v, $this->customerUuid, $this->productUuid, $this->includeMembers, $this->userUuid);
 		$v->oneOf('kind', $this->kind, FailureKind::values());
 		$v->oneOf('category', $this->category, FailureCategory::values());
@@ -54,7 +55,7 @@ final readonly class FailureListParams
 		$v->throwIfAny();
 	}
 
-	/** @return array<string,string> */
+	/** @return array<string,string|list<string>> */
 	public function toQuery(): array
 	{
 		$q = (new Query())->page($this->limit, $this->cursor);

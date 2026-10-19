@@ -8,7 +8,8 @@ use QBitFlow\Events\WebhookTestEvent;
 use QBitFlow\Models;
 
 /**
- * Dispatched for a verified `webhook.test` webhook: The dashboard's test delivery reached your endpoint.
+ * Dispatched for a verified `webhook.test` webhook: The dashboard's test delivery reached your
+ * endpoint.
  *
  * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
  * listener; the webhook is answered 200 as soon as the events are dispatched.

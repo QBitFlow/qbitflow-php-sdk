@@ -18,9 +18,9 @@ shown on qbitflow.app/docs and in the README (see [CONTRIBUTING.md](../CONTRIBUT
 | [`client-setup.php`](client-setup.php) | a client from the API key and `me()` (default server), and from the environment |
 | [`checkout.php`](checkout.php) | a payment checkout, one with fees (a shipping line and the processing fee), its status, waiting for it (`--wait`), expiry |
 | [`catalog.php`](catalog.php) | create and list products, one page of customers, a checkout for a product by its reference |
-| [`payments.php`](payments.php) | list payments with a filter, get one by id and by reference, the iterator, exact amounts |
-| [`subscriptions.php`](subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, a test bill (`--bill`), cancel at period end (`--cancel`) |
-| [`refunds.php`](refunds.php) | list the active refunds, refund half of a payment |
+| [`payments.php`](payments.php) | list payments with a filter, get one by id and by reference, the iterator, the transactions feed (payments and bills), exact amounts |
+| [`subscriptions.php`](subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, metadata, a test bill (`--bill`), cancel at period end (`--cancel`) |
+| [`refunds.php`](refunds.php) | list the pending refunds, read one, refund half of a payment |
 | [`marketplace.php`](marketplace.php) | invite a seller, invitations, members, `onBehalfOf`, wallets, held funds, fee, trust (`--trust`), remove (`--remove`) |
 | [`webhooks.php`](webhooks.php) | create a webhook endpoint (`--create`), the event log |
 | [`webhook-handler.php`](webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, the right answers (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |

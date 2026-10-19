@@ -12,13 +12,14 @@ use QBitFlow\Params\FailureListParams;
 use QBitFlow\RequestOptions;
 
 /**
- * Reads the failed payment attempts (`/transaction/failures`).
+ * Reads the failed payment attempts (`/payment-failures`).
  */
 final class FailuresService extends Service
 {
 	/**
-	 * One page of the failed payment attempts (`GET /transaction/failures`; newest first, page
-	 * size 10 by default, at most 50): failed attempts never moved money.
+	 * One page of the failed payment attempts (`GET /payment-failures`; newest first, page
+	 * size 20 by default, at most 100): failed attempts never moved money. It takes the payment
+	 * lists' filters plus `kind`, `category` and `subscriptionUuid`.
 	 *
 	 * @return Page<Failure>
 	 */
@@ -26,7 +27,7 @@ final class FailuresService extends Service
 	{
 		$params?->validate();
 
-		return $this->requester->call('GET', '/transaction/failures', Requester::page(Failure::fromArray(...)), $params?->toQuery() ?? [], options: $options);
+		return $this->requester->call('GET', '/payment-failures', Requester::page(Failure::fromArray(...)), $params?->toQuery() ?? [], options: $options);
 	}
 
 	/**

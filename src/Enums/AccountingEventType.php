@@ -12,14 +12,19 @@ namespace QBitFlow\Enums;
  */
 final class AccountingEventType
 {
+	/** A one-time payment (`pay@…`). */
 	public const PAYMENT = 'payment';
 
-	public const SUBSCRIPTION_HISTORY = 'subscriptionHistory';
+	/** A subscription's bill (`sub-hist@…`; was `subscriptionHistory`). */
+	public const BILL = 'bill';
 
+	/** A refund the space sent (`refund@…`). */
 	public const REFUND = 'refund';
 
+	/** The fee the organization earned on a member's payment or bill. */
 	public const ORGANIZATION_FEE = 'organizationFee';
 
+	/** The referrer's share earned on a referred organization's payment or bill. */
 	public const REFERRAL_FEE = 'referralFee';
 
 	/**
@@ -31,7 +36,7 @@ final class AccountingEventType
 	{
 		return [
 			self::PAYMENT,
-			self::SUBSCRIPTION_HISTORY,
+			self::BILL,
 			self::REFUND,
 			self::ORGANIZATION_FEE,
 			self::REFERRAL_FEE,

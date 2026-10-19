@@ -14,13 +14,22 @@ use QBitFlow\Support\Validator;
 final readonly class CreateInvitationParams
 {
 	public function __construct(
-		/** Required: the person to invite. */
+		/** Required: the person to invite, at most 254 characters. */
 		public string $email,
-		/** Always sent: true holds the member's payments until the organization trusts them (`members->trust()`); false pays them directly. */
-		public bool $trustLayer = false,
-		/** The organization's fee on their payments: 0 to 50, at most 2 decimals (null = 0). */
-		public ?float $organizationFeePercent = null,
-		/** Where the person goes once they accepted (with `?invitationUuid=<uuid>`). */
+		/**
+		 * Required (always sent): true holds the member's payments until the organization trusts
+		 * them (`members->trust()`); false pays them directly.
+		 */
+		public bool $holdFunds,
+		/**
+		 * The organization's fee on their payments, a percent string from `"0"` to `"50"` with at
+		 * most 2 decimals (null or `''` = `"0"`).
+		 */
+		public ?string $organizationFeePercent = null,
+		/**
+		 * Where the person goes once they accepted (with `?invitationUuid=<uuid>`): a convenience,
+		 * confirm with the `member.joined` event.
+		 */
 		public ?string $redirectUrl = null,
 	) {
 	}
@@ -32,7 +41,7 @@ final readonly class CreateInvitationParams
 		if ($v->required('email', $this->email)) {
 			$v->email('email', $this->email);
 		}
-		if ($this->organizationFeePercent !== null) {
+		if ($this->organizationFeePercent !== null && $this->organizationFeePercent !== '') {
 			$v->percent('organizationFeePercent', $this->organizationFeePercent, 50, false);
 		}
 		$v->url('redirectUrl', $this->redirectUrl);
@@ -46,8 +55,8 @@ final readonly class CreateInvitationParams
 	 */
 	public function toArray(): array
 	{
-		$out = ['email' => $this->email, 'role' => Role::USER, 'trustLayer' => $this->trustLayer];
-		if ($this->organizationFeePercent !== null) {
+		$out = ['email' => $this->email, 'role' => Role::USER, 'holdFunds' => $this->holdFunds];
+		if ($this->organizationFeePercent !== null && $this->organizationFeePercent !== '') {
 			$out['organizationFeePercent'] = $this->organizationFeePercent;
 		}
 		if ($this->redirectUrl !== null && $this->redirectUrl !== '') {

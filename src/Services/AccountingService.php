@@ -16,27 +16,33 @@ use QBitFlow\Support\Validator;
  */
 final class AccountingService extends Service
 {
-	/** The longest export window the API accepts: `to` at most this many days after `from`. */
-	public const MAX_WINDOW_DAYS = 95;
+	/**
+	 * The most days one export request covers, both ends included: `to` at most
+	 * `MAX_WINDOW_DAYS - 1` days after `from`.
+	 */
+	public const MAX_WINDOW_DAYS = 92;
 
 	/**
 	 * The accounting events between two dates, both `YYYY-MM-DD` and included
-	 * (`GET /accounting/export?format=json`). The dates are the transactions' (their block's day,
-	 * in UTC), so consecutive exports never miss nor repeat an event. Events are ordered by
-	 * `txTimeUtc`, then `type`, then `paymentUuid`. The API allows at most 95 days (400 beyond);
-	 * the SDK checks the dates and `from <= to` before sending. Longer ranges: {@see exportJsonRange()}.
+	 * (`GET /accounting/export?format=json`; a bounded list). The dates are the transactions'
+	 * (their block's day, in UTC), so consecutive exports never miss nor repeat an event. Events
+	 * are ordered by `txTimeUtc`, then `type`, then `txUuid`. The API allows at most 92 days, both
+	 * included (400 validation_failed on `to` beyond, `details.max` 92: {@see exportJsonRange()}
+	 * splits longer ranges); the SDK checks the dates and `from <= to` before sending.
 	 *
 	 * @return list<AccountingEvent>
 	 */
 	public function exportJson(string $from, string $to, ?RequestOptions $options = null): array
 	{
-		return $this->requester->call('GET', '/accounting/export', Requester::list(AccountingEvent::fromArray(...)), self::query($from, $to, 'json'), options: $options);
+		return $this->requester->items('/accounting/export', AccountingEvent::fromArray(...), self::query($from, $to, 'json'), $options);
 	}
 
 	/**
-	 * The same export as CSV text (`GET /accounting/export?format=csv`). Its columns follow
-	 * {@see AccountingEvent}'s properties: read them by header name, not position. Errors are
-	 * still JSON, and typed as usual.
+	 * The same export as CSV text (`GET /accounting/export?format=csv`): the header row
+	 * ({@see AccountingEvent}'s JSON keys, in its property order), then one row per event; nothing
+	 * in range gives the header only. Amounts are plain numbers; an absent value is an empty
+	 * cell; a cell starting with `= + - @`, a tab or a CR gets a leading `'`. Read the columns by
+	 * header name, not position. Errors are still JSON, and typed as usual.
 	 */
 	public function exportCsv(string $from, string $to, ?RequestOptions $options = null): string
 	{
@@ -45,9 +51,11 @@ final class AccountingService extends Service
 
 	/**
 	 * The accounting events between two dates (`YYYY-MM-DD`, both included) over any range:
-	 * split into consecutive windows of at most 95 days (`[from, from+95d]`, the next starting
-	 * the day after), requested in order and concatenated. A range of 95 days or less is one
-	 * request. Checked like {@see exportJson()} before sending.
+	 * split into consecutive windows of at most 92 days, both ends included (`[from, from+91d]`,
+	 * the next starting the day after; on calendar dates, UTC), requested in order and
+	 * concatenated. A range of 92 days or less is one request; 2026-01-01 to 2026-12-31 is four:
+	 * `[01-01, 04-02] [04-03, 07-03] [07-04, 10-03] [10-04, 12-31]`. Checked like
+	 * {@see exportJson()} before sending; the first error stops it.
 	 *
 	 * @return list<AccountingEvent>
 	 */
@@ -106,7 +114,7 @@ final class AccountingService extends Service
 		$start = new DateTimeImmutable($from, $utc);
 		$windows = [];
 		while ($start <= $end) {
-			$windowEnd = $start->modify('+' . self::MAX_WINDOW_DAYS . ' days');
+			$windowEnd = $start->modify('+' . (self::MAX_WINDOW_DAYS - 1) . ' days');
 			if ($windowEnd > $end) {
 				$windowEnd = $end;
 			}
@@ -120,7 +128,7 @@ final class AccountingService extends Service
 	/**
 	 * Checks an export window and encodes it with the format.
 	 *
-	 * @return array<string,string>
+	 * @return array<string,string|list<string>>
 	 */
 	private static function query(string $from, string $to, string $format): array
 	{

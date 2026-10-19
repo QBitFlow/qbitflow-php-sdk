@@ -8,7 +8,8 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * `heldFunds.released`'s data: the transfer paying a member the funds the organization held for them, and the lines it settled.
+ * `heldFunds.released`'s data: the transfer paying a member the funds the organization held for
+ * them (in the member's space: the envelope's `userUuid`), and the lines it settled.
  */
 final readonly class HeldFundsReleased extends Model
 {
@@ -18,39 +19,39 @@ final readonly class HeldFundsReleased extends Model
 	public string $uuid;
 
 	/**
-	 * When it was recorded, once confirmed on-chain.
+	 * When it was recorded.
 	 */
 	public DateTimeImmutable $createdAt;
 
 	/**
-	 * The customer's wallet.
+	 * The organization's wallet.
 	 */
 	public string $from;
 
 	/**
-	 * The wallet that received it.
+	 * The member's wallet.
 	 */
 	public string $to;
 
 	/**
-	 * What the customer paid, in USD.
+	 * What the member received, in the currency's units, exact: the sum of the lines' `owed`.
 	 */
-	public float $amount;
+	public string $amount;
 
 	/**
-	 * The amount in the token's min units (a decimal string).
+	 * The same in the currency's smallest unit.
 	 */
 	public string $amountMinUnits;
 
 	/**
-	 * The currency paid in (`$client->currencies->get()`).
+	 * The same in USD, at the release's price.
 	 */
-	public int $currencyId;
+	public string $amountUsd;
 
 	/**
-	 * That currency.
+	 * The currency paid in.
 	 */
-	public ?Currency $currency;
+	public Currency $currency;
 
 	/**
 	 * The transaction's hash.
@@ -58,7 +59,7 @@ final readonly class HeldFundsReleased extends Model
 	public string $txHash;
 
 	/**
-	 * The chain it was paid on (`ETH`, `BASE`, `SOL`; the testnet's in test mode), see {@see \QBitFlow\Enums\Chain}.
+	 * The chain.
 	 */
 	public ?string $chain;
 
@@ -73,7 +74,7 @@ final readonly class HeldFundsReleased extends Model
 	public bool $test;
 
 	/**
-	 * The member whose space it is in; null for the organization's own.
+	 * The member paid.
 	 */
 	public ?string $userUuid;
 
@@ -88,12 +89,14 @@ final readonly class HeldFundsReleased extends Model
 	public string $type;
 
 	/**
-	 * The transaction's network fees and block.
+	 * The transfer's transaction: its block and what it cost its sender.
 	 */
-	public TxMetadata $txMetadata;
+	public TransferSettlement $settlement;
 
 	/**
-	 * The held-funds lines it settled.
+	 * The lines it settled, oldest first: the payments and bills it paid (positive) and the
+	 * refunds of them it took off (negative, type `refund`), each with what it counted for
+	 * (`owed`, `owedMinUnits`, `owedUsd`).
 	 *
 	 * @var list<LedgerEntry>
 	 */
@@ -108,10 +111,10 @@ final readonly class HeldFundsReleased extends Model
 		$this->createdAt = Cast::date($data, 'createdAt');
 		$this->from = Cast::string($data, 'from');
 		$this->to = Cast::string($data, 'to');
-		$this->amount = Cast::float($data, 'amount');
+		$this->amount = Cast::string($data, 'amount');
 		$this->amountMinUnits = Cast::string($data, 'amountMinUnits');
-		$this->currencyId = Cast::uint($data, 'currencyId');
-		$this->currency = Cast::nullableObject($data, 'currency', Currency::fromArray(...));
+		$this->amountUsd = Cast::string($data, 'amountUsd');
+		$this->currency = Cast::object($data, 'currency', Currency::fromArray(...));
 		$this->txHash = Cast::string($data, 'txHash');
 		$this->chain = Cast::nullableString($data, 'chain');
 		$this->explorerUrl = Cast::nullableString($data, 'explorerUrl');
@@ -119,7 +122,7 @@ final readonly class HeldFundsReleased extends Model
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
 		$this->received = Cast::bool($data, 'received');
 		$this->type = Cast::string($data, 'type');
-		$this->txMetadata = Cast::object($data, 'txMetadata', TxMetadata::fromArray(...));
+		$this->settlement = Cast::object($data, 'settlement', TransferSettlement::fromArray(...));
 		$this->ledgers = Cast::listOf($data, 'ledgers', LedgerEntry::fromArray(...));
 	}
 }

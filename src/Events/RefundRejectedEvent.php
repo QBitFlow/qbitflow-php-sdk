@@ -8,9 +8,10 @@ use QBitFlow\Models\Refund;
 use QBitFlow\Support\Cast;
 
 /**
- * `refund.denied`: A refund was denied (a rejected refund).
+ * `refund.rejected`: A customer's refund request was rejected by whoever decides it (was
+ * `refund.denied`). A decision, final.
  */
-final readonly class RefundDeniedEvent extends Event
+final readonly class RefundRejectedEvent extends Event
 {
 	/** The event's data. */
 	public Refund $data;

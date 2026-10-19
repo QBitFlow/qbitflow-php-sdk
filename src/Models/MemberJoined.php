@@ -7,12 +7,13 @@ namespace QBitFlow\Models;
 use QBitFlow\Support\Cast;
 
 /**
- * `member.joined`'s data: the member, and the invitation they accepted.
+ * `member.joined`'s data: the member, in the mode they joined, and the invitation they
+ * accepted. Store `userUuid` for On-Behalf-Of.
  */
 final readonly class MemberJoined extends Member
 {
 	/**
-	 * The invitation they accepted (`invitations->create()`'s).
+	 * The invitation they accepted (`invitations->create()`'s `uuid`): match the event to it.
 	 */
 	public string $invitationUuid;
 
