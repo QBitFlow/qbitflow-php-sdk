@@ -159,10 +159,13 @@ final class WebhookRouter
 	/**
 	 * Verifies, parses and dispatches one delivery: `$rawBody` exactly as received (never
 	 * re-serialized), `$signatureHeader` the `QBitFlow-Signature` header. Never throws: answer
-	 * `$result->status` (with `$result->responseBody()`).
+	 * `$result->status` (with `$result->responseBody()`); a body over 1 MiB is a 413, never read.
 	 */
 	public function handle(string $rawBody, string $signatureHeader): WebhookResult
 	{
+		if (strlen($rawBody) > Webhook::MAX_BODY_BYTES) {
+			return new WebhookResult(413); // before the signature: nothing reads an oversized body
+		}
 		try {
 			Webhook::verify($rawBody, $signatureHeader, $this->secret, $this->tolerance);
 			$event = Webhook::parseEvent($rawBody);

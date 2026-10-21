@@ -16,7 +16,7 @@ use Throwable;
  * - `400`: not signed by QBitFlow ({@see WebhookSignatureException}), or not a v2 event
  *   ({@see \QBitFlow\Exceptions\ValidationException}): no handler ran;
  * - `500`: a handler threw (`error`): QBitFlow retries the delivery;
- * - `405` / `413` (adapters only): not a POST, or a body over 1 MiB.
+ * - `405` (adapters only): not a POST; `413`: a body over 1 MiB (`handle()` too).
  *
  * The adapters answer {@see responseBody()}: `{"received":true}`, or `{"error":"…"}` with
  * `invalid signature`, `invalid event`, `cannot read the body` (400), `internal error` (500),

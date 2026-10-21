@@ -59,7 +59,8 @@ Base and Solana, straight to yours.
 composer require qbitflow/qbitflow-php
 ```
 
-**Requires PHP 8.2 or later**, a [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
+**Requires PHP 8.2.35, 8.3.36, 8.4.27, 8.5.12 or later in its branch** (the releases that fix
+php2shell, CVE-2026-109618 / CVE-2026-109619: see [SECURITY.md](SECURITY.md#php-interpreter-vulnerabilities-php2shell)), a [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
 [PSR-17](https://www.php-fig.org/psr/psr-17/) factories. Guzzle (already in every Laravel
 application) is detected and used automatically; otherwise install one:
 

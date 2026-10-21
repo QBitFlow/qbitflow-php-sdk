@@ -47,8 +47,18 @@ final class Webhook
 	/** How far (seconds) a signature's timestamp may be from now, by default. */
 	public const DEFAULT_TOLERANCE = 300;
 
-	/** The largest body {@see Webhook::verifyRequest()} reads (the API's own limit): 1 MiB. */
+	/**
+	 * The largest body accepted (the API's own limit): 1 MiB, on every entry point
+	 * ({@see Webhook::verifyRequest()}, {@see Webhook::constructEvent()}, {@see Webhook::parseEvent()}).
+	 */
 	public const MAX_BODY_BYTES = 1048576;
+
+	/**
+	 * The deepest JSON nesting a webhook body may have. An event is a few levels deep (your
+	 * metadata included); the bound keeps attacker-controlled input from reaching the decoder
+	 * unbounded.
+	 */
+	public const MAX_JSON_DEPTH = 64;
 
 	private const INT64_MAX = '9223372036854775807';
 
@@ -143,18 +153,20 @@ final class Webhook
 	 *
 	 * Returns the {@see Event} subclass of its type (an {@see \QBitFlow\Events\UnknownEvent} for a
 	 * type this SDK does not know). A body that is not a JSON object, whose version is not `v2`,
-	 * or whose values have the wrong JSON type, is a {@see ValidationException}.
+	 * or whose values have the wrong JSON type, is a {@see ValidationException}, as is a body over
+	 * 1 MiB ({@see MAX_BODY_BYTES}) or nested deeper than {@see MAX_JSON_DEPTH}.
 	 *
 	 * @throws ValidationException
 	 */
 	public static function parseEvent(string $rawBody): Event
 	{
+		self::assertBodySize($rawBody);
 		$trimmed = trim($rawBody);
 		if ($trimmed === '' || $trimmed[0] !== '{') {
 			throw Validator::fieldError('body', 'must be a JSON object (a webhook event)');
 		}
 		try {
-			$decoded = json_decode($trimmed, false, 512, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
+			$decoded = json_decode($trimmed, false, self::MAX_JSON_DEPTH, JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING);
 		} catch (JsonException $e) {
 			throw new ValidationException('validation failed', previous: $e, fieldErrors: [new FieldError('body', 'body is not a valid webhook event')]);
 		}
@@ -192,6 +204,7 @@ final class Webhook
 	 */
 	public static function constructEvent(string $rawBody, string $signatureHeader, string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): Event
 	{
+		self::assertBodySize($rawBody);
 		self::verify($rawBody, $signatureHeader, $secret, $tolerance, $now);
 
 		return self::parseEvent($rawBody);
@@ -222,6 +235,18 @@ final class Webhook
 		}
 
 		return 't=' . $timestamp . ',v1=' . hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
+	}
+
+	/**
+	 * A body over {@see MAX_BODY_BYTES} is refused before anything reads it.
+	 *
+	 * @throws ValidationException
+	 */
+	private static function assertBodySize(string $rawBody): void
+	{
+		if (strlen($rawBody) > self::MAX_BODY_BYTES) {
+			throw Validator::fieldError('body', 'must be at most 1 MiB');
+		}
 	}
 
 	/**
