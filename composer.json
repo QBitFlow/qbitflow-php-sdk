@@ -34,7 +34,7 @@
 		"docs": "https://qbitflow.app/docs"
 	},
 	"require": {
-		"php": "^8.2",
+		"php": "~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12",
 		"ext-json": "*",
 		"psr/http-client": "^1.0",
 		"psr/http-client-implementation": "^1.0",

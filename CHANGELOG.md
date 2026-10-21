@@ -14,7 +14,19 @@ the client, the routes, most names and the Laravel integration change.
 [MIGRATION-v3.md](MIGRATION-v3.md) maps every 2.x method and class to its replacement.
 
 This entry describes the changes since 2.1.0, the last published release (2.5.0 was prepared
-but never published; its changes are part of 3.0.0). Requires PHP **8.2** or later, as before.
+but never published; its changes are part of 3.0.0). Requires PHP **8.2.35, 8.3.36, 8.4.27 or
+8.5.12** or later in the branch (see Security).
+
+### Security
+
+-   **php2shell (CVE-2026-109618, CVE-2026-109619)**: `require.php` is now
+    `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`, the PHP releases that fix these interpreter
+    flaws: Composer refuses an unpatched PHP. A distribution's PHP with the fixes backported:
+    `--ignore-platform-req=php` ([SECURITY.md](SECURITY.md#php-interpreter-vulnerabilities-php2shell)).
+-   Webhook input is bounded on every entry point: `WebhookRouter::handle()` answers `413` to a
+    body over 1 MiB without reading it, `Webhook::constructEvent()` and `Webhook::parseEvent()`
+    throw a `ValidationException` on `body` for it, and JSON nesting is capped at
+    `Webhook::MAX_JSON_DEPTH` (64).
 
 ### ⚠️ Breaking
 
