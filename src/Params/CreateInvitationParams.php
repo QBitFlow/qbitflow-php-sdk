@@ -31,6 +31,12 @@ final readonly class CreateInvitationParams
 		 * confirm with the `member.joined` event.
 		 */
 		public ?string $redirectUrl = null,
+		/**
+		 * Whether QBitFlow emails the link to the person (null = true). false sends no invitation
+		 * email: share the returned `link` yourself. Signing up through the link still emails the
+		 * person a confirmation.
+		 */
+		public ?bool $sendEmail = null,
 	) {
 	}
 
@@ -61,6 +67,9 @@ final readonly class CreateInvitationParams
 		}
 		if ($this->redirectUrl !== null && $this->redirectUrl !== '') {
 			$out['redirectUrl'] = $this->redirectUrl;
+		}
+		if ($this->sendEmail !== null) {
+			$out['sendEmail'] = $this->sendEmail;
 		}
 
 		return $out;

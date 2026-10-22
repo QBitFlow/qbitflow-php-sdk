@@ -486,6 +486,8 @@ final class ValidationTest extends TestCase
 			[new CreateInvitationParams(email: 'a@b.co', holdFunds: false), '{"email":"a@b.co","role":"user","holdFunds":false}'],
 			[new CreateInvitationParams(email: 'a@b.co', holdFunds: true, organizationFeePercent: '2.50', redirectUrl: 'https://x.io'),
 				'{"email":"a@b.co","role":"user","holdFunds":true,"organizationFeePercent":"2.50","redirectUrl":"https://x.io"}'],
+			[new CreateInvitationParams(email: 'a@b.co', holdFunds: false, sendEmail: false), '{"email":"a@b.co","role":"user","holdFunds":false,"sendEmail":false}'],
+			[new CreateInvitationParams(email: 'a@b.co', holdFunds: false, sendEmail: true), '{"email":"a@b.co","role":"user","holdFunds":false,"sendEmail":true}'],
 			[new CreateProductParams(name: 'Pro', priceUsd: '10'), '{"name":"Pro","priceUsd":"10"}'],
 			[new CreateProductParams(name: 'Pro', priceUsd: '10', subscription: new SubscriptionTermsParams(Duration::months(1), new Duration(), 0)),
 				'{"name":"Pro","priceUsd":"10","subscription":{"frequency":{"value":1,"unit":"months"},"trialPeriod":{"value":0},"minPeriods":0}}'],

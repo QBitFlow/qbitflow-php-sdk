@@ -24,7 +24,7 @@ final readonly class MemberHeldFunds extends Model
 	public string $totalUsd;
 
 	/**
-	 * Their lines not settled: payments and bills held, refunds of them.
+	 * Their lines not settled: payments held, refunds of them.
 	 */
 	public int $count;
 

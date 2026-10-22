@@ -187,6 +187,7 @@ final class HydrationTest extends TestCase
 		$this->assertSame(['-1.0933', LedgerEntryType::REFUND, '-10.0042', 'pay@1'], [$hf->totalUsd, $hf->ledgers[1]->type, $hf->ledgers[1]->owed, $hf->ledgers[1]->refundedTxUuid]);
 		$this->assertNotNull($hf->ledgers[0]->settlement);
 		$this->assertNull($hf->ledgers[1]->settlement);
+		$this->assertSame(['payment', 'refund'], LedgerEntryType::values(), 'a held member sells no subscription: no bill line');
 
 		$w = self::decode(Models\Wallet::class, Fixtures::model('Wallet'));
 		$this->assertSame(['0xpk', 'ETH', 'BASE:USDC', '12.5', 8], [$w->address, $w->currency->code, $w->tokenWallets[0]->currency->code,

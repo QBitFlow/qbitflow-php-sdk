@@ -70,7 +70,9 @@ final class CheckoutSessionsService extends Service
 	 * Errors as {@see createPayment()}, plus 400 on `frequency` / `trialPeriod` (the frequency
 	 * minimum is 1 hour live, 5 minutes test) and on `priceUsd` for a live subscription at
 	 * `"0.25"` or less (`details.min`); a member's key needs the `members.subscriptions` policy
-	 * (403 `policy_disabled`).
+	 * (403 `policy_disabled`); 409 `merchant_not_ready` with `details.reason` `fundsHeld` for a
+	 * member whose funds the organization holds (a held member sells one-time payments only,
+	 * until `members->trust()`).
 	 */
 	public function createSubscription(CreateSubscriptionSessionParams $params, ?RequestOptions $options = null): CreatedCheckoutSession
 	{

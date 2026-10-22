@@ -305,6 +305,8 @@ final class ServiceEndpointsTest extends TestCase
 				check: static fn (self $t, Models\CreatedInvitation $v) => $t->assertSame([InvitationStatus::PENDING, 'https://qbitflow.app/invite?token=x'], [$v->status, $v->link])),
 			'invitations.create minimal' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->invitations->create(new Params\CreateInvitationParams(email: 'seller@example.com', holdFunds: false), $o),
 				'POST', '/invitations', $m('CreatedInvitation'), body: '{"email":"seller@example.com","role":"user","holdFunds":false}', idempotent: true, status: 201),
+			'invitations.create without its email' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->invitations->create(new Params\CreateInvitationParams(email: 'seller@example.com', holdFunds: true, sendEmail: false), $o),
+				'POST', '/invitations', $m('CreatedInvitation'), body: '{"email":"seller@example.com","role":"user","holdFunds":true,"sendEmail":false}', idempotent: true, status: 201),
 			'invitations.list' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->invitations->list(new Params\InvitationListParams(status: InvitationStatus::PENDING), $o),
 				'GET', '/invitations', $page($m('Invitation')), 'status=pending'),
 			'invitations.revoke' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->invitations->revoke(self::UUID_A, $o), 'DELETE', '/invitations/' . self::UUID_A, '', status: 204,

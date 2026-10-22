@@ -76,8 +76,8 @@ final readonly class Refund extends Model
 	public string $initiatedBy;
 
 	/**
-	 * True when the refunded payment or bill was paid to the organization's wallet, which holds
-	 * the seller's funds: the organization decides the refund and sends it from its wallet. Once
+	 * True when the refunded payment was paid to the organization's wallet, which holds the
+	 * seller's funds: the organization decides the refund and sends it from its wallet. Once
 	 * sent, it is a negative line of the seller's held funds.
 	 */
 	public bool $held;

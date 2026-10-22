@@ -94,9 +94,9 @@ final readonly class HeldFundsReleased extends Model
 	public TransferSettlement $settlement;
 
 	/**
-	 * The lines it settled, oldest first: the payments and bills it paid (positive) and the
-	 * refunds of them it took off (negative, type `refund`), each with what it counted for
-	 * (`owed`, `owedMinUnits`, `owedUsd`).
+	 * The lines it settled, oldest first: the payments it paid (positive) and the refunds of
+	 * them it took off (negative, type `refund`), each with what it counted for (`owed`,
+	 * `owedMinUnits`, `owedUsd`).
 	 *
 	 * @var list<LedgerEntry>
 	 */

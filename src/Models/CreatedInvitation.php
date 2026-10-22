@@ -13,7 +13,8 @@ use QBitFlow\Support\Cast;
 final readonly class CreatedInvitation extends Invitation
 {
 	/**
-	 * The link to accept it, also emailed to the person: share it in your own onboarding if you prefer.
+	 * The link to accept it, also emailed to the person unless `sendEmail` was false: share it in
+	 * your own onboarding if you prefer.
 	 */
 	public string $link;
 
