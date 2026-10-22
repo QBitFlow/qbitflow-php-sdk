@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use QBitFlow\Enums\MerchantNotReadyReason;
 use QBitFlow\Exceptions\ApiException;
 use QBitFlow\Exceptions\AuthenticationException;
 use QBitFlow\Exceptions\BadRequestException;
@@ -30,6 +31,7 @@ use QBitFlow\Http\Requester;
 use QBitFlow\Http\Transport;
 use QBitFlow\Models\Product;
 use QBitFlow\Models\Subscription;
+use QBitFlow\Params\CreateSubscriptionSessionParams;
 use QBitFlow\Params\PaymentListParams;
 use QBitFlow\RequestOptions;
 use QBitFlow\Support\Query;
@@ -330,6 +332,20 @@ final class TransportTest extends TestCase
 			$this->assertSame('members.products', $e->details['policy']);
 			$this->assertSame('hdr-id', $e->requestId);
 			$this->assertSame('policy_disabled', $e->apiCode);
+		}
+	}
+
+	#[Test]
+	public function a_held_members_subscription_checkout_is_not_ready(): void
+	{
+		$this->assertSame(['noWallet', 'organizationNoWallet', 'noTokenWallet', 'fundsHeld'], MerchantNotReadyReason::values());
+
+		$client = $this->client(MockHttpClient::static(409, '{"error":"a held member sells one-time payments only","code":"merchant_not_ready","details":{"reason":"fundsHeld"}}'));
+		try {
+			$client->checkoutSessions->createSubscription(new CreateSubscriptionSessionParams(productUuid: '019eca82-5680-7b00-8000-0000000000a1'));
+			$this->fail('want a ConflictException');
+		} catch (ConflictException $e) {
+			$this->assertSame(['merchant_not_ready', MerchantNotReadyReason::FUNDS_HELD], [$e->apiCode, $e->details['reason']]);
 		}
 	}
 

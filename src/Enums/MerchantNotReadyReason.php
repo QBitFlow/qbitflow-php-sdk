@@ -19,6 +19,12 @@ final class MerchantNotReadyReason
 	public const NO_TOKEN_WALLET = 'noTokenWallet';
 
 	/**
+	 * A subscription checkout of a member whose funds the organization holds: one-time payments
+	 * only until `members->trust()`.
+	 */
+	public const FUNDS_HELD = 'fundsHeld';
+
+	/**
 	 * Every value this SDK knows.
 	 *
 	 * @return list<string>
@@ -29,6 +35,7 @@ final class MerchantNotReadyReason
 			self::NO_WALLET,
 			self::ORGANIZATION_NO_WALLET,
 			self::NO_TOKEN_WALLET,
+			self::FUNDS_HELD,
 		];
 	}
 

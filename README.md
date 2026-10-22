@@ -412,7 +412,8 @@ echo "Subscribe at {$session->link}\n";
   URLs must be `https`. A redirect proves nothing (anyone can open the URL): fulfil on the
   webhook, or on `get()`.
 - **Errors to expect:** `409 merchant_not_ready` (`details['reason']`) when the space's wallets
-  accept no currency; `409 unique_violation` when another payment or open session holds the
+  accept no currency, or for a subscription of a member whose funds you hold (`fundsHeld`);
+  `409 unique_violation` when another payment or open session holds the
   `reference`; `400 validation_failed` above `"5"` USD in test mode, fees included
   (`details['max']` `"5"`), or for a live subscription at `"0.25"` or less (`details['min']`);
   `404` for an unknown product or customer; `410 merchant_closed` for a removed member's or a
@@ -878,9 +879,11 @@ echo "Invitation {$created->uuid}: {$created->link}\n"; // the link is also emai
 <!-- /docs:snippet -->
 
 `holdFunds` is required; the fee is a percent string, `"0"` to `"50"`, at most 2 decimals. The
-answer is the invitation itself with its `link` (a `CreatedInvitation`). Inviting a member is a
-`409 already_joined`, and more than 50 invitations an hour a 429 (thrown at once: the wait is over
-the SDK's 60 s retry cap).
+answer is the invitation itself with its `link` (a `CreatedInvitation`). `sendEmail: false`
+creates the invitation without emailing it: share `link` in your own onboarding (signing up
+through it still emails the person a confirmation). Inviting a member is a `409 already_joined`,
+and more than 50 invitations an hour, emailed or not, a 429 (thrown at once: the wait is over the
+SDK's 60 s retry cap).
 
 **2. Wait for `member.joined`.** The seller exists once they accepted: store the event's
 `userUuid` and match `invitationUuid` to your invitation. Never trust the redirect's
@@ -914,6 +917,11 @@ $session = $seller->checkoutSessions->createPayment(new CreatePaymentSessionPara
 )); // 403 policy_disabled when your policies don't let members do this
 echo $session->link, "\n";
 ```
+
+While you hold a seller's funds (`Member::$trustedAt` null), they sell **one-time payments only**:
+a subscription checkout in their space answers `409 merchant_not_ready` with `details['reason']`
+`fundsHeld` (`QBitFlow\Enums\MerchantNotReadyReason::FUNDS_HELD`) until you trust them
+(`members->trust()`), and their subscription products' links open nothing.
 
 **4. Hear of every sale.** An organization webhook endpoint receives every seller's events by
 default; the event's `userUuid` names the seller. Use it as `onBehalfOf` for follow-up reads.

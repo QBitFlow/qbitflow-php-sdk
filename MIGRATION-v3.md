@@ -363,7 +363,7 @@ the session expires, so never cancel an order on it.
 | `RefundStatus::REFUSED` (`refused`), `RefundStatus::FAILED` | `RefundStatus::REJECTED` (`rejected`); `PENDING` is a customer's request; `FAILED` is declared, never set |
 | `CombinedPaymentSource::SUBSCRIPTION_HISTORY` (`subscription_history`) | `TransactionKind::BILL` (`bill`) on `Transaction::$type` |
 | `AccountingEventType::SUBSCRIPTION_HISTORY` | `AccountingEventType::BILL` (`bill`) |
-| ledger lines `subscription_history` | `LedgerEntryType::BILL` (`bill`) |
+| — | `LedgerEntryType` (held-funds lines): `LedgerEntryType::PAYMENT`, `LedgerEntryType::REFUND` (a held seller sells no subscription: no bill line) |
 | `UserRole` (`ADMIN`, `USER`, `OWNER`) | `Role` (`OWNER`, `ADMIN`, `USER`, `HANDLE`) |
 | `ExportFormat`, `SubscriptionWebhookType`, `TransactionShortType`, `TransactionStatusValue` | removed |
 

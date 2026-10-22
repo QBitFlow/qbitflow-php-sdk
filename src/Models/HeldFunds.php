@@ -12,8 +12,8 @@ use QBitFlow\Support\Cast;
 final readonly class HeldFunds extends Model
 {
 	/**
-	 * The lines not settled yet, oldest first: the payments and bills held (positive), and the
-	 * refunds sent of them (negative, type `refund`). `[]` when nothing is held.
+	 * The lines not settled yet, oldest first: the payments held (positive), and the refunds
+	 * sent of them (negative, type `refund`). `[]` when nothing is held.
 	 *
 	 * @var list<LedgerEntry>
 	 */

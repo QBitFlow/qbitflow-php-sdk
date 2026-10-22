@@ -8,7 +8,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [3.0.0] - 2026-10-19
 
 The SDK for **QBitFlow API v2**, aligned with the final API v2 contract (api-hub `docs/api` @
-`fab875c`) and with the behaviour contract the Go, JavaScript, Python and PHP SDKs 3.0.0 share
+`b97ca6c`) and with the behaviour contract the Go, JavaScript, Python and PHP SDKs 3.0.0 share
 (same services, methods, errors, retries, validation and webhook verification). A major release:
 the client, the routes, most names and the Laravel integration change.
 [MIGRATION-v3.md](MIGRATION-v3.md) maps every 2.x method and class to its replacement.
@@ -76,9 +76,10 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2.35, 8.3.
     API's lowerCamelCase (`pastDue`, `trialExpired`); `TransactionType::ONE_TIME_PAYMENT` →
     `PAYMENT`, `EXECUTE_SUBSCRIPTION_PAYMENT` → `EXECUTE_SUBSCRIPTION`; `UserRole` → `Role`;
     `RefundStatus::REFUSED` → `REJECTED`, and `FAILED` stays (declared, never set);
-    `LedgerEntryType` and `AccountingEventType`
-    `subscriptionHistory` → `BILL` (`bill`); `CombinedPaymentSource` → `TransactionKind`
-    (`PAYMENT`, `BILL`); `WebhookPayloadVersion::V1` is removed (v2 is the only payload).
+    `AccountingEventType` `subscriptionHistory` → `BILL` (`bill`); `LedgerEntryType` is
+    `PAYMENT` or `REFUND` only (a held seller sells no subscription, so no bill is ever a
+    held-funds line); `CombinedPaymentSource` → `TransactionKind` (`PAYMENT`, `BILL`);
+    `WebhookPayloadVersion::V1` is removed (v2 is the only payload).
 -   **Ids are UUID strings.** Products are named by `uuid` (was the numeric `id`), and
     `productId` is `productUuid` everywhere; people are named by their user UUID (`userId` →
     `userUuid`). `organizationId` is gone from every model. Currencies keep numeric ids.
@@ -254,7 +255,12 @@ but never published; its changes are part of 3.0.0). Requires PHP **8.2.35, 8.3.
     once approved, its `settlement`.
 -   `members` (`list`, `iterate`, `get`, `update`, `remove`, `trust`, `listHeldFunds`,
     `getHeldFunds`, `getOwnHeldFunds`) and `invitations` (`create`, `list`, `iterate`,
-    `revoke`) for marketplaces.
+    `revoke`) for marketplaces. `CreateInvitationParams(sendEmail: …)` (null = emailed): `false`
+    creates the invitation without emailing it, to share its `link` yourself.
+-   `Enums\MerchantNotReadyReason` (`details['reason']` of a `409 merchant_not_ready`):
+    `NO_WALLET`, `ORGANIZATION_NO_WALLET`, `NO_TOKEN_WALLET`, and `FUNDS_HELD` (`fundsHeld`), a
+    subscription checkout of a member whose funds the organization holds (a held member sells
+    one-time payments only, until `members->trust()`).
 -   `wallets` (`list` with balances, `listForMember`, `listAcceptedCurrencies`),
     `accounting->exportCsv()`, `currencies->list()` and `get()`.
 -   `Models\TokenAmount` (`amount`, `amountMinUnits`, `amountUsd`), the shape of every token
