@@ -1,7 +1,8 @@
 # QBitFlow PHP SDK
 
 [![Packagist](https://img.shields.io/packagist/v/qbitflow/qbitflow-php.svg)](https://packagist.org/packages/qbitflow/qbitflow-php)
-[![PHP Version](https://img.shields.io/badge/PHP-8.2+-777BB4?style=flat&logo=php)](https://www.php.net/)
+[![PHP](https://img.shields.io/badge/PHP-~8.2.35_%7C%7C_~8.3.36_%7C%7C_~8.4.27_%7C%7C_%3E%3D8.5.12-777BB4?style=flat&logo=php)](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md#php-interpreter-vulnerabilities-php2shell)
+[![CI](https://github.com/QBitFlow/qbitflow-php-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/QBitFlow/qbitflow-php-sdk/actions/workflows/ci.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The official PHP SDK for [QBitFlow](https://qbitflow.app), non-custodial crypto payments: hosted
@@ -9,7 +10,7 @@ checkouts, one-time payments, subscriptions, refunds, marketplaces with commissi
 funds, accounting exports and signed webhooks. Customers pay from their own wallets, on Ethereum,
 Base and Solana, straight to yours.
 
-- **API v2**, every integrator route: 14 services, 54 routes.
+- **API v2**, every integrator route: 14 services, 53 public routes.
 - **Typed end to end**: readonly params classes with named arguments, readonly models named
   exactly as the API's JSON, typed webhook events. Money is a decimal string everywhere, never a
   float.
@@ -26,7 +27,7 @@ Base and Solana, straight to yours.
 - **PSR-18 / PSR-17**: any HTTP client; **Laravel** service provider, facade, middleware, events
   and Artisan commands included.
 
-> Coming from 2.x? Read [MIGRATION-v3.md](MIGRATION-v3.md): 3.0.0 targets API v2 and changes the
+> Coming from 2.x? Read [MIGRATION-v3.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/MIGRATION-v3.md): 3.0.0 targets API v2 and changes the
 > client, the models and most names.
 
 ## Contents
@@ -59,10 +60,19 @@ Base and Solana, straight to yours.
 composer require qbitflow/qbitflow-php
 ```
 
-**Requires PHP 8.2.35, 8.3.36, 8.4.27, 8.5.12 or later in its branch** (the releases that fix
-php2shell, CVE-2026-109618 / CVE-2026-109619: see [SECURITY.md](SECURITY.md#php-interpreter-vulnerabilities-php2shell)), a [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
-[PSR-17](https://www.php-fig.org/psr/psr-17/) factories. Guzzle (already in every Laravel
-application) is detected and used automatically; otherwise install one:
+### Requirements
+
+- **PHP `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`**: 8.2.35, 8.3.36, 8.4.27, 8.5.12 or later in
+  its branch, the releases that fix php2shell (CVE-2026-109618 / CVE-2026-109619: see
+  [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md#php-interpreter-vulnerabilities-php2shell)); Composer refuses an older
+  interpreter. The `json` extension (bundled with PHP).
+- A [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
+  [PSR-17](https://www.php-fig.org/psr/psr-17/) factories.
+- Optional: **Laravel 10, 11 or 12** for the service provider, facade, middleware, events and
+  Artisan commands (auto-discovered; see [Laravel](#laravel)). The core client needs no framework.
+
+The SDK has no runtime dependency beyond the PSR interfaces. Guzzle (already in every Laravel
+application) and Symfony HttpClient are detected and used automatically; otherwise install one:
 
 ```bash
 composer require guzzlehttp/guzzle        # or: symfony/http-client nyholm/psr7
@@ -100,7 +110,7 @@ header('Location: ' . $session->link); // send the customer to the hosted checko
 ```
 <!-- /docs:snippet -->
 
-The snippets in this README come from the runnable programs in [`examples/`](examples) and name
+The snippets in this README come from the runnable programs in [`examples/`](https://github.com/QBitFlow/qbitflow-php-sdk/tree/main/examples) and name
 classes by their fully qualified names (`\QBitFlow\Params\…`), so they work in any namespace; a
 `use` statement does the same.
 
@@ -119,7 +129,7 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
   verbatim (the bare UUID works too). Only currencies keep numeric ids (`int`).
 - **Models are readonly classes** whose properties are the API's JSON keys (`$payment->txHash`,
   `$payment->settlement->split->merchant->amount`). A field the API always sends is non-nullable
-  (its zero value when absent: `''`, `0`, `false`, `[]`, Go's zero time `0001-01-01T00:00:00Z`,
+  (its zero value when absent: `''`, `0`, `false`, `[]`, the zero time `0001-01-01T00:00:00Z`,
   see `QBitFlow\Support\Time::isZero()`); an optional field is nullable (`null` when absent).
 - **Money is a decimal string** everywhere, inputs included, never a float: USD amounts
   (`priceUsd: '4.99'`, `amountUsd`), token amounts in the token's units (`amount` `"10"` for 10
@@ -131,6 +141,31 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
 - **Enums** are plain strings with a constants class (`QBitFlow\Enums\SubscriptionStatus::ACTIVE`).
   A value this SDK does not know yet is kept as is: give every `match` a `default` arm.
 - **Times** are `DateTimeImmutable`, with the offset the API sent and microseconds.
+
+### Services at a glance
+
+53 public routes, plus local webhook helpers. `iterate()` / `iterateBills()` walk every page of
+the list next to them; a "bounded" list answers one page, returned as a plain array.
+
+| Service | Methods (route) |
+|---|---|
+| client | `me()` (`GET /me`), `onBehalfOf($userUuid)` (a derived client) |
+| `products` | `list()` / `iterate()` (`GET /products`), `create()` (`POST /products`), `get()` (`GET /products/:uuid`), `getByReference()` (`GET /products?reference=`), `update()` (`PATCH /products/:uuid`), `delete()` (`DELETE /products/:uuid`) |
+| `customers` | `list()` / `iterate()`, `create()`, `get()`, `getByReference()`, `update()`, `delete()` (`/customers…`, as products) |
+| `currencies` | `list()` (`GET /currencies`, bounded), `get($id)` (`GET /currencies/:id`) |
+| `checkoutSessions` | `createPayment()` (`POST /checkout-sessions/payment`), `createSubscription()` (`POST /checkout-sessions/subscription`), `get()` (`GET /checkout-sessions/:uuid`), `expire()` (`POST /checkout-sessions/:uuid/expire`), `waitForCompletion()` (polls `get()`) |
+| `payments` | `list()` / `iterate()` (`GET /payments`), `get()` (`GET /payments/:uuid`), `getByReference()` |
+| `transactions` | `list()` / `iterate()` (`GET /transactions`: payments and bills) |
+| `failures` | `list()` / `iterate()` (`GET /payment-failures`) |
+| `subscriptions` | `list()` / `iterate()` (`GET /subscriptions`), `get()` (`GET /subscriptions/:uuid`), `getByReference()`, `update()` (`PATCH /subscriptions/:uuid`), `listBills()` / `iterateBills()` (`GET /subscriptions/:uuid/bills`), `getBill()` (`GET /bills/:uuid`), `cancel()` (`POST /subscriptions/:uuid/cancel`), `testBill()` (`POST /subscriptions/:uuid/test-bill`) |
+| `refunds` | `list()` / `iterate()` (`GET /refunds`), `get()` (`GET /refunds/:uuid`) |
+| `members` | `list()` / `iterate()` (`GET /members`), `get()`, `update()`, `remove()` (`GET` / `PATCH` / `DELETE /members/:userUuid`), `trust()` (`POST /members/:userUuid/trust`), `listHeldFunds()` (`GET /members/held-funds`, bounded), `getHeldFunds()` (`GET /members/:userUuid/held-funds`), `getOwnHeldFunds()` (`GET /held-funds`) |
+| `invitations` | `create()` (`POST /invitations`), `list()` / `iterate()` (`GET /invitations`), `revoke()` (`DELETE /invitations/:uuid`) |
+| `wallets` | `list()` (`GET /wallets`), `listForMember()` (`GET /members/:userUuid/wallets`), `listAcceptedCurrencies()` (`GET /wallets/accepted-currencies`), all bounded |
+| `accounting` | `exportJson()` / `exportCsv()` (`GET /accounting/export`, at most 92 days), `exportJsonRange()` / `exportCsvRange()` (any range, split and joined) |
+| `webhooks` | `verifyRemote()` (`POST /webhooks/verify`); local, no request: `router()`, `verify()`, `constructEvent()`, `parseEvent()` |
+| `webhooks->endpoints` | `list()` / `iterate()`, `create()`, `get()`, `update()`, `delete()` (`/webhooks/endpoints…`) |
+| `webhooks->events` | `list()` / `iterate()` (`GET /webhooks/events`), `get()` (`GET /webhooks/events/:id`) |
 
 ## Integration recipes
 
@@ -316,27 +351,29 @@ join the parts (see [Accounting export](#accounting-export)).
 
 Every request sends your API key in `X-API-Key`. Keys are created in the QBitFlow dashboard; each
 belongs to one **space** (your organization's, or one of its members') and one **mode** (test or
-live). The constructor only checks the key's shape (non-blank, starting with `sk_`) and sends
-nothing: call `me()` to check it online ([quick start](#quick-start)). `$me->role` is `admin` for
+live). The constructor only checks the key's shape (non-blank, starting with `sk_`, printable
+ASCII without spaces) and sends nothing: call `me()` to check it online
+([quick start](#quick-start)). `$me->role` is `admin` for
 an organization key, and a job that must run in test mode can refuse to start unless
 `$me->space?->test` is true.
 
-Keep the key in a secret store or an environment variable, never in code. Keys issued before API v2
-(`sk_<digits>_…`) are refused by the API (401): create a new key in the dashboard. The SDK only
-checks the `sk_` prefix.
+Keep the key in a secret store or an environment variable, never in code. API v2 issues keys
+shaped `sk_<test|live>_<uuid>_<secret>`; keys in an earlier format (v1's `sk_<digits>_…`, and
+`sk_<uuid>_<test|live>_…`) are refused by the API (401): create a new key in the dashboard. The
+SDK never parses the key: it only checks the `sk_` prefix and the characters.
 
 ### `On-Behalf-Of`: acting in a member's space
 
 A marketplace's **organization key** can act in any of its members' spaces: create their products
 and checkouts, read their payments. Name the member by their **user UUID** (`Member::$userUuid`,
-also in the `member.joined` webhook). A non-member, an owner or admin of the team, or a member of
-the other mode answers 404. Acting for a member, the role is `user`: the admin methods (members,
+also in the `member.joined` webhook). A user who is not a member (someone on the organization's
+team included), or a member of the other mode, answers 404. Acting for a member, the role is `user`: the admin methods (members,
 invitations, `wallets->listForMember()`) answer 403.
 
 <!-- docs:snippet client-on-behalf-of -->
 ```php
 // An organization key acts in a member's space: every request sends On-Behalf-Of.
-$seller = $client->onBehalfOf($memberUuid); // shares $client's transport and settings
+$seller = $client->onBehalfOf($memberUuid); // shares $client's transport and configuration
 echo count($seller->products->list()->items), " products on the first page of the member's space\n";
 ```
 <!-- /docs:snippet -->
@@ -360,6 +397,17 @@ echo count($own->items), " products of the organization\n";
 A value that is not a UUID (or the nil UUID) is a `ValidationException`, thrown at once by
 `onBehalfOf()` or the constructor, and nothing is sent.
 
+### Test and live mode
+
+A key belongs to one mode, and every result it reads is that mode's: a test-mode key
+(`sk_test_…`) sees only test-mode resources, paid on test networks with test tokens, and a
+live-mode key (`sk_live_…`) only live ones. There is no per-request mode switch: use one client per
+key (one for staging, one for production). `$client->me()->space?->test` tells which mode a key is
+in. Test mode caps a checkout at `"5"` USD (fees included), takes `http` redirect URLs, and is the
+only mode where `subscriptions->testBill()` works (a live subscription answers
+`400 test_mode_only`); webhooks, events and objects carry `test` so a shared handler can tell them
+apart.
+
 ## Checkout sessions
 
 A checkout session is a hosted payment page. Create it, send your customer to its `link`, and act
@@ -382,7 +430,8 @@ echo "Pay at {$session->link}\n";
 ```
 <!-- /docs:snippet -->
 
-The other fields: `reference` (your order id, unique per space), `customerUuid` or
+The other fields: `reference` (your order id, unique per space; like every reference, 1 to 100
+of `A-Z a-z 0-9 . _ : @ -`, and never `.` or `..` alone), `customerUuid` or
 `customerReference` (kept on the payment), `successUrl` / `cancelUrl`, `expiresInMinutes` (10 to
 1440; null = the default) and `metadata` (your own data, copied onto the payment or subscription
 and into its webhooks; at most 50 keys).
@@ -411,6 +460,14 @@ echo "Subscribe at {$session->link}\n";
   (`QBitFlow\Placeholders::UUID`, `::TRANSACTION_TYPE`; the SDK sends them as they are). In live mode both
   URLs must be `https`. A redirect proves nothing (anyone can open the URL): fulfil on the
   webhook, or on `get()`.
+- **A member's redirects follow the organization's policy.** A member's own key may send
+  `successUrl` and `cancelUrl` while the organization's `members.checkoutRedirects` policy allows
+  it (it does by default, so a member's shop sends its customers back to its own site). With the
+  policy off, either URL is a `403 policy_disabled` (a `PermissionDeniedException` with
+  `$e->details['policy']` `members.checkoutRedirects` and `$e->details['field']` naming the URL,
+  `successUrl` first) and nothing is created: the member's checkouts then go where the
+  organization's checkout defaults say. An organization key may always send both, acting for the
+  member (`onBehalfOf`) or not.
 - **Errors to expect:** `409 merchant_not_ready` (`details['reason']`) when the space's wallets
   accept no currency, or for a subscription of a member whose funds you hold (`fundsHeld`);
   `409 unique_violation` when another payment or open session holds the
@@ -456,9 +513,9 @@ echo "Pay at {$session->link}\n"; // the customer pays the price, the shipping a
   were taken ($100 + $20 VAT at 0.99 % → a $1.20 processing fee, $121.20 charged, $120.00 kept).
   The rate is the checkout's: QBitFlow's fee for your space when the checkout is created (a
   schedule by volume, unless QBitFlow set you a custom rate). Left `null`, the space's
-  **`checkout.customerPaysProcessingFee`** setting decides (set in the dashboard, off by default;
-  members may set their own; it also applies to product links); `false` turns it off for this
-  checkout.
+  **`checkout.customerPaysProcessingFee`** setting decides (off by default; set by the
+  organization, for its own space and for each member's: a member can't change it; it also
+  applies to product links); `false` turns it off for this checkout.
 - **What the customer pays** is the payment's `amountUsd` = the price + every line; the network
   fee comes on top, once they pick a currency. QBitFlow's fee (and a marketplace's organization
   fee) is taken on that amount. Test mode caps it, fees included, at `"5"` USD (`400` on `fees`).
@@ -595,9 +652,9 @@ $customer = $client->customers->getByReference('crm-42');
 $page = $client->customers->list(new CustomerListParams(email: 'ada@example.com'));
 ```
 
-`customers->get()`, `list()` / `iterate()` (by `email`, `reference` or `verified`) and `delete()`
-(204) complete the set. An email is not unique: a customer QBitFlow created from the email a payer
-typed at checkout is `verified` false, and is never linked to a verified one; the `reference` is
+`customers->get()`, `list()` / `iterate()` (by `email` or `reference`) and `delete()` (204)
+complete the set. An email is not unique: a checkout that names no customer creates one from the
+email its payer typed, so several customers of a space may share an address; the `reference` is
 unique per space (409 `unique_violation`). A checkout given `customerUuid` or `customerReference` asks the
 customer nothing; without either, the checkout asks what your `checkout.customerDetails` setting
 says (the full details by default).
@@ -743,6 +800,9 @@ foreach ($client->subscriptions->iterateBills($subscriptionUuid) as $bill) {
   `GET /subscriptions?reference=`; a `NotFoundException` when none); `getBill()` one bill
   (`sub-hist@…`, `GET /bills/:uuid`).
 - Before its checkout completes, `subscriptions->get()` is a 404: read the checkout session instead.
+- With an organization key acting for itself, `get()` and `getBill()` read a member's subscription
+  or bill with `new \QBitFlow\Params\ReadParams(includeMembers: true)` (or act `onBehalfOf` the
+  member).
 
 ### Metadata
 
@@ -778,7 +838,9 @@ if ($result->pending) {
 <!-- /docs:snippet -->
 
 `cancel()` answers 200 when done and 202 (`pending`) while confirming on-chain. It is never retried
-automatically (409 `subscription_already_stopped_or_inactive`, 404 once cancelled).
+automatically. Errors worth knowing: 409 `subscription_already_stopped_or_inactive` (`immediate:
+false` on a subscription already `stopped`), 409 `tx_already_sent` (a cancellation is running),
+404 (already cancelled, or another space's).
 
 ### Test billing
 
@@ -854,7 +916,7 @@ token paid. There is one refund per transaction, whatever it became: `$payment->
 `notRefundableReason` say whether one would be accepted now.
 
 A refund is `pending` (a customer's request waiting for your answer), `approved` or `rejected`
-(both final); `failed` is declared but never set. `initiatedBy` is `customer` or `merchant`.
+(both final). `initiatedBy` is `customer` or `merchant`.
 
 ## Marketplaces
 
@@ -1236,8 +1298,8 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 - **Members' events** carry the member in `$event->userUuid`: read their resources with
   `$client->onBehalfOf($event->userUuid)`.
 - **No fixed source IPs**: verify the signature, never allow-list addresses.
-- **v2 only.** Every endpoint receives the v2 envelope (`version` `v2`, the only payload
-  version); a body with another version is a `ValidationException` ("unsupported payload version").
+- **v2 only.** Every endpoint receives the API v2 event envelope; the SDK checks it, and a body in
+  another payload version is a `ValidationException` ("unsupported payload version").
 - Not holding the secret? `$client->webhooks->verifyRemote($endpointUuid, $rawBody, $header)` has
   the API check it (a `WebhookSignatureException` with reason `invalidSignature` when it does not
   match), then `Webhook::parseEvent()` parses the body.
@@ -1259,7 +1321,7 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 | `webhook.test` | `WebhookTestEvent` | `WebhookTest`: `endpointUuid`, `message` (the dashboard's test) |
 | any other | `UnknownEvent` | the raw `data` array |
 
-Every event also has `id`, `type`, `version`, `createdAt`, `test`, `userUuid` and `rawData`;
+Every event also has `id`, `type`, `createdAt`, `test`, `userUuid` and `rawData`;
 `$event->decodeData(Subscription::fromArray(...))` reads the data as another model. Webhook data
 never carries what only API reads return (`customer`, `refund`/`refundable`, `dunning`,
 `approval`, a refund's `customerUuid` and `productName`). In Laravel, the [route, middleware and events](#laravel) do all of this.
@@ -1298,6 +1360,11 @@ foreach ($client->webhooks->events->iterate(new EventListParams(type: EventType:
 	break; // the first one is enough here: breaking stops the fetching
 }
 ```
+
+Each attempt (`DeliveryAttempt`) has `delivered` (the endpoint answered a 2xx), `statusCode` (null
+when the endpoint didn't answer) and `error`. An attempt with `skipped: true` was never posted: the
+endpoint is a member's and the organization's `members.webhooks` policy was off for them (no
+`statusCode`; not retried, and not counted against the endpoint's health).
 
 ## Currencies
 
@@ -1396,7 +1463,7 @@ Every exception the SDK throws extends `QBitFlow\Exceptions\QBitFlowException` (
 | `ValidationException` | 400 `validation_failed`, or input the SDK refused **before sending** (`status` 0) | `fieldErrors`: each failing input by its wire name, dotted when nested (`frequency.unit`) |
 | `BadRequestException` | any other 400 | `foreign_key_violation` (`details['field']`), `test_mode_only`, `sender_is_receiver` |
 | `AuthenticationException` | 401 | a missing, unknown, expired or revoked key (a removed member's keys too) |
-| `PermissionDeniedException` | 403 | `forbidden`, `policy_disabled` (`details['policy']`), `plan_required` |
+| `PermissionDeniedException` | 403 | `forbidden` (the key's role or a bad `On-Behalf-Of`; no details), `policy_disabled` (a member's key while the organization's member policy is off: `details['policy']`, and `details['field']` when the policy governs a request field, e.g. `successUrl` / `cancelUrl` under `members.checkoutRedirects`) |
 | `NotFoundException` | 404 | unknown, deleted, or outside the request's space |
 | `ConflictException` | 409 | `unique_violation` (`details['field']`), `tx_already_sent`, `merchant_not_ready` (`details['reason']`), `held_funds_pending`, `already_joined`, `payment_not_due`, `idempotency_key_in_use`, `conflict` |
 | `GoneException` | 410 | `merchant_closed`: a removed member's or a closed organization's space |
@@ -1405,7 +1472,7 @@ Every exception the SDK throws extends `QBitFlow\Exceptions\QBitFlowException` (
 | `ServerException` | 5xx (503 `network_unavailable`, 504 `timeout`), an unexpected 3xx (redirects are never followed), a 2xx whose body is not the expected JSON | |
 | `NetworkException` | no response: DNS, connection, TLS, timeout | `getPrevious()`: the PSR-18 client's exception |
 | `WebhookSignatureException` | a webhook signature refused, locally or by `verifyRemote()` | `reason` |
-| `ApiException` | any other HTTP error (e.g. 413 `request_too_large`) | |
+| `ApiException` | any other HTTP error | 413 `request_too_large`; 405 `method_not_allowed` (a route called with a method it doesn't take, never sent by the SDK; the `Allow` header lists the methods) |
 
 Each carries `status` (`getStatus()`; `0` without a response), **`apiCode`** (`getApiCode()`:
 branch on it, never on the message), `errorMessage`, `details` (an array, never null),
@@ -1439,7 +1506,8 @@ says when to retry (`$e->retryAfter`, seconds).
 
 **Client-side validation.** Each params class has a `validate()` method, run before every
 request: names and texts (lengths in characters, no markup characters), references
-(`A-Z a-z 0-9 . _ : @ -`, 1 to 100; the `getByReference()` argument too), emails, phone numbers,
+(`A-Z a-z 0-9 . _ : @ -`, 1 to 100, never `.` or `..` alone; the reference filters and the
+`getByReference()` argument too), emails, phone numbers,
 absolute `http(s)` URLs, USD amounts (decimal strings: above 0, at most 1,000,000, at most 2
 decimals, compared exactly), percents (decimal strings, at most 2 decimals), metadata (at most 50
 keys of 1 to 40 of `A-Z a-z 0-9 _ - . :`, values of at most 500 characters without control or
@@ -1514,12 +1582,12 @@ $client = new QBitFlow(
 
 | Constructor argument | Default | |
 |---|---|---|
-| `apiKey` | required | non-blank, starting with `sk_` |
-| `baseUrl` | `https://api.qbitflow.app/v2` (`QBitFlow::DEFAULT_BASE_URL`) | an absolute `http(s)` URL; a trailing `/` is stripped |
-| `timeout` | 30.0 (`DEFAULT_TIMEOUT`) | seconds per attempt, positive; applied to the HTTP client the SDK builds (set it on your own client) |
+| `apiKey` | required | non-blank, starting with `sk_`, printable ASCII without spaces |
+| `baseUrl` | `https://api.qbitflow.app/v2` (`QBitFlow::DEFAULT_BASE_URL`) | an absolute `http(s)` URL without credentials, query or fragment; a trailing `/` is stripped |
+| `timeout` | 30.0 (`DEFAULT_TIMEOUT`) | seconds per attempt, positive: the whole attempt, through the last byte of the answer; applied to the HTTP client the SDK builds (set it on your own client) |
 | `maxRetries` | 3 (`DEFAULT_MAX_RETRIES`) | `0` disables retries; negative is refused |
 | `onBehalfOf` | none | every request acts in that member's space |
-| `httpClient`, `requestFactory`, `streamFactory` | auto-detected (Guzzle, Symfony, Nyholm, …) | your PSR-18 client and PSR-17 factories; the client must not follow redirects and should not throw on HTTP errors |
+| `httpClient`, `requestFactory`, `streamFactory` | auto-detected (Guzzle, Symfony, Nyholm, …) | your PSR-18 client and PSR-17 factories; the client must not follow redirects (a redirect to another host would carry your `X-API-Key` there: Guzzle 7's PSR-18 calls never follow one, a Symfony client needs `max_redirects: 0`) and should not throw on HTTP errors |
 
 | `RequestOptions` (every method, last argument) | |
 |---|---|
@@ -1542,7 +1610,8 @@ changes; `$client->onBehalfOf()` derives clients that share it. Every request se
 
 ## Laravel
 
-The package is auto-discovered: a singleton `QBitFlow` client (also the `QBitFlow` facade), the
+Laravel **10, 11 and 12** are supported (Composer refuses Laravel 9 and earlier). The package is
+auto-discovered: a singleton `QBitFlow` client (also the `QBitFlow` facade), the
 `config/qbitflow.php` file, the `qbitflow.webhook` middleware, the `Route::qbitflowWebhooks()`
 macro, one Laravel event per webhook type, and two Artisan commands.
 
@@ -1626,41 +1695,42 @@ params classes, REST routes (`PATCH` updates, `DELETE` answering 204), money as 
 UUID ids, members and invitations instead of users and claims, a new webhook signature and typed
 events (`refund.approved` / `refund.rejected`), paginated lists with `hasMore`, a new exception
 taxonomy, and a rebuilt Laravel integration.
-**[MIGRATION-v3.md](MIGRATION-v3.md)** maps every 2.x method and class to its replacement, with
-before/after code for the common tasks.
+**[MIGRATION-v3.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/MIGRATION-v3.md)** maps every 2.x method and class to its replacement, with
+before/after code for the common tasks, and ends with an upgrade checklist.
 
 ## Examples
 
-Runnable scripts in [`examples/`](examples) (`QBITFLOW_API_KEY=sk_… php examples/<name>.php`):
+Runnable scripts in [`examples/`](https://github.com/QBitFlow/qbitflow-php-sdk/tree/main/examples) (`QBITFLOW_API_KEY=sk_… php examples/<name>.php`):
 
 | Example | Shows |
 |---|---|
-| [`client-setup.php`](examples/client-setup.php) | a client from the API key and `me()` (default server), and from the environment |
-| [`checkout.php`](examples/checkout.php) | a payment checkout, one with fees (a shipping line and the processing fee), its status, waiting for it (`--wait`), expiry |
-| [`catalog.php`](examples/catalog.php) | create and list products, one page of customers, a checkout for a product by its reference |
-| [`payments.php`](examples/payments.php) | list payments with a filter, get one by id and by reference, the iterator, the transactions feed (payments and bills), exact amounts |
-| [`subscriptions.php`](examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, metadata, a test bill (`--bill`), cancel at period end (`--cancel`) |
-| [`refunds.php`](examples/refunds.php) | list the pending refunds (customers' requests), read one (refunds are read only) |
-| [`marketplace.php`](examples/marketplace.php) | invite a seller, invitations, members, `onBehalfOf`, wallets, held funds, fee, trust (`--trust`), remove (`--remove`) |
-| [`webhooks.php`](examples/webhooks.php) | create a webhook endpoint (`--create`), the event log |
-| [`webhook-handler.php`](examples/webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, the right answers (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |
-| [`webhook-verify.php`](examples/webhook-verify.php) | the lower level: `Webhook::constructEvent()` on the raw body (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |
-| [`errors-and-retries.php`](examples/errors-and-retries.php) | exception types, `isRetryable()`, retries and idempotency keys across processes |
-| [`accounting.php`](examples/accounting.php) | a year of accounting events as JSON and CSV |
-| [`currencies.php`](examples/currencies.php) | the currencies customers can pay with |
-| [`laravel/`](examples/laravel) | the webhook route, a checkout controller with the facade, queued listeners |
+| [`client-setup.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/client-setup.php) | a client from the API key and `me()` (default server), and from the environment |
+| [`checkout.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/checkout.php) | a payment checkout, one with fees (a shipping line and the processing fee), its status, waiting for it (`--wait`), expiry |
+| [`catalog.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/catalog.php) | create and list products, one page of customers, a checkout for a product by its reference |
+| [`payments.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/payments.php) | list payments with a filter, get one by id and by reference, the iterator, the transactions feed (payments and bills), exact amounts |
+| [`subscriptions.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/subscriptions.php) | a subscription checkout with a trial, past-due subscriptions, access, bills, metadata, a test bill (`--bill`), cancel at period end (`--cancel`) |
+| [`refunds.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/refunds.php) | list the pending refunds (customers' requests), read one (refunds are read only) |
+| [`marketplace.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/marketplace.php) | invite a seller, invitations, members, `onBehalfOf`, wallets, held funds, fee, trust (`--trust`), remove (`--remove`) |
+| [`webhooks.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/webhooks.php) | create a webhook endpoint (`--create`), the event log |
+| [`webhook-handler.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/webhook-handler.php) | a plain-PHP receiver with the webhook router: typed handlers, the right answers (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |
+| [`webhook-verify.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/webhook-verify.php) | the lower level: `Webhook::constructEvent()` on the raw body (`php -S`, `QBITFLOW_WEBHOOK_SECRET`) |
+| [`errors-and-retries.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/errors-and-retries.php) | exception types, `isRetryable()`, retries and idempotency keys across processes |
+| [`accounting.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/accounting.php) | a year of accounting events as JSON and CSV |
+| [`currencies.php`](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/examples/currencies.php) | the currencies customers can pay with |
+| [`laravel/`](https://github.com/QBitFlow/qbitflow-php-sdk/tree/main/examples/laravel) | the webhook route, a checkout controller with the facade, queued listeners |
 
 ## Testing
 
 ```bash
-composer validate --strict && vendor/bin/phpunit
+composer install
+composer check   # composer validate --strict, php -l, PHPStan, the Unit suite
 ```
 
-The `Unit` suite runs against a mock PSR-18 client: nothing touches the network. It includes the
-cross-SDK conformance vectors when they are available (`QBITFLOW_VECTORS_DIR`), and the website
-snippets check when the hub checkout and `node` are (`QBITFLOW_HUB_DIR`, see
-[CONTRIBUTING.md](CONTRIBUTING.md)). The live checks
-are a separate suite and need an API key **and** an explicit base URL:
+The `Unit` suite runs against a mock PSR-18 client: nothing touches the network. Two of its tests
+use files QBitFlow's maintainers keep outside this repository (shared cross-SDK test vectors, the
+website snippet check) and skip themselves without them; [CONTRIBUTING.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/CONTRIBUTING.md) lists
+the gates every contribution passes. The live checks are a separate suite and need an API key
+**and** an explicit base URL:
 
 ```bash
 QBITFLOW_API_KEY=sk_… QBITFLOW_BASE_URL=https://… vendor/bin/phpunit --testsuite Integration
@@ -1672,20 +1742,20 @@ PSR-18 client: `new QBitFlow(apiKey: 'sk_test', httpClient: $fakeClient)`.
 
 ## License
 
-This project is licensed under the MPL-2.0 License: see the [LICENSE](LICENSE) file. See also
-[COMPLIANCE.md](COMPLIANCE.md) and the [trademark policy](TRADEMARKS.md).
+This project is licensed under the MPL-2.0 License: see the [LICENSE](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/LICENSE) file. See also
+[COMPLIANCE.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/COMPLIANCE.md) and the [trademark policy](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/TRADEMARKS.md).
 
 ## Support
 
 - [Documentation](https://qbitflow.app/docs)
 - [Email Support](mailto:support@qbitflow.app)
-- [Issue Tracker](https://github.com/qbitflow/qbitflow-php-sdk/issues)
+- [Issue Tracker](https://github.com/QBitFlow/qbitflow-php-sdk/issues)
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for version history.
+See [CHANGELOG.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/CHANGELOG.md) for version history.
 
 ## Security
 
 For security issues, please email security@qbitflow.app instead of using the issue tracker (see
-[SECURITY.md](SECURITY.md)).
+[SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md)).

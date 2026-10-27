@@ -1,56 +1,87 @@
 # Contributing
 
+Thanks for helping improve the QBitFlow PHP SDK. Bug reports and pull requests are welcome on
+[GitHub](https://github.com/QBitFlow/qbitflow-php-sdk). For a security problem, don't open an
+issue: follow [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md).
+
+## Set up
+
+You need PHP `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12` (the patched releases, see SECURITY.md)
+and Composer 2.
+
+```bash
+git clone https://github.com/QBitFlow/qbitflow-php-sdk.git
+cd qbitflow-php-sdk
+composer install
+```
+
 ## Gates
 
-Run these from the SDK's root before committing; all must pass:
+Every pull request must pass these, from the repository's root. They are offline (no API key,
+no network) and are what CI runs on PHP 8.2 to 8.5:
 
 ```bash
 composer validate --strict
-vendor/bin/phpunit
-find src tests examples -name '*.php' -print0 | xargs -0 -n1 php -l
-node ../../scripts/embed-snippets.mjs --check .   # from the hub checkout, see below
+vendor/bin/phpunit --testsuite Unit          # or: composer test
+vendor/bin/phpstan analyse --memory-limit=1G # or: composer analyse
+find src tests examples config -name '*.php' -print0 | xargs -0 -n1 php -l   # or: composer lint
 ```
 
-`vendor/bin/phpunit` runs the hermetic `Unit` suite (a mock HTTP client, no network) and the
-`Integration` suite, which skips itself without `QBITFLOW_API_KEY` (see the README's Testing
-section): unset the `QBITFLOW_*` variables to stay offline.
+`composer check` runs all four. The `Unit` suite is hermetic: every client is built on a mock
+PSR-18 transport, so it gives the same result with or without `QBITFLOW_*` variables exported.
 
-## Website snippets
+Two Unit tests depend on files kept outside this repository, by QBitFlow's maintainers, and **skip
+themselves** when they are absent. That is expected in a clone of this repository, and they need
+nothing from you:
 
-The code blocks on qbitflow.app/docs and in this README are extracted from named regions of the
-runnable programs in `examples/`, so they always compile and never disagree.
+- `ConformanceVectorsTest` runs the test vectors shared by QBitFlow's Go, JavaScript, Python and
+  PHP SDKs, when `QBITFLOW_VECTORS_DIR` names their directory;
+- `SnippetsTest` checks the website's code snippets (below), when the snippet tooling and `node`
+  are available (`QBITFLOW_HUB_DIR`).
+
+A local `phpunit.xml` (git-ignored) overrides `phpunit.xml.dist` if you need to set environment
+variables for your own runs.
+
+## Tests against a live API (optional)
+
+The `Integration` suite talks to a real QBitFlow API. It is never run in CI. It skips itself when
+`QBITFLOW_API_KEY` is unset, and fails when the key is set without `QBITFLOW_BASE_URL`: it never
+falls back to a default server.
+
+```bash
+QBITFLOW_API_KEY=sk_… QBITFLOW_BASE_URL=https://… vendor/bin/phpunit --testsuite Integration
+```
+
+It only reads, unless you also set `QBITFLOW_LIVE_WRITES=1`. The write checks then create and
+clean up their own products, customers, checkout sessions and webhook endpoints, and run only with
+a test-mode key (`QBITFLOW_ALLOW_LIVE_MODE_WRITES=1` overrides that, for a dedicated test
+server). Use a test-mode key of your own; never a production key.
+
+## Code style
+
+- `declare(strict_types=1);`, tabs, one class per file under `src/` (PSR-4, `QBitFlow\`).
+- Every public class, method and constructor has a PHPDoc describing its behaviour and errors.
+- Models are `readonly`; money and token amounts are decimal strings, never floats.
+- A public behaviour change comes with tests and a CHANGELOG entry (Keep a Changelog), and keeps
+  the README accurate.
+
+## Examples and website snippets
+
+The code blocks on qbitflow.app/docs and in the README are extracted from named regions of the
+runnable programs in `examples/`, so they always run and never disagree.
 
 - **Markers:** `// docs:start <id>` and `// docs:end <id>`, each on its own line (indentation
   allowed: the code is dedented). One region per id, in one file; regions never overlap or nest.
-- **Ids** come from the hub's `snippets/catalog.json`, shared by the Go, JS, Python and PHP SDKs.
 - **Each region reads on its own:** it assumes a ready client in `$client` (except
   `client-init` and `client-on-behalf-of`), names classes by their fully qualified names
-  (`\QBitFlow\Params\…`, no `use` lines, no `<?php`, `declare` or `require`), uses the
-  catalog's shared example values, and reads the ids it does not create from variables defined
-  just outside it (`$paymentUuid`, `$subscriptionUuid`, `$sessionUuid`, `$memberUuid`,
-  `$invitationUuid`). Keys only come from `QBITFLOW_API_KEY` and `QBITFLOW_WEBHOOK_SECRET`.
-  Scaffolding (arguments, flags, error handling for a rerun) stays outside the region.
-- **Manifest:** `examples/snippets.manifest.json` maps every catalog id to the file holding its
-  region (or lists it under `unsupported` with a reason), and pins the hub commit of the catalog.
-- **README:** a `<!-- docs:snippet <id> -->` … `<!-- /docs:snippet -->` block is filled by the
-  script; never edit its content by hand.
-
-From a hub checkout (this SDK in `sdk/qbitflow-php-sdk`):
-
-```bash
-node ../../scripts/embed-snippets.mjs .           # rewrite the README's snippet blocks
-node ../../scripts/embed-snippets.mjs --check .   # change nothing; fail on any drift
-```
-
-`tests/SnippetsTest.php` runs the `--check` in `vendor/bin/phpunit`. It finds the hub through
-`QBITFLOW_HUB_DIR`, else `../..`; it is skipped when there is no hub or no `node` (a lone clone of
-this SDK), and fails when `QBITFLOW_HUB_DIR` is set to a directory that is not a hub.
-
-### The standing rule
-
-**Website snippets.** The code on qbitflow.app/docs and in this README comes from `// docs:start <id>` … `// docs:end <id>` regions in `examples/`. Every change keeps them true:
-- **New public capability:** add a region, an id in the hub's `snippets/catalog.json` (the same id across all SDKs), and the manifest entry, plus the README block via `scripts/embed-snippets.mjs`.
-- **Changed capability:** update the region's code. Never hand-edit an embedded README block: re-run the script.
-- **Ids are a public contract with the website.** Never rename or remove one silently. To retire an id, keep it until the website no longer uses it, and note it in the CHANGELOG.
-- **Before committing:** the examples run, the manifest check passes, and `embed-snippets --check` passes.
-- **Unsupported ids:** an id the SDK can't support goes under `unsupported` with a reason. Never write placeholder code.
+  (`\QBitFlow\Params\…`, no `use` lines, no `<?php`, `declare` or `require`), and reads the ids
+  it does not create from variables defined just outside it (`$paymentUuid`, `$subscriptionUuid`,
+  `$sessionUuid`, `$memberUuid`, `$invitationUuid`). Keys only come from `QBITFLOW_API_KEY` and
+  `QBITFLOW_WEBHOOK_SECRET`. Scaffolding (arguments, error handling for a rerun) stays outside.
+- **Manifest:** `examples/snippets.manifest.json` maps every snippet id to the file holding its
+  region (or lists it under `unsupported` with a reason).
+- **README:** a `<!-- docs:snippet <id> -->` … `<!-- /docs:snippet -->` block is generated from
+  its region: never edit its content by hand. If you change a region, say so in your pull request:
+  a maintainer regenerates the README blocks with the snippet tooling (`embed-snippets.mjs`), which
+  lives outside this repository.
+- **Ids are a public contract with the website:** never rename or remove one.

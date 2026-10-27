@@ -1,650 +1,719 @@
-# Migrating from 2.x to 3.0.0
+# Upgrading the QBitFlow PHP SDK from 2.x to 3.0
 
-3.0.0 is the PHP SDK for **QBitFlow API v2**. API v2 reorganises the platform around spaces
-(an organization's, and one per member), invites people instead of provisioning them, names every
-resource by a UUID, uses REST routes, writes money as decimal strings and signs webhooks with a
-new scheme. The SDK follows: a new client constructor, one service per API area, typed params
-classes, read-only models, a new exception taxonomy, and a rebuilt Laravel integration.
+**Who should read this:** anyone running `qbitflow/qbitflow-php` 2.x (2.0.0 to 2.1.0) in production,
+on plain PHP or in a Laravel application. If you are starting fresh, read the
+[README](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/README.md) instead.
 
-2.x talks to `/v1` only; 3.0.0 talks to `/v2` only, and **`/v1` is gone**: the v2 launch
-migrated v1's data (people, products, payments, subscriptions, customers, wallets, webhook URLs)
-to v2's shape, so move your integration to 3.0.0 as a whole.
+3.0 is the SDK for **QBitFlow API v2**. 2.x talks to API v1 only, and **API v1 is retired**: your
+data (products, customers, payments, subscriptions, sellers, wallets, webhook URLs) has already been
+moved to v2, so you upgrade your integration in one go rather than call by call. Plan for a short
+code change on every QBitFlow call, a new API key, and new webhook verification code (your
+webhook endpoints and their secrets carried over).
 
-This guide maps everything 2.1.0 exposed (the last 2.x release) to 3.0.0. The
-[README](README.md) documents 3.0.0 in full; [CHANGELOG.md](CHANGELOG.md) lists every change.
+The full list of changes is in the
+[CHANGELOG](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/CHANGELOG.md).
 
-## Checklist
+## Contents
 
-1. [Install and requirements](#1-install-and-requirements): `qbitflow/qbitflow-php` `^3.0`, PHP 8.2.
-2. [Base URL and API keys](#2-base-url-and-api-keys): `/v2`; pre-v2 keys are refused: create new ones.
-3. [The client](#3-the-client): named arguments, checked at construction, `me()`.
-4. [Request options](#4-request-options): `RequestOptions` as the last argument of every method.
-5. [Method map](#5-method-map): every 2.x method and its replacement.
-6. [Ids are UUID strings](#6-ids-are-uuid-strings): products, members, `onBehalfOf`.
-7. [Users and claims become invitations, members and the trust layer](#7-users-and-claims-become-invitations-members-and-the-trust-layer).
-8. [Models](#8-models): `Dto\*` becomes `Models\*`, money as decimal strings, renamed properties.
-9. [Enum values and statuses](#9-enum-values-and-statuses): subscription and checkout statuses.
-10. [Exceptions](#10-exceptions): one class per condition, `apiCode`, field errors that work.
-11. [Webhooks](#11-webhooks): `QBitFlow-Signature` over the raw body, typed events.
-12. [Laravel](#12-laravel): one webhook route, one Laravel event per type, a webhook secret.
-13. [Pagination](#13-pagination): `Page {items, hasMore, nextCursor}` and `iterate*()` generators.
-14. [Before and after](#14-before-and-after-five-common-tasks): five common tasks.
+1. [What changed at a glance](#1-what-changed-at-a-glance)
+2. [Upgrade steps](#2-upgrade-steps)
+3. [Breaking changes, before and after](#3-breaking-changes-before-and-after)
+4. [Method map: every 2.x method](#4-method-map-every-2x-method)
+5. [Models, ids and enums](#5-models-ids-and-enums)
+6. [New capabilities](#6-new-capabilities)
+7. [Behaviour changes](#7-behaviour-changes)
+8. [Final checklist](#8-final-checklist)
 
-## 1. Install and requirements
+## 1. What changed at a glance
+
+| Area | 2.x | 3.0 |
+|---|---|---|
+| API | `https://api.qbitflow.app/v1` | `https://api.qbitflow.app/v2` (53 public routes) |
+| PHP | `^8.2` | `~8.2.35 \|\| ~8.3.36 \|\| ~8.4.27 \|\| >=8.5.12` (patched releases only) |
+| API keys | v1 keys | new v2 keys (`sk_test_…` / `sk_live_…`): **old keys are refused** |
+| Client | positional arguments | named arguments, checked at construction, `$client->me()` to check the key |
+| Services | `oneTimePayments`, `transactionStatus`, `users`, `claims`, `apiKeys`, … | `checkoutSessions`, `payments`, `transactions`, `failures`, `subscriptions`, `refunds`, `members`, `invitations`, `wallets`, … |
+| Ids | integers for products and users | UUID strings everywhere (a currency keeps its integer id) |
+| Money | `float` | decimal strings (`'4.99'`), in requests and responses |
+| Requests | `Dto\…` objects or arrays | `Params\…` classes with named arguments, validated before sending |
+| Responses | `Dto\…` | read-only `Models\…` whose properties are the JSON keys |
+| Lists | `getAll($limit, $cursor)` → `CursorData` | `list(new …ListParams(...))` → `Page`, plus `iterate()` generators |
+| Errors | 7 exception classes, no field details | one class per condition, `apiCode`, `details`, `fieldErrors`, `requestId` |
+| Retries | every method, on network errors and 5xx | reads and the 6 creates (with an `Idempotency-Key`), on network errors, 5xx, 429 |
+| Webhooks | `X-Webhook-Signature-256` over canonical JSON, two payload shapes | `QBitFlow-Signature` over the raw body, 15 typed event types, a router |
+| Sellers | `users->create()` provisioned accounts, claimed later | invitations: a seller sells once they accepted (`members`, held funds, trust) |
+| Laravel | two webhook routes, three Laravel events | one webhook route, one Laravel event per event type, local verification |
+
+## 2. Upgrade steps
+
+### 2.1 Check your PHP version
+
+3.0 requires a PHP release that fixes the "php2shell" interpreter vulnerabilities:
+
+| Branch | Minimum |
+|---|---|
+| 8.2 | 8.2.35 |
+| 8.3 | 8.3.36 |
+| 8.4 | 8.4.27 |
+| 8.5 and later | 8.5.12 |
+
+Composer refuses to install 3.0 on an older patch release of your branch, on purpose: a payment
+integration should not run on an interpreter with known remote-code-execution flaws. Check with
+`php -v` and `composer check-platform-reqs --no-dev`, and upgrade PHP first if needed. The details
+are in [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md).
+
+### 2.2 Install
 
 ```bash
-composer require qbitflow/qbitflow-php:^3.0
+composer require qbitflow/qbitflow-php:^3
 ```
 
-The package name and the root namespace (`QBitFlow\`) do not change. PHP **8.2** or later, a
-PSR-18 client and PSR-17 factories (Guzzle, already in every Laravel application, covers both),
-as before. New dependency: `psr/http-server-handler` (the PSR-15 interface the webhook router
+The package name and the root namespace (`QBitFlow\`) do not change. You still need a PSR-18 HTTP
+client and PSR-17 factories (Guzzle covers both and is already in every Laravel application). 3.0
+adds one small dependency, `psr/http-server-handler` (the PSR-15 interface its webhook router
 implements).
 
-## 2. Base URL and API keys
-
-- The default base URL is `https://api.qbitflow.app/v2` (`QBitFlow::DEFAULT_BASE_URL`). If you
-  set one, it must point at v2.
-- **The `QBITFLOW_BASE_URL` environment variable is no longer read by the constructor** (2.x's
-  `Config::baseUrl()` fell back to it). Pass `baseUrl:` explicitly, or build the client with
-  `QBitFlow::fromEnv()`, which reads `QBITFLOW_API_KEY`, `QBITFLOW_BASE_URL` and
-  `QBITFLOW_ON_BEHALF_OF`; the Laravel config still maps `QBITFLOW_BASE_URL` to
-  `qbitflow.base_url`.
-- API v2 issues keys shaped `sk_<uuid>_<test|live>_<secret>`. **Keys issued before**
-  (`sk_<digits>_…`) **are refused by API v2** (`401`): create a new key in the dashboard. Treat a
-  key as opaque (the SDK only checks the `sk_` prefix).
-- The constructor refuses a blank key, or one not starting with `sk_`, with a
-  `ValidationException` (2.x sent it and got a 401). It sends nothing: call `$client->me()` to
-  check the key online, and assert its mode (`$me->space->test`) at start-up.
-- A key belongs to one space and one mode. A removed member's keys answer 401.
-
-## 3. The client
-
-| 2.x | 3.0.0 |
-|---|---|
-| `new QBitFlow($apiKey, $baseUrl, $timeout, $maxRetries, $httpClient, $requestFactory, $streamFactory)` | `new QBitFlow(apiKey: …, baseUrl: null, timeout: null, maxRetries: null, onBehalfOf: null, httpClient: null, requestFactory: null, streamFactory: null)`: use named arguments (`onBehalfOf` now sits before `httpClient`) |
-| `QBitFlow::fromArray([...])` | removed: use the constructor's named arguments, or `QBitFlow::fromEnv(...)` |
-| `Config::DEFAULT_BASE_URL`, `DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES` | `QBitFlow::DEFAULT_BASE_URL` (`/v2`), `QBitFlow::DEFAULT_TIMEOUT` (`30.0`), `QBitFlow::DEFAULT_MAX_RETRIES` (`3`); `Config` is gone |
-| `$timeout` (the whole request) | `timeout:` seconds **per attempt** (applied to the HTTP client the SDK builds; an injected client keeps its own) |
-| `$maxRetries` (GET only) | `maxRetries:` covers reads and the 6 idempotent creates; `0` disables retries; a negative value is refused |
-| — | `onBehalfOf:` a member's userUuid, sent as `On-Behalf-Of` on every request (checked at construction) |
-| `$client->onBehalfOf(int $userId)`, `$client->products->onBehalfOf(int $userId)` (each service) | `$client->onBehalfOf(string $userUuid)` returns a new client for every service (a non-UUID or the nil UUID is a `ValidationException` at once); `''` returns one at the organization level (the header is then omitted, never sent blank); or `new RequestOptions(onBehalfOf: …)` for one call |
-| `$client->users->get()` | `$client->me()`: what the key is (role, space, mode) |
-| `$client->getApiKey()` | removed |
-| `$client->getBaseUrl()` | `$client->getBaseUrl()`; new `$client->getOnBehalfOf()` |
-| `$client->oneTimePayments`, `->transactionStatus`, `->users`, `->apiKeys`, `->claims` | see § 5: `checkoutSessions`, `payments`, `transactions`, `failures`, `members`, `invitations`, `wallets` |
-| Service accessor methods (`$client->products()`, …) | still there, for the Laravel facade (`transactions()` included); the properties read better in code |
-| Redirects followed? Guzzle was configured not to | a 3xx is a `ServerException`; an injected client must not follow redirects either |
-
-Acting for a member, the request's role is `user`: the admin methods (`members`, `invitations`,
-`wallets->listForMember()`) answer 403.
-
-Reads and creates are now retried automatically (§ [Retries](README.md#retries-and-idempotency)):
-drop any retry loop you wrapped around them, or set `maxRetries: 0`.
-
-## 4. Request options
-
-Every method takes an optional `QBitFlow\RequestOptions` as its last argument:
-
-```php
-$payment = $client->payments->get('pay@0192f1c2-2222-7c4d-9e5f-6a7b8c9d0e1f', null, new RequestOptions(
-	onBehalfOf: '0192f1c2-7b3a-7c4d-9e5f-6a7b8c9d0e1f', // a member's space, this call only ('' = the organization's)
-	requestId: 'support-ticket-981',                   // X-Request-Id, echoed in errors
-));
-echo $payment->amountUsd, PHP_EOL; // a decimal string
-```
-
-`idempotencyKey:` sets the `Idempotency-Key` of one of the 6 creates (see the README); other
-methods ignore it.
-
-## 5. Method map
-
-Every 3.0.0 method takes an optional `?RequestOptions $options` last (omitted below). Params are
-the `QBitFlow\Params\…` classes, built with named arguments; `?…Params` may be `null` (or left
-out) when every field is optional. 2.x accepted a DTO **or an array** for its create/update
-methods; 3.0.0 takes the params class only. Updates are `PATCH`, and every delete returns
-`void` (the API answers `204`).
-
-### Checkout sessions and status (2.x `oneTimePayments`, `subscriptions`, `transactionStatus`)
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `oneTimePayments->createSession(CreatePaymentSessionDto\|array)` | `checkoutSessions->createPayment(CreatePaymentSessionParams)` | `POST /checkout-sessions/payment`; `productId: int` → `productUuid: string`; `customerUUID` → `customerUuid`; `price: float` → `priceUsd: string` (`'4.99'`); new `expiresInMinutes`, `metadata` and `fees` (`CheckoutFees`); returns a `Models\CreatedCheckoutSession` (`link`, `uuid`, `expiresAt`) |
-| `subscriptions->createSession(CreateSubscriptionSessionDto\|array)` | `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)` | `POST /checkout-sessions/subscription`; `frequency`, `trialPeriod` (`Models\Duration`) and `minPeriods` are optional over a subscription product's terms; `priceUsd`, `metadata`, `fees` (charged with every bill) |
-| `transactionStatus->get($uuid, TransactionType $type)` | `checkoutSessions->get($uuid)` | `GET /checkout-sessions/:uuid`; no type argument; four statuses (§ 9) |
-| `oneTimePayments->getSession($uuid)`, `subscriptions->getSession($uuid)` | removed | `get()` for the state; the session's data comes with `checkout.expired` |
-| — | `checkoutSessions->expire($uuid)`, `checkoutSessions->waitForCompletion($uuid)` | new: end an unpaid session; poll until it is final |
-
-### Payments, transactions and failures (2.x `oneTimePayments`)
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `oneTimePayments->get($uuid)` | `payments->get($uuid, ?ReadParams)` | `GET /payments/:uuid`; `pay@…` or the bare UUID; `ReadParams(includeMembers: true)` reads a member's payment from the organization |
-| `oneTimePayments->getByReference($ref)` | `payments->getByReference($ref)` | runs `GET /payments?reference=`; a `NotFoundException` (404, `not_found`) when none |
-| `oneTimePayments->getAll($limit, $cursor)` | `payments->list(?PaymentListParams)`, `payments->iterate()` | `GET /payments`; filters: `customerUuid`, `productUuid`, `createdAfter` / `createdBefore`, `reference`, `refunded`, `includeMembers` / `userUuid` |
-| `oneTimePayments->getAllCombined($limit, $cursor)` | `transactions->list(?TransactionListParams)`, `transactions->iterate()` | `GET /transactions`; `CombinedPayment` → `Transaction`; `source` → `type` (`TransactionKind::PAYMENT`, `TransactionKind::BILL`); + `subscriptionUuid`, `refunded` |
-| `oneTimePayments->getCustomerForTransaction($txUuid)` | removed | `$payment->customer` (a `CustomerSummary`), or `customers->get($payment->customerUuid)` |
-| — | `failures->list(?FailureListParams)`, `failures->iterate()` | new: the failed payment attempts (`GET /payment-failures`) |
-
-### Subscriptions
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `subscriptions->get($uuid)` | `subscriptions->get($uuid, ?ReadParams)` | `GET /subscriptions/:uuid`; cancelled subscriptions are returned too: a 404 no longer means "cancelled" |
-| `subscriptions->getByReference($ref)` | `subscriptions->getByReference($ref)` | runs `GET /subscriptions?reference=`; a `NotFoundException` when none |
-| `subscriptions->getPaymentHistory($uuid)` | `subscriptions->listBills($uuid, ?BillListParams)` / `iterateBills()` | `GET /subscriptions/:uuid/bills`: every full bill, page by page (the customer's public 10-bill history is not part of the SDK) |
-| `subscriptions->forceCancel($uuid)` (a GET, returned a `SuccessResponse`) | `subscriptions->cancel($uuid, ?CancelSubscriptionParams)` | `POST /subscriptions/:uuid/cancel`, never retried; returns a `SubscriptionCancellation` (`subscription`, `pending`: HTTP 202, still confirming on-chain); `immediate: false` cancels at the end of the paid period |
-| `subscriptions->executeTestBilling($uuid)` (returned a `StatusLinkResponse`) | `subscriptions->testBill($uuid)` | `POST /subscriptions/:uuid/test-bill`; returns a `TestBill` (`billUuid` `sub-hist@…`, `stage`, `outcome`); `409 payment_not_due` before `nextBillingAt`, `400 test_mode_only` for a live one |
-| — | `subscriptions->list()`, `iterate()`, `update($uuid, UpdateSubscriptionParams)` (metadata, merged), `getBill($billUuid, ?ReadParams)` (`GET /bills/:uuid`) | new |
-
-### Refunds
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `refunds->getAll()` | `refunds->list(new RefundListParams(status: [RefundStatus::PENDING]))`, `refunds->iterate()` | `GET /refunds`, paginated; from the organization's space the members' are included by default (`includeMembers: false` leaves them out) |
-| `refunds->getAllInactive($limit, $cursor)` | `refunds->list(new RefundListParams(status: [RefundStatus::APPROVED, RefundStatus::REJECTED]))`, `refunds->iterate()` | one list, filtered by `status` (a list, sent as a repeated `?status=`, up to 5) |
-| `refunds->getByTransaction($txUuid)` | `refunds->list(new RefundListParams(txUuid: $txUuid))` | or `$payment->refund` / `$bill->refund` (a `RefundSummary`) |
-| — | `refunds->get($refundUuid)` | new: `GET /refunds/:uuid` |
-
-### Customers and products
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `customers->create(CreateCustomerDto\|array)` | `customers->create(CreateCustomerParams)` | `POST /customers`; `name` → `firstName`; `lastName` is optional now; + `metadata`; the email is not unique any more |
-| `customers->get($uuid)` | `customers->get($uuid)` | `GET /customers/:uuid` |
-| `customers->getByReference($ref)` | `customers->getByReference($ref)` | runs `GET /customers?reference=`; a `NotFoundException` when none |
-| `customers->getByEmail($email)` | `customers->list(new CustomerListParams(email: $email))` | removed: an email may match several customers |
-| `customers->delete($uuid)` (returned a `SuccessResponse`) | `customers->delete($uuid)`: `void` | `204` |
-| `customers->update($uuid, UpdateCustomerDto\|array)` | `customers->update($uuid, UpdateCustomerParams)` | `PATCH`; `name` → `firstName`; `null` leaves a field unchanged; `lastName: ''`, `phoneNumber: ''` and `address: ''` now **clear** them; `metadata` is merged |
-| `customers->getAll($limit, $cursor)` | `customers->list(?CustomerListParams)`, `customers->iterate()` | filters `email`, `reference`, `verified` |
-| `products->create(CreateProductDto\|array)` | `products->create(CreateProductParams)` | `POST /products`; `price: float` → `priceUsd: string`; `description` optional; `subscription: new SubscriptionTermsParams(…)` makes a subscription product; + `metadata` |
-| `products->get(int $id)` | `products->get(string $uuid)` | `GET /products/:uuid` |
-| `products->getAll()` | `products->list(?ProductListParams)`, `products->iterate()` | paginated now; `includeHidden`, `subscription`, `reference` |
-| `products->getByReference($ref)` | `products->getByReference($ref)` | runs `GET /products?reference=` (hidden ones included); a `NotFoundException` when none |
-| `products->update(int $id, UpdateProductDto\|array)` | `products->update(string $uuid, UpdateProductParams)` | `PATCH`; `priceUsd` a string; + `isActive`, `subscription`, `removeSubscription`, `metadata` (merged); `description: ''` clears it |
-| `products->delete(int $id)` (returned a `SuccessResponse`) | `products->delete(string $uuid)`: `void` | `204` |
-
-### Users, claims and API keys (→ § 7)
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `users->create(CreateUserDto\|array)` | `invitations->create(CreateInvitationParams)` | not a rename: the person exists once they accept (`member.joined`); returns a `CreatedInvitation` |
-| `users->getAll()` | `members->list(?MemberListParams)`, `members->iterate()` | |
-| `users->getById(int $id)` | `members->get($userUuid)` | |
-| `users->getByEmail($email)` | removed | iterate `members` and match `$member->email` |
-| `users->update(int $id, UpdateUserDto\|array)` | `members->update($userUuid, UpdateMemberParams)` | `PATCH`; only the organization fee (`organizationFeePercent`, a required string): names and emails are the person's own |
-| `users->delete(int $id)` | `members->remove($userUuid)`: `void` | ends the membership (`204`; `409 held_funds_pending` while you hold their funds) |
-| `users->get()` | `$client->me()` | what the key is: its role, space and mode |
-| `claims->createRequest($userId)`, `claims->getRequestByUser($userId)` | `invitations->create()`, `invitations->list()` | the invitation link replaces the claim link |
-| `claims->getFunds()` | `members->listHeldFunds()` (a `list<MemberHeldFunds>`), `members->getHeldFunds($userUuid)`, `members->getOwnHeldFunds()` (`GET /held-funds`) | |
-| `claims->triggerTestClaimFunds($userId)` | removed | release held funds in the dashboard; `members->trust($userUuid)` pays new payments directly |
-| `apiKeys->getAll()`, `apiKeys->getForUser($userId)` | removed | keys are managed in the dashboard; `$client->me()` describes the current one |
-| — | `invitations->revoke($uuid)` (`void`), `invitations->iterate()`, `members->trust()` | new |
-
-### Wallets, accounting, currencies
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| — | `wallets->list(?WalletListParams)`, `wallets->listForMember($userUuid)` (`GET /members/:userUuid/wallets`), `wallets->listAcceptedCurrencies(?AcceptedCurrenciesParams)` (`GET /wallets/accepted-currencies`) | new; each returns a `list<…>` |
-| `accounting->export($from, $to, ExportFormat\|string $format)` | `accounting->exportJson($from, $to)` or `accounting->exportCsv($from, $to)` | dates `YYYY-MM-DD`, checked (and `from <= to`) before sending; the API allows 92 days at most, both included (`exportJsonRange()` / `exportCsvRange()` for more) |
-| `accounting->exportJson($from, $to)` | `accounting->exportJson($from, $to)` | returns `list<Models\AccountingEvent>` |
-| `accounting->exportCsv($from, $to)` | `accounting->exportCsv($from, $to)` | CSV text; errors are still typed exceptions |
-| `currencies->getAllAvailable(bool $test)` | `currencies->list(new CurrencyListParams(test: $test))` | `GET /currencies`, a `list<Currency>` |
-| `currencies->getAllMain(bool $test)` | `currencies->list(new CurrencyListParams(test: $test, main: true))` | |
-| — | `currencies->get(int $id)` | new: `GET /currencies/:id` |
-
-### Webhooks (→ § 11)
-
-| 2.x | 3.0.0 | Notes |
-|---|---|---|
-| `WebhookVerifier::verify($secret, $timestamp, $signature, $payload, $maxAge, $now, $skipTimestampCheck)` | `Webhook::verify($rawBody, $signatureHeader, $secret, $tolerance = 300, ?Closure $now = null)` | `QBitFlow\Webhooks\Webhook`; throws a `WebhookSignatureException` (`reason`); the timestamp check can no longer be skipped |
-| `WebhookVerifier::computeSignature($secret, $timestamp, $payload)`, `WebhookVerifier::canonicalJson()` | removed (`Webhook::sign($rawBody, $secret)` signs test bodies) | the signature covers the raw body |
-| `WebhookVerifier::extractHeaders($headers)` | removed | read `Webhook::SIGNATURE_HEADER` from the request, or `Webhook::verifyRequest($psr7Request, $secret)` |
-| `webhooks->verify($payload, $signature, $timestamp): bool` | `webhooks->verifyRemote($endpointUuid, $rawBody, $signatureHeader): void` | returns on a valid signature, throws a `WebhookSignatureException` (`invalidSignature`) otherwise |
-| — | `Webhook::constructEvent()`, `Webhook::parseEvent()` (also `$client->webhooks->verify()`, `constructEvent()`, `parseEvent()`), `Webhooks\WebhookRouter` (`$client->webhooks->router($secret)`) | verify and parse into a typed `Events\Event`; the router also dispatches it and answers QBitFlow |
-| `HEADER_SIGNATURE`, `HEADER_TIMESTAMP`, `HEADER_WEBHOOK_ID`; `webhooks->signatureHeader()`, `timestampHeader()`, `webhookIdHeader()` | `Webhook::SIGNATURE_HEADER`, `EVENT_ID_HEADER`, `EVENT_TYPE_HEADER`, `VERSION_HEADER` | |
-| `TEST_WEBHOOK_ID`, `webhooks->testWebhookId()`, `webhooks->isTestWebhook($id)` | `$event instanceof Events\WebhookTestEvent`; `$event->test` says test mode | the dashboard's test is a `webhook.test` event, signed like any other |
-| `DEFAULT_MAX_TIMESTAMP_AGE_SECONDS` | `Webhook::DEFAULT_TOLERANCE` | |
-| `Dto\Session\SessionWebhookResponse`, `Dto\SubscriptionStatusTransition` | `Events\Event` and its subclasses | § 11 |
-| — | `webhooks->endpoints->…` (`list` / `iterate` paginated, `create`, `get`, `update` (PATCH), `delete`), `webhooks->events->…` (`list`, `iterate`, `get`) | new: endpoints and the event log |
-
-### Helpers
-
-| 2.x | 3.0.0 |
-|---|---|
-| `Support\CursorData` (`items`, `nextCursor`, `hasMore()`, `count()`, iteration) | `QBitFlow\Page` (`items`, `hasMore` (a property), `nextCursor`); iterate `$page->items`, or use the `iterate*()` methods |
-| `CursorData::queryParams($limit, $cursor)` | removed: `limit:` and `cursor:` of the list params |
-| `Support\Duration` (`new Duration(1, DurationUnit::MONTHS)`, `Duration::months(1)`, …) | `Models\Duration` (`new Duration(1, DurationUnit::MONTHS)`, `Duration::months(1)`, …); `value` 0 is allowed (no trial) and the unit is a string |
-| `Support\Validate::productText()`, `Validate::redirectUrl()` | removed: each params class has a `validate()` method, run before every request |
-| `Support\Dto` (`toArray()`, `jsonSerialize()`) | params classes have `toArray()` (the wire body) or `toQuery()`; models are read-only values built by `fromArray()` |
-| — | `Support\Amount::format()` / `parse()` and `Currency::formatAmount()`: exact token-amount conversions; `Subscription::hasAccess()`; `Placeholders::UUID` / `TRANSACTION_TYPE` |
-
-## 6. Ids are UUID strings
-
-Every id but a currency's is a UUID string now, and no resource names its organization:
-
-- **Products:** `Product::$id` (int) → `Product::$uuid` (string); `productId` → `productUuid` on
-  payments, bills, subscriptions, sessions and the accounting export; checkouts take
-  `productUuid:`.
-- **Members and `onBehalfOf`:** a member is named by their **user UUID** (`$member->userUuid`).
-  `onBehalfOf(123)` becomes `onBehalfOf('0192f1c2-…')`; an integer is a `TypeError`, a non-UUID
-  string a `ValidationException`. `userId` → `userUuid` everywhere (`null` for the organization's
-  own rows).
-- **`organizationId` is gone** from every model; `$client->me()->space->organizationUuid` names
-  the organization.
-- **Transactions** keep their prefixed ids (`pay@…`, `sub@…`, `sub-hist@…`, `refund@…`,
-  `transfer@…`, `release@…`), as opaque strings; every route also takes the bare UUID. `txId` →
-  `txUuid`, `transactionHash` → `txHash`.
-- **Property names are the JSON keys**, lowerCamelCase with acronyms as words: `customerUUID` →
-  `customerUuid`, `subscriptionUUID` → `subscriptionUuid`.
-
-**Map the numeric ids you stored**: walk your products
-(`$client->products->iterate(new ProductListParams(includeHidden: true))`, in each space you act
-in) and match them on `reference`, which did not change, and your members (`members->iterate()`,
-in each mode) on `email`; store the UUIDs next to your old ids. The SDK does not expose the API's
-temporary `legacyId` field.
-
-## 7. Users and claims become invitations, members and the trust layer
-
-v1 provisioned sellers (`users->create()`) and could sell for them at once, the seller claiming
-the account and its funds later. **v2 creates no accounts: a seller sells only once they accepted
-an invitation.**
-
-1. `$client->invitations->create(new CreateInvitationParams(email: …, holdFunds: true, organizationFeePercent: '5', redirectUrl: …))`
-   returns a `CreatedInvitation`: the invitation's properties and its `link` (also emailed).
-2. Wait for the `member.joined` webhook and store its `$event->data->userUuid` (match
-   `invitationUuid`).
-3. Sell with `$client->onBehalfOf($userUuid)`.
-
-`holdFunds: true` (the v1 "claim" model; required, always sent) holds the seller's payments in
-your wallet until you trust them: `members->getHeldFunds()` shows what you owe,
-`members->trust()` makes new payments go to the seller directly, and the release of what is held
-is signed in the dashboard. Sellers v1 provisioned are already members; those who never claimed
-are members whose funds you hold (`$member->trustedAt === null`). The
-[README](README.md#marketplaces) walks the flow.
-
-## 8. Models
-
-**Money is a decimal string, never a float**, in requests and in responses: USD amounts
-(`priceUsd: '4.99'`, `amountUsd`, `paidUsd`, `totalUsd`), token amounts in the token's units
-(`amount: '10'` for 10 USDC, next to `amountMinUnits: '10000000'` and the `currency` object) and
-fee rates in **percent** (`feeBps: 150` → `feePercent: '1.5'`, `organizationFeeBps: 250` →
-`organizationFeePercent: '2.5'`, `refundPercent: '50'`). Inputs are strings only (a `float` would
-not carry `0.1` exactly, and the API refuses a JSON number) and are validated before sending (at
-most 2 decimals, no sign or exponent). Compute with a decimal library (`bcmath`,
-`brick/math`), or `Support\Amount::format()` / `parse()`.
-
-**Requests** take `QBitFlow\Params\…` classes (`final readonly`, built with named arguments,
-`validate()` and `toArray()` / `toQuery()`). **Responses** are `QBitFlow\Models\…` classes:
-`readonly`, their properties named exactly as the JSON keys, built by `Model::fromArray()`.
-
-| 2.x (`QBitFlow\Dto\…`) | 3.0.0 (`QBitFlow\Models\…`) | What changed |
-|---|---|---|
-| `Session\CreatePaymentSessionDto`, `Session\CreateSubscriptionSessionDto` | `Params\CreatePaymentSessionParams`, `Params\CreateSubscriptionSessionParams` | `productId` → `productUuid`, `customerUUID` → `customerUuid`, `price` → `priceUsd` (a string); + `expiresInMinutes`, `metadata`, `fees` |
-| `CreateProductDto`, `UpdateProductDto` | `Params\CreateProductParams`, `UpdateProductParams` | `price` → `priceUsd` (a string); + `metadata` (§ 5) |
-| `CreateCustomerDto`, `UpdateCustomerDto` | `Params\CreateCustomerParams`, `UpdateCustomerParams` | `name` → `firstName`; + `metadata` (§ 5) |
-| `CreateUserDto`, `UpdateUserDto` | `Params\CreateInvitationParams`, `Params\UpdateMemberParams` | § 7; `organizationFeeBps` (int) → `organizationFeePercent` (a string) |
-| `Session\LinkResponse` | `CreatedCheckoutSession` | `link`, `uuid`, `expiresAt` (always set) |
-| `TransactionStatus` | `CheckoutSessionStatus` | `status` is a string (§ 9); `settlementDetails` removed; + `uuid`, `txHash`, `message`, `lastAttempt`, `expiresAt` |
-| `Session\SessionCheckout`, `OneTimePaymentSession`, `SubscriptionSession`, `PaygSubscriptionSession`, `StatusLinkResponse` | removed | `PaymentSessionData` / `SubscriptionSessionData` in `checkout.expired` (`priceUsd`, `fees`, `amountUsd`, `availableCurrencies`, `metadata`) |
-| `Payment` | `Payment` | `amount` (a float, USD) is now the **token amount** (a string), its USD value `amountUsd`; `transactionHash` → `txHash`; `name` / `description` → `productName` / `productDescription`; `productId` → `productUuid`; `customerUUID` → `customerUuid`; `currencyId` → the `currency` object; `metadata` (the fee split) → `settlement`, and `metadata` is now your checkout's `array<string,string>`; `userId` → `userUuid`; + `priceUsd`, `fees`, `chain`, `explorerUrl`, `customerReference`, `customer`, `refund`, `refundable`, `paid`, `paidMinUnits`, `paidUsd`, `confirmedAt`, `checkoutOpenedAt` |
-| `CombinedPayment` | `Transaction` (`transactions->list()`) | `source` → `type` (`TransactionKind`: `payment`, `bill`); the `Payment` renames; + `priceUsd`, `fees`, `periodStart`, `periodEnd`, `settlement`, `paid*`, `metadata` |
-| `Subscription` | `Subscription` | `subscriptionStatus` → `status` (a string); `frequency` is a `Duration` (was an `int` of seconds); `stopped` → the status `stopped`; `productId` → `productUuid` (nullable); `customerUUID` → `customerUuid`; `lastBillingDate` → `lastBilledAt`, `nextBillingDate` → `nextBillingAt`, `minimumCancellationDate` → `cancellableAt` (all nullable); `allowance` (a min-units string) → `allowance` an `Allowance` object (`amount`, `amountMinUnits`, `amountUsd`, `remainingPeriods`, `maxPerPeriod`, `maxPerPeriodMinUnits`); `currencyId` → `currency`; `from` and `subscriptionHash` nullable; + `currentPeriodEnd`, `actionRequired`, `priceUsd`, `fees`, `cancelledAt`, `cancellationReason`, `metadata`, `managementPageLink`, `customerReference`, `customer`, `dunning` |
-| `SubscriptionHistory` | `Bill` | the `Payment` renames (no `metadata`, no `priceUsd`: read the subscription's); `subscriptionUUID` → `subscriptionUuid`; + `settlement`, `periodStart`, `periodEnd` |
-| `RefundEntry` | `Refund` | `txId` → `txUuid`; amounts as strings; `metadata` → `settlement` (a `TransferSettlement`, once approved); + `initiatedBy`, `refundPercent`, `paid`, `paidMinUnits`, `paidUsd`, `amount`, `amountMinUnits`, `amountUsd`, `currency`, `held`, `chain`, `explorerUrl`, `approval`, `customer` |
-| `Customer` | `Customer` | `name` → `firstName`; `lastName` nullable; + `verified`, `metadata` |
-| `Product` | `Product` | `id` → `uuid`; `price` (a float) → `priceUsd` (a string); `description` nullable; + `subscription`, `paymentLink`, `metadata` |
-| `User` | `Member` (or `Me`) | `id` → `userUuid`; `name` → `firstName`; `organizationFeeBps` → `organizationFeePercent` (a string); `claimedAt` → `trustedAt`; `role` moves to `Me`; + `joinedAt`, `acceptedCurrencies` (`list<Currency>`), `spaceUuid` |
-| — | `Me`, `MeSpace`, `MeMember` | `Me::$onBehalfOfUserUuid` (the member acted for); `MeSpace` has `role`, `trustedAt`, `createdAt`, `organizationFeePercent` |
-| — | `HeldFunds`, `LedgerEntry`, `MemberHeldFunds` | `totalUsd`; each line's `amountUsd`, `settlement`, `currency`, `owed`, `owedMinUnits`, `owedUsd` |
-| — | `Invitation`, `CreatedInvitation` | `holdFunds`, `organizationFeePercent` (a string); `CreatedInvitation` extends `Invitation` with `link` |
-| — | `Wallet`, `TokenWallet`, `Balance` | `Wallet::$address`, `Wallet::$currency`; `TokenWallet::$currency`; `Balance` = a `TokenAmount` (`amount`, `amountMinUnits`, `amountUsd`) + its `currency` |
-| `AccountingEvent` | `AccountingEvent` | `paymentId` → `txUuid`; `relatedPaymentId` → `relatedTxUuid`; `paymentReference` / `relatedPaymentReference` → `reference` / `relatedReference`; `productId` → `productUuid`; `tokenSymbol` → `currency` (always set, a native currency's too); every amount, USD amount and rate is a decimal string, the amounts in the currency's units (`"7.5"`, not `"7500000"`) with a `…MinUnits` twin; a fee that doesn't apply is `null`, never `"0"`; network fees are never part of `netAmount` (a refund's net is the refunded amount); properties in the CSV's column order; + `userUuid`, `referralFee*`, `currencyPriceUsd`, `networkFeesPaidBy` (`Enums\NetworkFeesPayer`), `networkFeesCurrency`, `networkFeesCurrencyDecimals`, `networkFeesCurrencyPriceUsd` |
-| `Metadata\PaymentMetadata` | `Settlement` | `feeBps` → `feePercent` (a string); `TxAmountsFull` / `TxAmountsMinUnits` / `TxAmountsUSD` → `split` (a `Split`: `platform`, `organization`, `referral`, `merchant`, `networkFee`, each a `TokenAmount`; `platform` no longer includes the referrer's share); `TxMetadata` / `BlockData` / `NetworkFees` → `transaction` (a `SettlementTransaction`: `blockNumber`, `blockTime`, `gasUsed`, `fee`, `l1Fee`, `nativePriceUsd`) |
-| `Metadata\OrganizationFee` (`organizationId`, `organization`, `feeBps`) | `OrganizationFee` (`address`, `feePercent`) | |
-| `Metadata\ReferralFee` (`referralId`, `referrer`, `feeBps`, `deadline`) | `ReferralFee` (`address`, `feePercent`, `deadline`) | |
-| `Currency` | `Currency` | + `code` (`BASE:USDC`), `chain`; `address` null on a native coin; no nested `mainCurrency` (`mainCurrencyId` stays) |
-| `Support\CursorData` | `QBitFlow\Page` | § 13 |
-| `ApiKey`, `Organization`, `ClaimFunds`, `ClaimRequestResponse`, `StatusResponse`, `StatusResponseError`, `SuccessResponse`, `SubscriptionStatusTransition` | removed | |
-
-**Typing rule.** A field the API always sends is non-nullable (an absent or `null` value gives
-its zero value: `''`, `0`, `false`, `[]`, a zero-valued nested model); an optional field is `?T`,
-`null` when absent. Lists are arrays (`[]` when empty) and `metadata` an `array<string,string>`.
-An unset required timestamp is Go's zero time (`0001-01-01T00:00:00Z`): test it with
-`QBitFlow\Support\Time::isZero()`. Timestamps are `DateTimeImmutable` with the offset the API
-sent.
-
-**Metadata** is new: your own `array<string,string>` on products, customers, checkouts (copied
-onto the payment or subscription and into the webhooks) and subscriptions
-(`subscriptions->update()`). At most 50 keys of 1 to 40 characters among `A-Z a-z 0-9 _ - . :`,
-values of at most 500 characters; an update merges it (`''` deletes a key).
-
-**Enums** were PHP backed `enum`s (`SubscriptionStatus::ACTIVE->value`), and a value the SDK did
-not know was kept as a string beside them (`Support\Enums::value()` / `is()` / `isUnknown()`
-read the union). In 3.0.0 every enum property is a plain `string`, and
-`QBitFlow\Enums\SubscriptionStatus` (and the others) are classes of string constants: compare
-with `===` against `SubscriptionStatus::ACTIVE`. Unknown values are kept as is. `Support\Enums`
-is gone.
-
-## 9. Enum values and statuses
-
-**Subscription statuses** (`Enums\SubscriptionStatus`)
-
-| 2.x | 3.0.0 |
-|---|---|
-| `ACTIVE` (`active`) | `ACTIVE` (`active`) |
-| `PAST_DUE` (`past_due`) | `PAST_DUE` (`pastDue`) |
-| `TRIAL` (`trial`) | `TRIAL` (`trial`) |
-| `TRIAL_EXPIRED` (`trial_expired`) | `TRIAL_EXPIRED` (`trialExpired`) |
-| `CANCELLED` (`cancelled`) | `CANCELLED` (`cancelled`) |
-| `LOW_ON_FUNDS` (`low_on_funds`) | no status: `$subscription->actionRequired === ActionRequired::TOP_UP_ALLOWANCE` |
-| `PENDING` (`pending`) | no status: `$subscription->actionRequired === ActionRequired::RAISE_MAXIMUM` |
-| `$subscription->stopped === true` | `STOPPED` (`stopped`): cancelled at `nextBillingAt` |
-| — | `PAUSED` (`paused`): paused by the customer |
-
-**Grant access while now < `currentPeriodEnd`** (`$subscription->hasAccess()`), whatever the
-status: a check like `status === 'active'` cuts off paying customers (`stopped`, `paused`) and
-keeps serving `pastDue` ones.
-
-**Checkout statuses**: 2.x's seven `TransactionStatusValue` cases become four
-`Enums\CheckoutSessionStatusValue` constants: `CREATED`, `WAITING_CONFIRMATION`, `COMPLETED`,
-`EXPIRED`. `PENDING`, `FAILED` and `CANCELLED` are gone: **a failed attempt is `created` with
-`lastAttempt` set** (its `code` says why). It is never final: the customer may still pay until
-the session expires, so never cancel an order on it.
-
-**Other values**
-
-| 2.x | 3.0.0 |
-|---|---|
-| `TransactionType::ONE_TIME_PAYMENT` | `TransactionType::PAYMENT` (`payment`) |
-| `TransactionType::EXECUTE_SUBSCRIPTION_PAYMENT` | `TransactionType::EXECUTE_SUBSCRIPTION` |
-| `TransactionType::CREATE_PAYG_SUBSCRIPTION`, `CANCEL_PAYG_SUBSCRIPTION` (`createPAYGSubscription`…) | `CREATE_PAYG_SUBSCRIPTION`, `CANCEL_PAYG_SUBSCRIPTION` (`createPaygSubscription`…) |
-| — | `TransactionType::FORCE_CANCEL_SUBSCRIPTION`, `RELEASE_HELD_FUNDS` |
-| `RefundStatus::REFUSED` (`refused`), `RefundStatus::FAILED` | `RefundStatus::REJECTED` (`rejected`); `PENDING` is a customer's request; `FAILED` is declared, never set |
-| `CombinedPaymentSource::SUBSCRIPTION_HISTORY` (`subscription_history`) | `TransactionKind::BILL` (`bill`) on `Transaction::$type` |
-| `AccountingEventType::SUBSCRIPTION_HISTORY` | `AccountingEventType::BILL` (`bill`) |
-| — | `LedgerEntryType` (held-funds lines): `LedgerEntryType::PAYMENT`, `LedgerEntryType::REFUND` (a held seller sells no subscription: no bill line) |
-| `UserRole` (`ADMIN`, `USER`, `OWNER`) | `Role` (`OWNER`, `ADMIN`, `USER`, `HANDLE`) |
-| `ExportFormat`, `SubscriptionWebhookType`, `TransactionShortType`, `TransactionStatusValue` | removed |
-
-## 10. Exceptions
-
-2.x threw `QBitFlowException` or one of `ValidationException`, `UnauthorizedException`,
-`ForbiddenException`, `NotFoundException`, `RateLimitException`, `ServerException`,
-`NetworkException` (the 400 and 422 statuses both as `ValidationException`). 3.0.0 has one class
-per condition, all under `QBitFlow\Exceptions\ApiException` (itself a `QBitFlowException`, which
-implements the marker `ExceptionInterface`):
-
-| Status | 3.0.0 class |
-|---|---|
-| 400 `validation_failed`, and client-side checks (`status` 0) | `ValidationException` |
-| other 400 | `BadRequestException` (2.x: `ValidationException`) |
-| 401 | `AuthenticationException` (2.x: `UnauthorizedException`) |
-| 403 | `PermissionDeniedException` (2.x: `ForbiddenException`) |
-| 404 (and a `getByReference()` that finds nothing) | `NotFoundException` |
-| 409 | `ConflictException` |
-| 410 | `GoneException` |
-| 422 `idempotency_key_reused` | `IdempotencyException` (2.x: `ValidationException`) |
-| 429 | `RateLimitException` (`retryAfter`, `limit`, `periodSeconds`) |
-| 5xx, unexpected 3xx, unusable 2xx | `ServerException` |
-| no response | `NetworkException` (`getPrevious()`: the PSR-18 exception) |
-| bad webhook signature | `WebhookSignatureException` (`reason`) |
-| any other HTTP error (413, 405…) | `ApiException` |
-
-| 2.x | 3.0.0 |
-|---|---|
-| `$e->getStatusCode()` (`?int`) | `$e->status` / `$e->getStatus()` (`0` without a response); `getCode()` is the status too |
-| — | `$e->apiCode` / `$e->getApiCode()`: the API's string `code` (`unique_violation`…). `Exception::getCode()` is an integer in PHP, hence the name |
-| `$e->getMessage()` | `"<message> (status <status>, code <code>, request <requestId>)"` followed by `"; <field>: <message>"`; the bare message is `$e->errorMessage` |
-| `$e->getFields()` (`list<FieldError>`) | `$e->fieldErrors` / `getFieldErrors()` (`FieldError` with `field` and `message`) |
-| `$e->getResponse()` (the decoded body) | `$e->details` (the body's `details` object, never null) and `$e->rawBody` (the body as received) |
-| — | `$e->requestId`: quote it to support |
-| `RateLimitException::getRetryAfter()` (`?int`) | `$e->retryAfter` / `getRetryAfter()` (`int` seconds, `0` when unknown) |
-| — | `$e->isRetryable()` |
-
-- **Field errors work now.** 2.x read a validation error's fields from the wrong key (a
-  top-level `errors` list), so every field came back empty. 3.0.0 reads `details.errors`:
-  `fieldErrors` names each failing input by its wire name, dotted when nested
-  (`frequency.unit`).
-- **Branch on `apiCode`**, never on the message: `unique_violation` (`details['field']`),
-  `merchant_not_ready`, `tx_already_sent`, `policy_disabled`…
-- **`getByReference()`** runs the list's `?reference=` filter: no match is a
-  `NotFoundException` (status 404, code `not_found`), like an unknown UUID.
-
-## 11. Webhooks
-
-The webhook scheme is new; 2.x verification code does not carry over.
-
-| | 2.x | 3.0.0 |
-|---|---|---|
-| Header | `X-Webhook-Signature-256`, `X-Webhook-Timestamp`, `X-Webhook-ID` | `QBitFlow-Signature: t=<unix>,v1=<hex>[,v1=<hex>]`, `QBitFlow-Event-Id`, `QBitFlow-Event-Type` |
-| Signed content | `timestamp.` + the body re-encoded as canonical JSON | `t.` + the **raw body**, exactly as received |
-| Rotation | one secret | two `v1=` for 24 hours after a rotation; either secret verifies |
-| Body | `SessionWebhookResponse` or a subscription transition | the event envelope `{id, type, version, createdAt, test, userUuid, data}` |
-| Dashboard test | `X-Webhook-ID: test-webhook-id` | a `webhook.test` event |
-
-- **Pass the raw body** (`file_get_contents('php://input')`, `$request->getContent()`), never a
-  decoded array: `Webhook::verify()` takes a `string`.
-- **v2 only.** Every endpoint receives the v2 envelope (v1 is retired and every endpoint was
-  moved to v2); a body of another version is a `ValidationException` from `parseEvent()`.
-- **Event types** replace the two 2.x payloads: v1's transaction webhook becomes
-  `payment.completed` / `subscription.created`, its subscription webhook `subscription.billed` /
-  `subscription.statusChanged`, plus 11 new types (`checkout.expired`, `refund.requested`,
-  `refund.approved`, `refund.rejected`, `member.joined`, …). `Webhook::parseEvent()` returns the
-  subclass of the type (`Events\PaymentCompletedEvent`, …, `Events\UnknownEvent`) with a typed
-  `data`; or register typed handlers on a `Webhooks\WebhookRouter`.
-- `subscription.billed`'s data is a `Models\SubscriptionBilled` with `bill` (the bill paid,
-  `bill->periodEnd`) and `subscription` (as it leaves it); `subscription.created`'s is the
-  `Models\Subscription`. Money in event data is decimal strings, as in the API's answers.
-- Deliveries are at least once: deduplicate on `$event->id`, and answer 2xx to the types you
-  ignore.
-- Endpoints are created per space with `$client->webhooks->endpoints->create()`, whose answer
-  carries the `whsec_…` secret once.
-
-## 12. Laravel
-
-| 2.x | 3.0.0 |
-|---|---|
-| `Route::qbitflowTransactionWebhook($uri)`, `Route::qbitflowSubscriptionWebhook($uri)` (two URLs) | `Route::qbitflowWebhooks('webhooks/qbitflow')`: one route for every event type (name `qbitflow.webhooks`) |
-| `WebhookController::transaction()`, `::subscription()` | `WebhookController` is invokable: it dispatches the event of the type, then `WebhookReceived` |
-| `Events\TransactionWebhookReceived` (`payload`, `reference()`, `isSubscription()`) | `Events\PaymentCompleted` and `Events\SubscriptionCreated` (each with `event` and typed `data`; `SubscriptionCreated::$data` is the `Models\Subscription`) |
-| `Events\SubscriptionBilled` (`billing`, `subscriptionUUID`, `reference()`) | `Events\SubscriptionBilled` (`event`, `data`: a `Models\SubscriptionBilled` with `bill` and `subscription`: `$listener->data->bill->periodEnd`, `$listener->data->subscription->reference`) |
-| `Events\SubscriptionStatusChanged` (`transition`, `subscriptionUUID`, `reference()`) | `Events\SubscriptionStatusChanged` (`event`, `data`: the `Subscription` + `previousStatus`) |
-| — | `SubscriptionActionRequiredChanged`, `SubscriptionBillingFailed`, `SubscriptionUpcomingBill`, `RefundRequested`, `RefundApproved`, `RefundRejected`, `MemberJoined`, `MemberRemoved`, `HeldFundsReleased`, `CheckoutExpired`, `WebhookTestReceived`, and `WebhookReceived` for every delivery (unknown types included) |
-| The middleware answered the dashboard probe itself (`isTestWebhook`) | the probe is verified like any delivery and dispatched as `WebhookTestReceived` |
-| `VerifyQBitFlowWebhook` verified through the API (`webhooks->verify`) | it verifies locally with `QBITFLOW_WEBHOOK_SECRET` (`config('qbitflow.webhook_secret')`, required: a missing secret is a 500) and stores the event on `$request->attributes->get('qbitflow.event')`; a bad signature or a non-v2 body is a 400 |
-| config `api_key`, `base_url`, `timeout`, `max_retries` | the same, plus `webhook_secret` (`QBITFLOW_WEBHOOK_SECRET`) and `webhook_tolerance` (`QBITFLOW_WEBHOOK_TOLERANCE`, 300) |
-| `qbitflow:verify` (called `GET /user`, printed the user and the fee in bps) | calls `me()`: credential, role, organization, space, mode, member |
-| `qbitflow:install` | also adds `QBITFLOW_WEBHOOK_SECRET` to `.env` and points to `Route::qbitflowWebhooks()` |
-| Facade `QBitFlow::oneTimePayments()`, `users()`, `apiKeys()`, `claims()`, `transactionStatus()`, `getApiKey()` | `QBitFlow::checkoutSessions()`, `payments()`, `transactions()`, `failures()`, `members()`, `invitations()`, `wallets()`, `me()`, `onBehalfOf()` |
-
-## 13. Pagination
-
-`getAll…(?int $limit, ?string $cursor)` returning a `CursorData` becomes
-`list(new …ListParams(limit: …, cursor: …, filters…))` returning a `QBitFlow\Page` (`items`,
-`hasMore`, `nextCursor`). While `$page->hasMore`, pass `$page->nextCursor` back as `cursor:`,
-verbatim (it is opaque: never build or parse it). Every paginated list also has an `iterate*()`
-twin returning a `Generator` that walks every page lazily, and stops after the page whose
-`hasMore` is false. The short bounded lists (`currencies->list()`, `wallets->…`,
-`members->listHeldFunds()`, `accounting->exportJson()`) return a `list<…>`:
-
-```php
-foreach ($client->subscriptions->iterate(new SubscriptionListParams(limit: 100)) as $subscription) {
-	echo $subscription->uuid, ' ', $subscription->status, PHP_EOL;
-}
-```
-
-## 14. Before and after: five common tasks
-
-### Create the client
+### 2.3 Create new API keys, and check your webhook endpoints
+
+- **API keys:** create a key in the dashboard for each space and mode you use. Keys from before API
+  v2 answer `401`. A key belongs to one space (your organization's, or a member's) and one mode
+  (test or live). Treat it as an opaque secret.
+- **Webhooks:** your existing endpoints were moved to v2, with the secret they had, and now receive
+  v2 events signed with the new scheme ([§ 3.7](#37-webhooks)). 3.0 verifies them locally with that
+  secret: if your application doesn't hold it yet, copy it (`whsec_…`) from the dashboard. New
+  endpoints come from the dashboard or `$client->webhooks->endpoints->create()` (the answer carries
+  the secret, once).
+
+### 2.4 Base URL
+
+The default base URL is now `https://api.qbitflow.app/v2`. If you pass `baseUrl:`, point it at v2.
+The constructor **no longer reads `QBITFLOW_BASE_URL`** by itself (2.x's `Config` did): pass
+`baseUrl:` explicitly, or use `QBitFlow::fromEnv()`, which reads `QBITFLOW_API_KEY`,
+`QBITFLOW_BASE_URL` and `QBITFLOW_ON_BEHALF_OF`. The Laravel config still maps `QBITFLOW_BASE_URL`.
+
+### 2.5 Laravel (10, 11 and 12)
+
+- **Auto-discovery** still registers the service provider and the `QBitFlow` facade alias.
+- **Config:** re-publish or merge it. Run `php artisan qbitflow:install` (or
+  `php artisan vendor:publish --tag=qbitflow-config --force`): `config/qbitflow.php` gains
+  `webhook_secret` (`QBITFLOW_WEBHOOK_SECRET`) and `webhook_tolerance`
+  (`QBITFLOW_WEBHOOK_TOLERANCE`, default 300 seconds). `api_key`, `base_url`, `timeout` and
+  `max_retries` are unchanged.
+- **`.env`:** set the new `QBITFLOW_API_KEY` and add `QBITFLOW_WEBHOOK_SECRET` (the endpoint's
+  `whsec_…`). `qbitflow:install` adds the missing keys to `.env` and `.env.example`.
+- **Routes:** replace `Route::qbitflowTransactionWebhook()` and `Route::qbitflowSubscriptionWebhook()`
+  with one `Route::qbitflowWebhooks('webhooks/qbitflow')` and point your endpoint at it. Declare it
+  in `routes/api.php`, or exclude its URI from CSRF protection (QBitFlow sends no CSRF token).
+- **Listeners:** move to the new Laravel events ([§ 3.10](#310-laravel)).
+- **Check:** `php artisan qbitflow:verify` calls the API and prints the key's role, organization,
+  space, mode and member.
+
+## 3. Breaking changes, before and after
+
+The examples assume `use QBitFlow\QBitFlow;`, `use QBitFlow\Params\…;`, `use QBitFlow\Enums\…;` and
+so on.
+
+### 3.1 Creating the client
 
 ```php
 // 2.x
-$client = new QBitFlow(getenv('QBITFLOW_API_KEY'), 'https://api.qbitflow.app/v1', 10.0);
+$client = new QBitFlow(getenv('QBITFLOW_API_KEY'), 'https://api.qbitflow.app/v1', 10.0, 3);
 $user = $client->users->get();
 ```
 
 ```php
+// 3.0
 $client = new QBitFlow(
-	apiKey: (string) getenv('QBITFLOW_API_KEY'),
-	timeout: 10.0, // per attempt; the base URL defaults to …/v2
+    apiKey: (string) getenv('QBITFLOW_API_KEY'),
+    timeout: 10.0,   // seconds per attempt; the base URL defaults to …/v2
+    maxRetries: 3,
 );
-$me = $client->me(); // check the key at start-up
-echo $me->role, ' ', ($me->space?->test ?? false) ? 'test' : 'live', PHP_EOL;
+$me = $client->me(); // what the key is: role, space, mode
+echo ($me->space?->test ?? false) ? 'test' : 'live', PHP_EOL;
 ```
 
-### Open a payment checkout and read its outcome
+- Use named arguments: the order changed (`onBehalfOf:` now sits before `httpClient:`).
+- `QBitFlow::fromArray()` and `Config` are gone: use the constructor, `QBitFlow::fromEnv()`, and
+  the constants `QBitFlow::DEFAULT_BASE_URL`, `DEFAULT_TIMEOUT` (`30.0`), `DEFAULT_MAX_RETRIES` (`3`).
+- The constructor refuses, before sending anything, a blank key, one that doesn't start with `sk_`
+  or contains a character no HTTP header can carry, a negative `maxRetries`, a non-positive
+  `timeout`, and a `baseUrl` that isn't `http(s)` with a host or carries credentials, a query or a
+  fragment. The error never quotes the key. Call `$client->me()` at start-up to check the key online.
+- `timeout` now applies **per attempt** (to the HTTP client the SDK builds; an injected client keeps
+  its own timeout).
+- `$client->getApiKey()` is removed. `getBaseUrl()` stays; `getOnBehalfOf()` is new.
+
+### 3.2 Acting for a seller (`onBehalfOf`)
+
+```php
+// 2.x: per service, with an integer user id
+$payments = $client->oneTimePayments->onBehalfOf(123)->getAll(50);
+```
+
+```php
+// 3.0: one client for every service, with the member's user UUID
+$seller = $client->onBehalfOf('0192f1c2-7b3a-7c4d-9e5f-6a7b8c9d0e1f'); // $member->userUuid
+$payments = $seller->payments->list(new PaymentListParams(limit: 50));
+
+// or for one call
+$payment = $client->payments->get('pay@…', null, new RequestOptions(onBehalfOf: '0192f1c2-…'));
+```
+
+- The per-service `onBehalfOf(int)` is gone. `$client->onBehalfOf(string $userUuid)` returns a new
+  client sharing the same configuration; a non-UUID (or the nil UUID) is a `ValidationException` at
+  once, an integer a `TypeError`. `onBehalfOf('')` returns a client at the organization level.
+- It needs an organization key. Acting for a member, the request has the member's `user` role:
+  `members`, `invitations` and `wallets->listForMember()` answer `403`.
+
+### 3.3 Opening a checkout and reading its outcome
 
 ```php
 // 2.x
 $session = $client->oneTimePayments->createSession(new CreatePaymentSessionDto(
-	reference: 'order-1042',
-	productId: 42,
-	successUrl: 'https://shop.example.com/thanks',
+    reference: 'order-1042',
+    productId: 42,
+    price: 4.99,
+    successUrl: 'https://shop.example.com/thanks',
 ));
 $status = $client->transactionStatus->get($session->uuid, TransactionType::ONE_TIME_PAYMENT);
-if ($status->status === TransactionStatusValue::COMPLETED) {
-	$payment = $client->oneTimePayments->get($session->uuid);
-}
+if ($status->status === TransactionStatusValue::COMPLETED) { /* … */ }
 ```
 
 ```php
+// 3.0
 $session = $client->checkoutSessions->createPayment(new CreatePaymentSessionParams(
-	productUuid: '0192f1c2-1111-7c4d-9e5f-6a7b8c9d0e1f',
-	reference: 'order-1042',
-	successUrl: 'https://shop.example.com/thanks?session=' . Placeholders::UUID,
+    productUuid: '0192f1c2-1111-7c4d-9e5f-6a7b8c9d0e1f', // or productReference:, or productName: + priceUsd: '4.99'
+    reference: 'order-1042',
+    successUrl: 'https://shop.example.com/thanks?session=' . Placeholders::UUID,
 ));
-$status = $client->checkoutSessions->get($session->uuid);
+header('Location: ' . $session->link);
+
+$status = $client->checkoutSessions->get($session->uuid); // no type argument
 if ($status->status === CheckoutSessionStatusValue::COMPLETED) {
-	$payment = $client->payments->get($session->uuid); // the payment has the session's id
-	echo $payment->txHash, PHP_EOL;
+    $payment = $client->payments->get($session->uuid); // the payment keeps the session's id
 }
 ```
 
-### List a seller's payments
+- `CreatePaymentSessionDto` → `CreatePaymentSessionParams`: `productId` (int) → `productUuid`
+  (string), `customerUUID` → `customerUuid`, `price` (float) → `priceUsd` (string). New:
+  `expiresInMinutes`, `metadata`, `fees` (`CheckoutFees`).
+- `subscriptions->createSession(CreateSubscriptionSessionDto)` →
+  `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)`; `frequency`,
+  `trialPeriod` (`Models\Duration`) and `minPeriods` can come from a subscription product.
+- The answer is a `Models\CreatedCheckoutSession` (`link`, `uuid`, `expiresAt`, always set).
+- **Fulfil on the webhook** (`payment.completed`, `subscription.created`), not on the redirect. A
+  failed attempt leaves the session `created` with `lastAttempt` set: the customer can still pay.
+- **Sellers' redirect URLs:** a member's own key may send `successUrl` / `cancelUrl` while the
+  organization's `members.checkoutRedirects` policy allows it (on by default). With the policy off
+  the call answers `403` `policy_disabled`, with `details['policy']` and `details['field']`.
+
+### 3.4 Products and customers
 
 ```php
 // 2.x
-$page = $client->oneTimePayments->onBehalfOf(123)->getAll(50);
+$product = $client->products->create(new CreateProductDto(name: 'Pro', description: 'Pro plan', price: 9.99, reference: 'pro'));
+$client->products->update($product->id, new UpdateProductDto(price: 12.5));
+$customer = $client->customers->getByEmail('ada@example.com');
+```
+
+```php
+// 3.0
+$product = $client->products->create(new CreateProductParams(name: 'Pro', priceUsd: '9.99', reference: 'pro'));
+$client->products->update($product->uuid, new UpdateProductParams(priceUsd: '12.50'));
+$page = $client->customers->list(new CustomerListParams(email: 'ada@example.com')); // several may share an email
+```
+
+- Products are named by UUID (`$product->uuid`); `price` → `priceUsd` (a string); `description`
+  is optional; `subscription: new SubscriptionTermsParams(...)` makes a subscription product; new
+  `metadata`, `isActive`, `removeSubscription`.
+- Customers: `name` → `firstName`; `lastName` is optional; new `metadata`. On update, `null` leaves
+  a field unchanged and `''` **clears** `lastName`, `phoneNumber` or `address`.
+- `products->getAll()` returned every product; `products->list()` is paginated.
+- Every `delete()` returns `void` (2.x returned a `SuccessResponse`).
+- References are 1 to 100 of `A-Z a-z 0-9 . _ : @ -`, and never `.` or `..` alone (refused before
+  sending, in bodies, filters and `getByReference()`).
+
+### 3.5 Reading payments and subscriptions
+
+```php
+// 2.x
+$payment = $client->oneTimePayments->getByReference('order-1042');
+echo $payment->amount; // float, USD
+
+$sub = $client->subscriptions->get('sub@…');
+if ($sub->subscriptionStatus === SubscriptionStatus::ACTIVE) { /* … */ }
+$history = $client->subscriptions->getPaymentHistory('sub@…');
+$client->subscriptions->forceCancel('sub@…');
+```
+
+```php
+// 3.0
+$payment = $client->payments->getByReference('order-1042'); // NotFoundException when none
+echo $payment->amountUsd;              // '10', a decimal string
+echo $payment->amount, ' ', $payment->currency->symbol; // the token amount: '10 USDC'
+
+$sub = $client->subscriptions->get('sub@…'); // cancelled ones too: a 404 no longer means "cancelled"
+if ($sub->hasAccess()) { /* grant access until currentPeriodEnd, whatever the status */ }
+foreach ($client->subscriptions->iterateBills('sub@…') as $bill) { /* every bill */ }
+$result = $client->subscriptions->cancel('sub@…'); // immediate; CancelSubscriptionParams(immediate: false) for period end
+echo $result->pending ? 'confirming on-chain' : $result->subscription->status;
+```
+
+- `Payment::$amount` is now the **token amount**; the USD value is `amountUsd`.
+- `subscriptionStatus` → `status` (a string); `stopped` is a status now; `lastBillingDate` /
+  `nextBillingDate` / `minimumCancellationDate` → `lastBilledAt` / `nextBillingAt` /
+  `cancellableAt`.
+
+### 3.6 Pagination
+
+```php
+// 2.x
+$page = $client->customers->getAll(50);
 while ($page->hasMore()) {
-	$page = $client->oneTimePayments->onBehalfOf(123)->getAll(50, $page->nextCursor);
+    $page = $client->customers->getAll(50, $page->nextCursor);
 }
 ```
 
 ```php
-$seller = $client->onBehalfOf('0192f1c2-7b3a-7c4d-9e5f-6a7b8c9d0e1f'); // $member->userUuid
-foreach ($seller->payments->iterate(new PaymentListParams(limit: 50)) as $payment) {
-	echo $payment->uuid, ' ', $payment->amountUsd, ' USD', PHP_EOL; // a decimal string
+// 3.0
+foreach ($client->customers->iterate(new CustomerListParams(limit: 100)) as $customer) {
+    echo $customer->email, PHP_EOL; // walks every page lazily
+}
+
+// or page by page
+$page = $client->customers->list(new CustomerListParams(limit: 50));
+while ($page->hasMore) {
+    $page = $client->customers->list(new CustomerListParams(limit: 50, cursor: $page->nextCursor));
 }
 ```
 
-### Cancel a subscription
+`Support\CursorData` → `QBitFlow\Page` (`items`, `hasMore` is a property, `nextCursor`). The cursor
+is opaque: pass it back verbatim. Short bounded lists (`currencies->list()`, `wallets->…`,
+`members->listHeldFunds()`, `accounting->exportJson()`) return a plain `list<…>`.
 
-```php
-// 2.x
-$response = $client->subscriptions->forceCancel('sub@0192f1c2-3333-7c4d-9e5f-6a7b8c9d0e1f');
-```
-
-```php
-$result = $client->subscriptions->cancel('sub@0192f1c2-3333-7c4d-9e5f-6a7b8c9d0e1f'); // immediate
-echo $result->subscription->status, ' ', $result->pending ? 'confirming (HTTP 202)' : 'done', PHP_EOL;
-```
-
-### Receive a webhook
+### 3.7 Webhooks
 
 ```php
 // 2.x
 $payload = file_get_contents('php://input');
 WebhookVerifier::verify(
-	getenv('QBITFLOW_WEBHOOK_SECRET'),
-	$_SERVER['HTTP_X_WEBHOOK_TIMESTAMP'] ?? '',
-	$_SERVER['HTTP_X_WEBHOOK_SIGNATURE_256'] ?? '',
-	$payload,
+    getenv('QBITFLOW_WEBHOOK_SECRET'),
+    $_SERVER['HTTP_X_WEBHOOK_TIMESTAMP'] ?? '',
+    $_SERVER['HTTP_X_WEBHOOK_SIGNATURE_256'] ?? '',
+    $payload,
 );
-$event = SessionWebhookResponse::fromArray(json_decode($payload, true));
+$data = SessionWebhookResponse::fromArray(json_decode($payload, true));
 ```
 
 ```php
+// 3.0, with the router: verifies, parses, dispatches and answers 200 / 400 / 500
+use QBitFlow\Enums\EventType;
+use QBitFlow\Events\Event;
+use QBitFlow\Models\PaymentCompleted;
+use QBitFlow\Webhooks\WebhookRouter;
+
 (new WebhookRouter((string) getenv('QBITFLOW_WEBHOOK_SECRET')))
-	->on(EventType::PAYMENT_COMPLETED, function (PaymentCompleted $payment, Event $event): void {
-		error_log('fulfil ' . $payment->reference . ' once for ' . $event->id); // deduplicate on $event->id
-	})
-	->handleGlobals(); // verifies, parses, dispatches, answers 200 / 400 / 500
+    ->on(EventType::PAYMENT_COMPLETED, function (PaymentCompleted $payment, Event $event): void {
+        // fulfil $payment->reference once: deduplicate on $event->id
+    })
+    ->handleGlobals();
 ```
 
-Or, lower level, `Webhook::constructEvent($rawBody, $signatureHeader, $secret)` and an
-`instanceof PaymentCompletedEvent` check.
+```php
+// 3.0, low level
+use QBitFlow\Events\PaymentCompletedEvent;
+use QBitFlow\Webhooks\Webhook;
 
-### Handle an error
+$event = Webhook::constructEvent(
+    file_get_contents('php://input'),            // the raw body, exactly as received
+    $_SERVER['HTTP_QBITFLOW_SIGNATURE'] ?? '',
+    (string) getenv('QBITFLOW_WEBHOOK_SECRET'),
+); // throws WebhookSignatureException (->reason) on a bad signature
+if ($event instanceof PaymentCompletedEvent) {
+    $reference = $event->data->reference;
+}
+```
+
+| | 2.x | 3.0 |
+|---|---|---|
+| Headers | `X-Webhook-Signature-256`, `X-Webhook-Timestamp`, `X-Webhook-ID` | `QBitFlow-Signature: t=<unix>,v1=<hex>`, `QBitFlow-Event-Id`, `QBitFlow-Event-Type` |
+| Signed content | `timestamp.` + the body re-encoded as canonical JSON | `t.` + the **raw body** |
+| Secret rotation | one secret | two `v1=` signatures for 24 hours: either secret verifies |
+| Body | a session payload or a subscription transition | an event envelope (`id`, `type`, `createdAt`, `test`, `userUuid`, `data`) |
+| Types | 2 payload shapes | 15 event types, each with a typed `data` |
+| Dashboard test | `X-Webhook-ID: test-webhook-id` | a `webhook.test` event, signed like any other |
+
+- `WebhookVerifier` → `QBitFlow\Webhooks\Webhook`: `verify()`, `constructEvent()`, `parseEvent()`,
+  `verifyRequest()` (PSR-7), `sign()` (for your tests). The timestamp check can't be skipped any
+  more (default tolerance 300 seconds).
+- `$client->webhooks->verify($payload, $signature, $timestamp): bool` (a call to the API) →
+  `$client->webhooks->verifyRemote($endpointUuid, $rawBody, $signatureHeader): void`, which throws
+  on a bad signature. Local verification (`Webhook::verify()`) needs no API call.
+- Always pass the raw body string, never a decoded array.
+- v1's transaction webhook becomes `payment.completed` / `subscription.created`, its subscription
+  webhook `subscription.billed` / `subscription.statusChanged`; 11 more types are new
+  ([§ 6](#6-new-capabilities)).
+
+### 3.8 Errors
 
 ```php
 // 2.x
 try {
-	$client->products->get(42);
+    $client->products->get(42);
 } catch (NotFoundException $e) {
-	echo 'not found: ', $e->getMessage();
-} catch (ValidationException $e) {
-	print_r($e->getFields()); // empty: the field details were lost
+    // …
 } catch (QBitFlowException $e) {
-	echo 'error ', $e->getStatusCode();
+    echo $e->getStatusCode(), ' ', $e->getMessage();
+    $body = $e->getResponse();
 }
 ```
 
 ```php
+// 3.0
+use QBitFlow\Exceptions\{ApiException, ConflictException, NotFoundException, ValidationException};
+
 try {
-	$client->products->get('0192f1c2-1111-7c4d-9e5f-6a7b8c9d0e1f');
+    $client->products->get('0192f1c2-1111-7c4d-9e5f-6a7b8c9d0e1f');
 } catch (NotFoundException $e) {
-	echo 'not found, request ', $e->requestId, PHP_EOL;
+    // …
 } catch (ValidationException $e) {
-	foreach ($e->fieldErrors as $fieldError) {
-		echo $fieldError->field, ': ', $fieldError->message, PHP_EOL;
-	}
+    foreach ($e->fieldErrors as $error) {
+        echo $error->field, ': ', $error->message, PHP_EOL; // wire names: 'priceUsd', 'frequency.unit'
+    }
 } catch (ApiException $e) {
-	echo 'error ', $e->status, ' ', $e->apiCode, PHP_EOL;
+    echo $e->status, ' ', $e->apiCode, ' (request ', $e->requestId, ')', PHP_EOL; // branch on apiCode
 }
 ```
 
-## Names from the unreleased 2.5.0
+| 2.x | 3.0 |
+|---|---|
+| `ValidationException` (every 4xx other than 401/403/404/429) | `ValidationException` (400 `validation_failed`, and client-side checks with status 0), `BadRequestException` (other 400), `ConflictException` (409), `GoneException` (410), `IdempotencyException` (422 `idempotency_key_reused`), `ApiException` (any other) |
+| `UnauthorizedException` | `AuthenticationException` (401) |
+| `ForbiddenException` | `PermissionDeniedException` (403) |
+| `NotFoundException` | `NotFoundException` (404, and a `getByReference()` that finds nothing) |
+| `RateLimitException` | `RateLimitException` (429): `retryAfter` (int seconds, `0` when unknown), `limit`, `periodSeconds` |
+| `ServerException` | `ServerException` (5xx, an unexpected 3xx, an unusable 2xx) |
+| `NetworkException` | `NetworkException` (no response; `getPrevious()` is the PSR-18 exception) |
+| — | `WebhookSignatureException` (`reason`) |
+| `getStatusCode()` (`?int`) | `$e->status` / `getStatus()` (`0` without a response) |
+| `getResponse()` (decoded body) | `$e->details` (the error's `details`), `$e->rawBody` |
+| `getMessage()` | `getMessage()` adds the status, code, request id and field errors; `$e->errorMessage` is the API's message alone |
+| — | `$e->apiCode`, `$e->requestId`, `$e->fieldErrors`, `$e->isRetryable()` |
 
-2.5.0 was prepared but never published; its changes are part of 3.0.0. If you built against that
-branch: `QBitFlow::onBehalfOf(int $userId)` and the per-service `onBehalfOf()` →
-`$client->onBehalfOf(string $userUuid)`; `QBitFlow::fromArray()` → the constructor's named
-arguments; `ConflictException` and `FieldError` keep their names (`FieldError` is now a
-`final readonly` class, and `getFields()` → `fieldErrors`); `ForbiddenException` →
-`PermissionDeniedException`; `UnauthorizedException` → `AuthenticationException`;
-`RateLimitException::getRetryAfter()` (`?int`) → `int` seconds, `0` when unknown;
-`Support\Enums::value()` / `is()` / `isUnknown()` → plain `string` properties compared with the
-`Enums\…` constants; `Support\Time` is kept; `Webhooks\CanonicalJson` and the canonical-JSON
-`WebhookVerifier` → `Webhooks\Webhook`; `Dto\SubscriptionWebhook` → the `subscription.*` events;
-`RefundStatus::REFUSED` → `RefundStatus::REJECTED` (`rejected`, the value the API sends); the
-middleware's local verification with `QBITFLOW_WEBHOOK_SECRET` is now the only one (no API
-fallback); `Config` (and its `QBITFLOW_BASE_URL` fallback) → the `QBitFlow::DEFAULT_*` constants
-and an explicit `baseUrl:`.
+Every class extends `ApiException`, which extends `QBitFlowException` (still the catch-all) and
+implements `QBitFlow\Exceptions\ExceptionInterface`.
 
-## Names from the 3.0.0 previews
+### 3.9 Retries and idempotency
 
-3.0.0 was rebuilt against API v2's final contract before its release; if you tried a preview
-build, these names changed: `checkoutSessions->getStatus()` → `get()`;
-`payments->listCombined()` / `iterateCombined()` → `transactions->list()` / `iterate()`
-(`CombinedPayment` → `Transaction`, `CombinedPaymentListParams` → `TransactionListParams`,
-`source` → `type`, `CombinedPaymentSource` → `TransactionKind`);
-`subscriptions->executeTestBilling()` → `testBill()` (`BillingState` → `TestBill`);
-`refunds->initiate()` is removed (refunds are read only: a merchant's refund is sent from the dashboard);
-`refunds->listInactive()` / `iterateInactive()` → `refunds->list()` / `iterate()` with `status`;
-`wallets->listSupportedCurrencies()` → `listAcceptedCurrencies()` (`SupportedCurrenciesParams` →
-`AcceptedCurrenciesParams`); `currencies->listAvailable()` / `listMain()` →
-`currencies->list()` (`main:`); `webhooks->endpoints->list()` takes `?EndpointListParams` and
-returns a `Page`; `products->list()` returns a `Page`; `CheckoutSession` →
-`CreatedCheckoutSession`; `InvitationCreated` → `CreatedInvitation` (flat, it extends
-`Invitation`); `MemberHeldFundsSummary` → `MemberHeldFunds`; `PaymentMetadata`, `TxMetadata` &
-co. → `Settlement`, `Split`, `SettlementTransaction`, `TransferSettlement`; `Page::hasMore()` →
-the `hasMore` property; `EventType::REFUND_COMPLETED` / `REFUND_DENIED` → `REFUND_APPROVED` /
-`REFUND_REJECTED` (`Events\RefundApprovedEvent` / `RefundRejectedEvent`, Laravel
-`RefundApproved` / `RefundRejected`); the `SubscriptionCreated` model → `Subscription`;
-`customers->getByEmail()` and `subscriptions->getPublicHistory()` are removed;
-`invitations->revoke()` returns `void`; `CreateInvitationParams::$trustLayer` → `holdFunds`;
-`Me::$onBehalfOf` → `onBehalfOfUserUuid`; `Subscription::$lastBillingDate` /
-`$nextBillingDate` / `$minimumCancellationDate` / `$maxAmountPerPeriod` → `lastBilledAt` /
-`nextBillingAt` / `cancellableAt` / the `allowance` object; `Wallet::$publicKey` → `address`;
-the `currencyId` properties → the `currency` objects; money, percents and fee amounts are
-strings (`price` → `priceUsd`).
+```php
+// 2.x: you may have wrapped calls in your own retry loop
+```
+
+```php
+// 3.0: built in. Drop your loop, or pass maxRetries: 0.
+$client->customers->create(new CreateCustomerParams(firstName: 'Ada', email: 'ada@example.com'),
+    new RequestOptions(idempotencyKey: 'signup-' . $userId)); // optional: the SDK generates one per call
+```
+
+2.x retried **every** request (creates and updates included) on network errors and 5xx, which could
+duplicate a create. 3.0 retries only what is safe: every read, and the 6 creates that send an
+`Idempotency-Key` (`products->create`, `customers->create`, `checkoutSessions->createPayment`,
+`checkoutSessions->createSubscription`, `invitations->create`, `webhooks->endpoints->create`), with
+the same key on every attempt. It retries network errors, 5xx, 429 (honouring `Retry-After`) and
+`409 idempotency_key_in_use`, waiting 1 s, 2 s, 4 s… (`maxRetries`, default 3); a 429 waits at
+least its `Retry-After`, and one asking for more than 60 seconds is thrown at once as a
+`RateLimitException`. Updates, deletes,
+`cancel()` and `testBill()` are never retried. Redirects are never followed.
+
+### 3.10 Laravel
+
+```php
+// 2.x routes/web.php
+Route::qbitflowTransactionWebhook('webhooks/qbitflow/transactions');
+Route::qbitflowSubscriptionWebhook('webhooks/qbitflow/subscriptions');
+
+// 2.x listener
+Event::listen(TransactionWebhookReceived::class, fn ($e) => fulfil($e->reference()));
+```
+
+```php
+// 3.0 routes/api.php (or routes/web.php with the URI excluded from CSRF)
+Route::qbitflowWebhooks('webhooks/qbitflow'); // one route, named qbitflow.webhooks
+
+// 3.0 listener
+use QBitFlow\Laravel\Events\PaymentCompleted;
+Event::listen(PaymentCompleted::class, fn (PaymentCompleted $e) => fulfil($e->data->reference, $e->event->id));
+```
+
+| 2.x | 3.0 |
+|---|---|
+| `Events\TransactionWebhookReceived` (`payload`, `reference()`, `isSubscription()`) | `Events\PaymentCompleted`, `Events\SubscriptionCreated` (each with `event` and typed `data`) |
+| `Events\SubscriptionBilled` (`billing`, `subscriptionReference`, `reference()`) | `Events\SubscriptionBilled` (`data->bill`, `data->subscription`) |
+| `Events\SubscriptionStatusChanged` (`transition`, `reference()`) | `Events\SubscriptionStatusChanged` (`data`: the subscription with `previousStatus`) |
+| — | `SubscriptionActionRequiredChanged`, `SubscriptionBillingFailed`, `SubscriptionUpcomingBill`, `RefundRequested`, `RefundApproved`, `RefundRejected`, `MemberJoined`, `MemberRemoved`, `HeldFundsReleased`, `CheckoutExpired`, `WebhookTestReceived`, and `WebhookReceived` for every delivery (unknown types included) |
+| `WebhookController::transaction()`, `::subscription()` | an invokable `WebhookController` |
+| `VerifyQBitFlowWebhook` verified through the API, answered the dashboard probe itself | verifies locally with `QBITFLOW_WEBHOOK_SECRET` (missing secret: 500; bad signature or body: 400) and stores the event in `$request->attributes->get('qbitflow.event')`; the dashboard test arrives as `WebhookTestReceived`. The `qbitflow.webhook` middleware alias stays |
+| Facade `QBitFlow::oneTimePayments()`, `users()`, `apiKeys()`, `claims()`, `transactionStatus()`, `getApiKey()` | `QBitFlow::checkoutSessions()`, `payments()`, `transactions()`, `failures()`, `members()`, `invitations()`, `wallets()`, `me()`, `onBehalfOf()` (plus the services that kept their names) |
+
+## 4. Method map: every 2.x method
+
+Every 3.0 method also takes an optional `?RequestOptions $options` last argument (omitted below).
+2.x create and update methods accepted a DTO **or an array**; 3.0 takes the params class only.
+
+### Checkout and status (2.x `oneTimePayments`, `subscriptions`, `transactionStatus`)
+
+| 2.x | 3.0 |
+|---|---|
+| `oneTimePayments->createSession($dto)` | `checkoutSessions->createPayment(CreatePaymentSessionParams)` |
+| `subscriptions->createSession($dto)` | `checkoutSessions->createSubscription(CreateSubscriptionSessionParams)` |
+| `transactionStatus->get($uuid, $type)` | `checkoutSessions->get($uuid)` |
+| `oneTimePayments->getSession($uuid)`, `subscriptions->getSession($uuid)` | removed: `checkoutSessions->get()` for the state; a session that expired unpaid comes with `checkout.expired` |
+
+### Payments (2.x `oneTimePayments`)
+
+| 2.x | 3.0 |
+|---|---|
+| `oneTimePayments->get($uuid)` | `payments->get($uuid, ?ReadParams)` (`pay@…` or the bare UUID) |
+| `oneTimePayments->getByReference($ref)` | `payments->getByReference($ref)` |
+| `oneTimePayments->getAll($limit, $cursor)` | `payments->list(?PaymentListParams)` / `payments->iterate()` |
+| `oneTimePayments->getAllCombined($limit, $cursor)` | `transactions->list(?TransactionListParams)` / `transactions->iterate()` (payments and bills) |
+| `oneTimePayments->getCustomerForTransaction($uuid)` | removed: `$payment->customer` (a summary) or `customers->get($payment->customerUuid)` |
+
+### Subscriptions
+
+| 2.x | 3.0 |
+|---|---|
+| `subscriptions->get($uuid)` | `subscriptions->get($uuid, ?ReadParams)` |
+| `subscriptions->getByReference($ref)` | `subscriptions->getByReference($ref)` |
+| `subscriptions->getPaymentHistory($uuid)` | `subscriptions->listBills($uuid, ?BillListParams)` / `iterateBills()` |
+| `subscriptions->forceCancel($uuid)` | `subscriptions->cancel($uuid, ?CancelSubscriptionParams)` → `SubscriptionCancellation` (`subscription`, `pending`) |
+| `subscriptions->executeTestBilling($uuid)` | `subscriptions->testBill($uuid)` → `TestBill` (test mode only) |
+
+### Refunds
+
+| 2.x | 3.0 |
+|---|---|
+| `refunds->getAll()` | `refunds->list(new RefundListParams(status: [RefundStatus::PENDING]))` / `iterate()` |
+| `refunds->getAllInactive($limit, $cursor)` | `refunds->list(new RefundListParams(status: [RefundStatus::APPROVED, RefundStatus::REJECTED]))` |
+| `refunds->getByTransaction($txUuid)` | `refunds->list(new RefundListParams(txUuid: $txUuid))`, or `$payment->refund` |
+
+Refunds are read-only in the SDK: a merchant's refund is sent from the dashboard.
+
+### Customers and products
+
+| 2.x | 3.0 |
+|---|---|
+| `customers->create($dto)` | `customers->create(CreateCustomerParams)` |
+| `customers->get($uuid)` | `customers->get($uuid)` |
+| `customers->getByReference($ref)` | `customers->getByReference($ref)` |
+| `customers->getByEmail($email)` | `customers->list(new CustomerListParams(email: $email))` (several customers may share an email) |
+| `customers->getAll($limit, $cursor)` | `customers->list(?CustomerListParams)` / `iterate()` |
+| `customers->update($uuid, $dto)` | `customers->update($uuid, UpdateCustomerParams)` |
+| `customers->delete($uuid)` | `customers->delete($uuid)`: `void` |
+| `products->create($dto)` | `products->create(CreateProductParams)` |
+| `products->get(int $id)` | `products->get(string $uuid)` |
+| `products->getAll()` | `products->list(?ProductListParams)` / `iterate()` (paginated; `includeHidden`, `subscription`, `reference`) |
+| `products->getByReference($ref)` | `products->getByReference($ref)` (hidden products included) |
+| `products->update(int $id, $dto)` | `products->update(string $uuid, UpdateProductParams)` |
+| `products->delete(int $id)` | `products->delete(string $uuid)`: `void` |
+
+### Users, claims and API keys
+
+v1 provisioned sellers and sold for them at once, the seller claiming the account and its funds
+later. **v2 creates no accounts: a seller sells once they accepted an invitation.**
+
+| 2.x | 3.0 |
+|---|---|
+| `users->create($dto)` | `invitations->create(CreateInvitationParams)` → `CreatedInvitation` (with its `link`); store the seller's `userUuid` from the `member.joined` webhook |
+| `users->get()` | `$client->me()` |
+| `users->getAll()` | `members->list(?MemberListParams)` / `iterate()` |
+| `users->getById(int $id)` | `members->get($userUuid)` |
+| `users->getByEmail($email)` | removed: iterate `members` and match `$member->email` |
+| `users->update(int $id, $dto)` | `members->update($userUuid, new UpdateMemberParams('2.5'))` (only the organization fee; names and emails are the person's own) |
+| `users->delete(int $id)` | `members->remove($userUuid)`: `void` (`409 held_funds_pending` while you hold their funds) |
+| `claims->createRequest($userId)`, `claims->getRequestByUser($userId)` | `invitations->create()`, `invitations->list()` |
+| `claims->getFunds()` | `members->listHeldFunds()`, `members->getHeldFunds($userUuid)`, `members->getOwnHeldFunds()` |
+| `claims->triggerTestClaimFunds($userId)` | removed: release held funds in the dashboard; `members->trust($userUuid)` sends new payments to the seller directly |
+| `apiKeys->getAll()`, `apiKeys->getForUser($userId)` | removed: keys are managed in the dashboard |
+
+`holdFunds: true` (required on every invitation) is v1's claim model: the seller's payments are
+held in your wallet until you trust them. Sellers migrated from v1 are already members; those who
+never claimed are members whose funds you hold (`$member->trustedAt === null`).
+
+### Wallets, accounting, currencies
+
+| 2.x | 3.0 |
+|---|---|
+| `accounting->export($from, $to, $format)` | `accounting->exportJson($from, $to)` or `accounting->exportCsv($from, $to)` |
+| `accounting->exportJson($from, $to)` | `accounting->exportJson($from, $to)` → `list<Models\AccountingEvent>` (92 days at most; `exportJsonRange()` for longer) |
+| `accounting->exportCsv($from, $to)` | `accounting->exportCsv($from, $to)` (`exportCsvRange()` for longer) |
+| `currencies->getAllAvailable($test)` | `currencies->list(new CurrencyListParams(test: $test))` |
+| `currencies->getAllMain($test)` | `currencies->list(new CurrencyListParams(test: $test, main: true))` |
+
+### Webhooks
+
+| 2.x | 3.0 |
+|---|---|
+| `WebhookVerifier::verify($secret, $timestamp, $signature, $payload, …)` | `Webhook::verify($rawBody, $signatureHeader, $secret, $tolerance = 300)` |
+| `WebhookVerifier::computeSignature()`, `canonicalJson()` | removed; `Webhook::sign($rawBody, $secret)` signs bodies for your tests |
+| `WebhookVerifier::extractHeaders($headers)` | removed: read `Webhook::SIGNATURE_HEADER`, or `Webhook::verifyRequest($psr7Request, $secret)` |
+| `webhooks->verify($payload, $signature, $timestamp): bool` | `webhooks->verifyRemote($endpointUuid, $rawBody, $signatureHeader): void` |
+| `webhooks->signatureHeader()`, `timestampHeader()`, `webhookIdHeader()`, `HEADER_*` constants | `Webhook::SIGNATURE_HEADER`, `Webhook::EVENT_ID_HEADER`, `Webhook::EVENT_TYPE_HEADER` |
+| `TEST_WEBHOOK_ID`, `webhooks->testWebhookId()`, `webhooks->isTestWebhook($id)` | `$event instanceof Events\WebhookTestEvent` (and `$event->test` for test mode) |
+| `DEFAULT_MAX_TIMESTAMP_AGE_SECONDS` | `Webhook::DEFAULT_TOLERANCE` |
+
+### Helpers
+
+| 2.x | 3.0 |
+|---|---|
+| `Support\CursorData` | `QBitFlow\Page` |
+| `CursorData::queryParams($limit, $cursor)` | the `limit:` and `cursor:` arguments of the list params |
+| `Support\Duration` (`Duration::months(1)`, …) | `Models\Duration` (`Duration::months(1)`, …); the unit is a string, `value` 0 means none |
+| `Support\Validate` | removed: every params class validates itself before the request |
+| `Support\Dto` (`toArray()`, `jsonSerialize()`) | params have `toArray()` / `toQuery()`; models are read-only values built with `fromArray()` |
+
+## 5. Models, ids and enums
+
+### Ids
+
+- **Every id is a string** (a currency keeps its integer id). Products: `Product::$id` (int) →
+  `Product::$uuid`; `productId` → `productUuid` everywhere. People: `userId` → `userUuid` (`null`
+  for the organization's own records). `organizationId` is gone from every model; use
+  `$client->me()->space->organizationUuid`.
+- Transactions keep their prefixed ids (`pay@…`, `sub@…`, `sub-hist@…`, `refund@…`, `transfer@…`);
+  every route also accepts the bare UUID.
+- Property names are the JSON keys, in lowerCamelCase with acronyms as words: `customerUUID` →
+  `customerUuid`, `transactionHash` → `txHash`, `txId` → `txUuid`.
+- **Map the numeric ids you stored:** iterate your products
+  (`$client->products->iterate(new ProductListParams(includeHidden: true))`) and match on
+  `reference`, and your members (`members->iterate()`) on `email`; store the UUIDs.
+
+### Money
+
+Every amount is a decimal string, never a float: USD amounts (`priceUsd: '4.99'`, `amountUsd`),
+token amounts in the token's units (`amount: '10'` for 10 USDC, with `amountMinUnits` and the
+`currency` object), and rates in **percent** (`organizationFeeBps: 250` →
+`organizationFeePercent: '2.5'`). Inputs are strings with at most 2 decimals; a float is refused.
+Compute with `bcmath` or `brick/math`, or convert with `Support\Amount::format()` / `parse()`.
+
+### Renamed and removed models
+
+| 2.x (`QBitFlow\Dto\…`) | 3.0 (`QBitFlow\Models\…` or `QBitFlow\Params\…`) |
+|---|---|
+| `Session\CreatePaymentSessionDto`, `Session\CreateSubscriptionSessionDto` | `Params\CreatePaymentSessionParams`, `Params\CreateSubscriptionSessionParams` |
+| `CreateProductDto`, `UpdateProductDto` | `Params\CreateProductParams`, `Params\UpdateProductParams` |
+| `CreateCustomerDto`, `UpdateCustomerDto` | `Params\CreateCustomerParams`, `Params\UpdateCustomerParams` |
+| `CreateUserDto`, `UpdateUserDto` | `Params\CreateInvitationParams`, `Params\UpdateMemberParams` |
+| `Session\LinkResponse` | `CreatedCheckoutSession` (`link`, `uuid`, `expiresAt`) |
+| `TransactionStatus` | `CheckoutSessionStatus` (`status` a string; `settlementDetails` removed; + `uuid`, `lastAttempt`, `expiresAt`) |
+| `Payment` | `Payment`: `amount` is the token amount (`amountUsd` the USD value); `name` / `description` → `productName` / `productDescription`; `currencyId` → `currency`; `metadata` (the fee split) → `settlement`, and `metadata` is now your own key-value data; + `priceUsd`, `fees`, `paid`, `paidUsd`, `refund`, `refundable`, `customer`, `confirmedAt`, … |
+| `CombinedPayment` | `Transaction` (`source` → `type`: `TransactionKind::PAYMENT` or `BILL`) |
+| `Subscription` | `Subscription`: `subscriptionStatus` → `status`; `frequency` is a `Duration` (was seconds); `allowance` is an `Allowance` object; `currencyId` → `currency`; + `currentPeriodEnd`, `actionRequired`, `priceUsd`, `fees`, `cancelledAt`, `metadata`, `dunning`, `hasAccess()` |
+| `SubscriptionHistory` | `Bill` (+ `settlement`, `periodStart`, `periodEnd`) |
+| `RefundEntry` | `Refund` (`txId` → `txUuid`; amounts as strings; + `refundPercent`, `paid`, `amount`, `settlement`, …) |
+| `Customer` | `Customer` (`name` → `firstName`; `lastName` optional; + `metadata`) |
+| `Product` | `Product` (`id` → `uuid`; `price` → `priceUsd`; + `subscription`, `paymentLink`, `metadata`) |
+| `User` | `Member` (`id` → `userUuid`; `name` → `firstName`; `claimedAt` → `trustedAt`; fee in percent; + `joinedAt`, `acceptedCurrencies`) and `Me` for the current key |
+| `AccountingEvent` | `AccountingEvent` (`paymentId` → `txUuid`, `productId` → `productUuid`, `tokenSymbol` → `currency`; amounts in the currency's units as decimal strings, with `…MinUnits` twins; a fee that doesn't apply is `null`) |
+| `Metadata\PaymentMetadata`, `TxAmounts*`, `TxMetadata`, `BlockData`, `NetworkFees` | `Settlement` (`feePercent`, `split`, `transaction`), `Split`, `SettlementTransaction` |
+| `Metadata\OrganizationFee`, `Metadata\ReferralFee` | `OrganizationFee`, `ReferralFee` (`address`, `feePercent`) |
+| `Currency` | `Currency` (+ `code` such as `BASE:USDC`, `chain`) |
+| `Session\SessionCheckout`, `OneTimePaymentSession`, `SubscriptionSession`, `PaygSubscriptionSession`, `StatusLinkResponse`, `Session\SessionWebhookResponse`, `SubscriptionStatusTransition` | removed (webhooks carry typed events, [§ 3.7](#37-webhooks)) |
+| `ApiKey`, `Organization`, `ClaimFunds`, `ClaimRequestResponse`, `StatusResponse`, `StatusResponseError`, `SuccessResponse` | removed |
+
+A field the API always sends is non-nullable; an optional one is `?T` and `null` when absent;
+lists are arrays (`[]` when empty). Timestamps are `DateTimeImmutable`.
+
+### Enums
+
+2.x enum properties were PHP backed enum cases (`$sub->subscriptionStatus === SubscriptionStatus::ACTIVE`,
+`->value` for the string). In 3.0 every enum property is a plain `string`, and the `Enums\…`
+classes hold string constants: compare with `$sub->status === SubscriptionStatus::ACTIVE`. A value
+the SDK doesn't know yet is kept as is, never an error.
+
+| 2.x | 3.0 |
+|---|---|
+| `SubscriptionStatus::PAST_DUE` (`past_due`), `TRIAL_EXPIRED` (`trial_expired`) | `PAST_DUE` (`pastDue`), `TRIAL_EXPIRED` (`trialExpired`) |
+| `SubscriptionStatus::ACTIVE`, `TRIAL`, `CANCELLED` | unchanged |
+| `SubscriptionStatus::LOW_ON_FUNDS` | no status: `$sub->actionRequired === ActionRequired::TOP_UP_ALLOWANCE` |
+| `SubscriptionStatus::PENDING` | no status: `$sub->actionRequired === ActionRequired::RAISE_MAXIMUM` |
+| `Subscription::$stopped === true` | `SubscriptionStatus::STOPPED` (ends at `nextBillingAt`); new `PAUSED` |
+| `TransactionStatusValue` (7 cases) | `CheckoutSessionStatusValue`: `CREATED`, `WAITING_CONFIRMATION`, `COMPLETED`, `EXPIRED`. There is no failed or cancelled status: a failed attempt is `CREATED` with `lastAttempt` |
+| `TransactionType::ONE_TIME_PAYMENT` | `TransactionType::PAYMENT`; `CREATE_SUBSCRIPTION` unchanged; the other cases are removed |
+| `RefundStatus::REFUSED` | `RefundStatus::REJECTED` (`rejected`) |
+| `RefundStatus::FAILED` | removed: the API never sends it (a failed approval leaves the refund `pending`) |
+| `CombinedPaymentSource::SUBSCRIPTION_HISTORY` | `TransactionKind::BILL` |
+| `AccountingEventType::SUBSCRIPTION_HISTORY` | `AccountingEventType::BILL` |
+| `UserRole` (`ADMIN`, `USER`, `OWNER`) | `Role` (`ADMIN`, `USER`): an API key is at most `admin` |
+| `ExportFormat`, `SubscriptionWebhookType`, `TransactionShortType` | removed |
+
+**Grant access while now < `currentPeriodEnd`** (`$subscription->hasAccess()`), whatever the
+status: a check on `status === 'active'` would cut off paying customers (`stopped`, `paused`).
+
+## 6. New capabilities
+
+- **Checkout:** `checkoutSessions->expire()`, `waitForCompletion()`; fee lines (`CheckoutFees`:
+  tax, shipping, QBitFlow's processing fee); `expiresInMinutes`; `metadata` copied onto the payment
+  or subscription and into its webhooks; redirect placeholders `Placeholders::UUID` and
+  `Placeholders::TRANSACTION_TYPE`.
+- **Reads:** `transactions` (payments and bills in one feed), `failures` (failed payment attempts),
+  `refunds->get()`, `subscriptions->list()`, `update()` (metadata), `getBill()`, filters on every
+  list (dates, customer, product, reference, members), `iterate()` generators.
+- **Marketplaces:** `invitations`, `members` (fee, trust, removal), held funds, `wallets` (balances,
+  a member's wallets, accepted currencies), `$client->onBehalfOf()`.
+- **Webhooks:** endpoints (`webhooks->endpoints->…`) and the event log (`webhooks->events->…`);
+  15 typed event types (`payment.completed`, `subscription.created`, `subscription.billed`,
+  `subscription.statusChanged`, `subscription.actionRequiredChanged`, `subscription.billingFailed`,
+  `subscription.upcomingBill`, `refund.requested`, `refund.approved`, `refund.rejected`,
+  `member.joined`, `member.removed`, `heldFunds.released`, `checkout.expired`, `webhook.test`); a
+  `WebhookRouter` usable as plain PHP (`handleGlobals()`), PSR-7 (`handleRequest()`) or PSR-15
+  (`psr15()`).
+- **Helpers:** `$client->me()`, `QBitFlow::fromEnv()`, `Support\Amount`, `Currency::formatAmount()`,
+  `Subscription::hasAccess()`, `accounting->exportJsonRange()` / `exportCsvRange()`, per-call
+  `RequestOptions` (`onBehalfOf`, `idempotencyKey`, `requestId`).
+- **Metadata:** your own `array<string,string>` on products, customers, checkouts and subscriptions
+  (at most 50 keys; an update merges, `''` deletes a key).
+
+## 7. Behaviour changes
+
+- **Errors:** one exception class per condition ([§ 3.8](#38-errors)). Field errors come from the
+  API's `details.errors`, named by their wire name. Branch on `$e->apiCode` (`unique_violation`,
+  `merchant_not_ready`, `policy_disabled`…), never on the message. Quote `$e->requestId` to support.
+- **Client-side validation:** every params class is checked before the request (lengths, formats,
+  amounts, references, metadata, UUIDs): a `ValidationException` with status 0, nothing sent.
+- **Retries and idempotency:** only reads and the 6 idempotent creates, with an automatic
+  `Idempotency-Key` ([§ 3.9](#39-retries-and-idempotency)). Remove your own retry loops.
+- **Pagination:** cursor-based `Page` objects and lazy `iterate()` generators
+  ([§ 3.6](#36-pagination)).
+- **Webhooks:** v2 envelopes only, signed with `QBitFlow-Signature` over the raw body; deliveries
+  are at least once (deduplicate on `$event->id`) and should be answered with a 2xx quickly, also
+  for types you ignore. A body over 1 MiB or nested deeper than 64 levels is refused.
+- **Test vs live:** the key decides the mode: a test key reads and writes test data only, a live
+  key live data only. Check it at start-up with `$client->me()->space->test`. Test mode caps a
+  checkout at 5 USD; `subscriptions->testBill()` works in test mode only.
+- **Sellers' checkouts:** a member's key may give `successUrl` / `cancelUrl` while the
+  organization's `members.checkoutRedirects` policy allows it; otherwise `403 policy_disabled`
+  (`details['policy']`, `details['field']`). A member's key doing something another member policy
+  forbids gets `403 policy_disabled` too.
+- **Secrets stay out of logs:** the API key and webhook secrets are marked `#[\SensitiveParameter]`
+  (kept out of stack traces) and wrapped so that no dump of the client or the webhook router shows
+  them; `serialize()` of the client throws.
+
+## 8. Final checklist
+
+- [ ] PHP is at or above the patched floor of your branch (`php -v`).
+- [ ] `composer require qbitflow/qbitflow-php:^3` succeeded.
+- [ ] New v2 API keys are deployed, one per space and mode; `$client->me()` succeeds at start-up and
+      reports the expected mode.
+- [ ] The client is built with named arguments; any `baseUrl` points at `/v2`.
+- [ ] Stored product and user ids are mapped to UUIDs; `onBehalfOf()` receives member UUIDs.
+- [ ] Every call uses its 3.0 service and params class ([§ 4](#4-method-map-every-2x-method)).
+- [ ] Amounts are sent and read as decimal strings; `Payment::$amount` is read as a token amount.
+- [ ] Lists use `list()` / `iterate()` and pass `nextCursor` back verbatim.
+- [ ] Status checks use the string constants; access checks use `hasAccess()`.
+- [ ] Error handling catches the 3.0 classes and branches on `apiCode`; custom retry loops are gone.
+- [ ] The webhook handler verifies `QBitFlow-Signature` on the raw body with the endpoint's
+      `whsec_…` secret, handles the event types you need, and deduplicates on the event id.
+- [ ] Laravel: config re-published, `QBITFLOW_WEBHOOK_SECRET` set, `Route::qbitflowWebhooks()`
+      registered (in `routes/api.php`, or excluded from CSRF), listeners moved to the new events, `qbitflow:verify` passes.
+- [ ] Tested end to end with a test key (checkout, webhook, refund read) before switching to live.
