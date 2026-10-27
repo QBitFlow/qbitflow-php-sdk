@@ -11,20 +11,22 @@
          displayDetailsOnTestsThatTriggerWarnings="true"
          displayDetailsOnTestsThatTriggerErrors="true">
 	<!--
-		The Unit suite is hermetic: every client is built against a mock PSR-18 transport
-		with an explicit base URL, so it runs the same with or without QBITFLOW_* exported.
+		Unit: hermetic and offline. Every client is built against a mock PSR-18 transport with an
+		explicit base URL, so it runs the same with or without QBITFLOW_* exported. Two of its
+		tests need files kept outside this repository and skip themselves without them: the
+		shared cross-SDK test vectors (QBITFLOW_VECTORS_DIR) and the website snippet check
+		(QBITFLOW_HUB_DIR, and node).
 
-		The Integration suite talks to a real API. It skips itself when QBITFLOW_API_KEY is not
+		Integration: talks to a real QBitFlow API. It skips itself when QBITFLOW_API_KEY is not
 		set, and FAILS when the key is set without QBITFLOW_BASE_URL: it never falls back to a
-		default server. Load both from sdk2/.local.env:
+		default server. Writes need QBITFLOW_LIVE_WRITES=1. See CONTRIBUTING.md.
 
-		  set -a; . ../.local.env; set +a   (then run phpunit with the Integration testsuite selected)
+		A local phpunit.xml (git-ignored) overrides this file, e.g. to set environment variables.
 	-->
 	<testsuites>
 		<testsuite name="Unit">
 			<directory>tests/Unit</directory>
 			<directory>tests/Laravel</directory>
-			<!-- The website snippets: runs the hub's embed-snippets check (skipped without the hub or node). -->
 			<file>tests/SnippetsTest.php</file>
 		</testsuite>
 		<testsuite name="Integration">

@@ -2,14 +2,18 @@
 /composer.lock
 /.phpunit.cache/
 /.phpunit.result.cache
+/phpunit.xml
 /build/
 /coverage/
 /.php-cs-fixer.cache
+/.phpstan.cache/
 .DS_Store
 .idea/
 .vscode/
 *.log
 
+# Local notes and tooling state, never published.
 PUBLISH.md
-
+CLAUDE.md
+AGENTS.md
 **/.qbitflow-sync
