@@ -134,7 +134,8 @@ final readonly class Bill extends Model
 	public ?DateTimeImmutable $periodEnd;
 
 	/**
-	 * When the chain confirmed it (its block's time).
+	 * When the chain confirmed it (its block's time); null only on records made before it was
+	 * recorded.
 	 */
 	public ?DateTimeImmutable $confirmedAt;
 

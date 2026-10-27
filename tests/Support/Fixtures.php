@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace QBitFlow\Tests\Support;
 
 /**
- * JSON fixtures of each response model: the Go reference SDK's model fixtures (docs/api
- * generated types), every wire key set, shaped like the docs' examples (a 10 USD price paid in
- * BASE:USDC, 0.99 % fee). A key a fixture leaves out is an optional one (decoded as null).
+ * JSON fixtures of each response model, following the API reference's types: every wire key set,
+ * shaped like the documentation's examples (a 10 USD price paid in BASE:USDC, 0.99 % fee). A key a
+ * fixture leaves out is an optional one (decoded as null). Some fixtures also carry keys the API
+ * sends but the SDK deliberately leaves out: the tests prove they are ignored.
  */
 final class Fixtures
 {
@@ -23,7 +24,7 @@ final class Fixtures
 
 	public const TX = '{"blockNumber":"52468103","blockTime":"2026-10-01T11:59:58Z","gasUsed":95000,"fee":{"amount":"0.00000114","amountMinUnits":"1140000000000","amountUsd":"0.005144"},"l1Fee":{"amount":"0.0000001","amountMinUnits":"100000000000","amountUsd":"0.00045"},"nativePriceUsd":"4512.37"}';
 
-	public const SETTLEMENT = '{"feePercent":"0.99","organizationFee":{"address":"0xorg","feePercent":"10"},"referralFee":{"address":"0xref","feePercent":"20","deadline":"2027-01-01T00:00:00Z"},"split":{"platform":{"amount":"0.0792","amountMinUnits":"79200","amountUsd":"0.0792"},"organization":{"amount":"0.9901","amountMinUnits":"990100","amountUsd":"0.9901"},"referral":{"amount":"0.0198","amountMinUnits":"19800","amountUsd":"0.0198"},"merchant":{"amount":"8.9109","amountMinUnits":"8910900","amountUsd":"8.9109"},"networkFee":{"amount":"0.0042","amountMinUnits":"4200","amountUsd":"0.0042"}},"transaction":' . self::TX . '}';
+	public const SETTLEMENT = '{"feePercent":"0.99","organizationFee":{"address":"0xorg","feePercent":"10"},"referralFee":{"address":"0xref","feePercent":"20"},"split":{"platform":{"amount":"0.0792","amountMinUnits":"79200","amountUsd":"0.0792"},"organization":{"amount":"0.9901","amountMinUnits":"990100","amountUsd":"0.9901"},"referral":{"amount":"0.0198","amountMinUnits":"19800","amountUsd":"0.0198"},"merchant":{"amount":"8.9109","amountMinUnits":"8910900","amountUsd":"8.9109"},"networkFee":{"amount":"0.0042","amountMinUnits":"4200","amountUsd":"0.0042"}},"transaction":' . self::TX . '}';
 
 	public const TRANSFER = '"createdAt":"2026-10-01T12:00:00Z","from":"0xfrom","to":"0xto","amount":"10","amountMinUnits":"10000000","amountUsd":"10","currency":' . self::CURRENCY . ',"txHash":"0xhash","chain":"BASE","explorerUrl":"https://basescan.org/tx/0xhash","test":false,"userUuid":"m-1"';
 
@@ -37,7 +38,7 @@ final class Fixtures
 
 	public const ENDPOINT = '"uuid":"e-1","test":true,"url":"https://x.io/hook","events":["payment.completed"],"includeMembers":true,"payloadVersion":"v2","description":"d","createdAt":"2026-10-01T12:00:00Z","rotatedAt":"2026-10-01T12:00:00Z","disabledAt":"2026-10-02T12:00:00Z","disabledReason":"failing","failingSince":"2026-09-29T12:00:00Z","lastDeliveredAt":"2026-09-28T12:00:00Z"';
 
-	public const SESSION = '"uuid":"sub@1","reference":"order-1044","productUuid":"p-1","productReference":"tshirt","productName":"T-shirt","description":"Blue, size M","priceUsd":"3.99","fees":[{"type":"custom","label":"Shipping","description":"Standard","amountUsd":"0.75"},{"type":"processingFee","label":"Processing fee","amountUsd":"0.07"}],"amountUsd":"4.81","successUrl":"https://x/ok","cancelUrl":"https://x/ko","redirectUrl":"https://x/thanks","organizationName":"Shop","userName":"Ada","test":true,"txType":"createSubscription","availableCurrencies":[' . self::CURRENCY . ',' . self::NATIVE . '],"metadata":{"orderId":"order-1044"},"createdAt":"2026-10-01T12:00:00Z","expiresAt":"2026-10-01T13:00:00Z"';
+	public const SESSION = '"uuid":"sub@1","reference":"order-1044","productUuid":"p-1","productReference":"tshirt","productName":"T-shirt","description":"Blue, size M","priceUsd":"3.99","fees":[{"type":"custom","label":"Shipping","description":"Standard","amountUsd":"0.75"},{"type":"processingFee","label":"Processing fee","amountUsd":"0.07"}],"amountUsd":"4.81","successUrl":"https://x/ok","cancelUrl":"https://x/ko","organizationName":"Shop","userName":"Ada","test":true,"txType":"createSubscription","availableCurrencies":[' . self::CURRENCY . ',' . self::NATIVE . '],"metadata":{"orderId":"order-1044"},"createdAt":"2026-10-01T12:00:00Z","expiresAt":"2026-10-01T13:00:00Z"';
 
 	/**
 	 * Fixture name → JSON. The name is the model's class (`Currency/native`: a variant of
@@ -50,7 +51,7 @@ final class Fixtures
 		return [
 			'Currency' => self::CURRENCY,
 			'Currency/native' => self::NATIVE,
-			'Payment' => '{"uuid":"pay@1",' . self::TRANSFER . ',"reference":"order-1","priceUsd":"8.5","fees":' . self::FEES . ',"productName":"Pro","productDescription":"Lifetime","metadata":{"orderId":"order-1","crm:customer":"C-5521"},"productUuid":"p-1","customerUuid":"c-1","customerReference":"crm-1","note":"thanks","customer":' . self::SUMMARY . ',"settlement":' . self::SETTLEMENT . ',' . self::PAID . ',' . self::REFUNDING . ',"checkoutOpenedAt":"2026-10-01T11:00:00Z"}',
+			'Payment' => '{"uuid":"pay@1",' . self::TRANSFER . ',"reference":"order-1","priceUsd":"8.5","fees":' . self::FEES . ',"productName":"Pro","productDescription":"Lifetime","metadata":{"orderId":"order-1","crm:customer":"C-5521"},"productUuid":"p-1","customerUuid":"c-1","customerReference":"crm-1","customer":' . self::SUMMARY . ',"settlement":' . self::SETTLEMENT . ',' . self::PAID . ',' . self::REFUNDING . ',"checkoutOpenedAt":"2026-10-01T11:00:00Z"}',
 			'PaymentCompleted' => '{"uuid":"pay@1",' . self::TRANSFER . ',"priceUsd":"10","fees":[],"productName":"Pro","metadata":{},"settlement":' . self::SETTLEMENT . ',"managementPageLink":"https://qbitflow.app/user/s/manage?uuid=pay@1"}',
 			'SubscriptionSessionData' => '{' . self::SESSION . ',"frequency":{"value":1,"unit":"months"},"trialPeriod":{"value":14,"unit":"days"},"minPeriods":3,"upgradingFromTrial":true}',
 			'Bill' => '{"uuid":"sub-hist@1",' . self::TRANSFER . ',"productName":"Pro","productDescription":"Monthly","productUuid":"p-1","subscriptionUuid":"sub@1","customerUuid":"c-1","customerReference":"crm-1","customer":' . self::SUMMARY . ',"settlement":' . self::SETTLEMENT . ',"periodStart":"2026-10-01T12:00:00Z","periodEnd":"2026-10-31T12:00:00Z",' . self::PAID . ',' . self::REFUNDING . '}',
@@ -74,7 +75,7 @@ final class Fixtures
 			'AccountingEvent' => '{"txTimeUtc":"2026-09-13T19:23:26.62Z","type":"refund","reference":"r","relatedReference":"r0","productName":"Pro","customerReference":"crm-1","grossAmountUsd":"-10.0042","platformFeeUsd":"0.099","referralFeeUsd":"0.0198","organizationFeeUsd":"0.9901","netAmountUsd":"-10.0042","chain":"BASE","currency":"USDC","currencyDecimals":6,"currencyPriceUsd":"1.00002","grossAmount":"-10.0042","grossAmountMinUnits":"-10004200","platformFee":"0.099","platformFeeMinUnits":"99000","referralFee":"0.0198","referralFeeMinUnits":"19800","organizationFee":"0.9901","organizationFeeMinUnits":"990100","netAmount":"-10.0042","netAmountMinUnits":"-10004200","networkFeesPaidBy":"merchant","networkFees":"0.0000012","networkFeesMinUnits":"1200000000000","networkFeesCurrency":"ETH","networkFeesCurrencyDecimals":18,"networkFeesCurrencyPriceUsd":"4512.37","networkFeesUsd":"0.00541","platformFeePercent":"0.99","referralFeePercent":"20","organizationFeePercent":"10","fromAddress":"0xf","toAddress":"0xt","txHash":"0xh","blockNumberOrSlot":"52468103","tokenContractOrMint":"0x8335","explorerUrl":"https://e","receiptUrl":"https://r","txUuid":"refund@1","relatedTxUuid":"pay@0","productUuid":"p-1","productReference":"pro","productDescription":"d","customerUuid":"c-1","userUuid":"m-1"}',
 			'WebhookEndpointCreated' => '{' . self::ENDPOINT . ',"secret":"whsec_x"}',
 			'EventDetail' => '{"id":"evt_1","type":"payment.completed","version":"v2","createdAt":"2026-10-01T12:00:00.123Z","test":false,"userUuid":"m-1","data":{"uuid":"pay@1"},"deliveries":[{"endpointUuid":"e-1","url":"https://x.io/hook","delivered":true,"attempts":[{"uuid":"a-1","eventId":"evt_1","eventType":"payment.completed","endpointUuid":"e-1","attempt":2,"delivered":false,"skipped":true,"statusCode":500,"error":"500 Internal Server Error","durationMs":120,"attemptedAt":"2026-10-01T12:00:01Z"}]}]}',
-			'Me' => '{"credential":"apiKey","apiKeyUuid":"k-1","userUuid":"u-1","role":"user","onBehalfOfUserUuid":"m-1","space":{"uuid":"s-1","organizationUuid":"o-1","organizationName":"Shop","userUuid":"m-1","test":true,"role":"admin","member":{"userUuid":"m-1","firstName":"Ada","lastName":"L","email":"a@b.co"},"organizationFeePercent":"7.5","trustedAt":"2026-10-01T12:00:00Z","createdAt":"2026-09-01T12:00:00Z"}}',
+			'Me' => '{"credential":"apiKey","apiKeyUuid":"k-1","role":"user","onBehalfOfUserUuid":"m-1","space":{"uuid":"s-1","organizationUuid":"o-1","organizationName":"Shop","userUuid":"m-1","test":true,"role":"admin","member":{"userUuid":"m-1","firstName":"Ada","lastName":"L","email":"a@b.co"},"organizationFeePercent":"7.5","trustedAt":"2026-10-01T12:00:00Z","createdAt":"2026-09-01T12:00:00Z"}}',
 			'Page' => '{"items":[' . self::SUMMARY . '],"hasMore":true,"nextCursor":"djF8MDE5Y2FkZmQ"}',
 		];
 	}

@@ -12,20 +12,9 @@ use QBitFlow\Support\Cast;
 final readonly class Me extends Model
 {
 	/**
-	 * `apiKey` for an API key ({@see \QBitFlow\Enums\Credential}).
-	 */
-	public string $credential;
-
-	/**
 	 * The key's id.
 	 */
 	public ?string $apiKeyUuid;
-
-	/**
-	 * Who signed in, for a session; null for an API key (a key acts for its space, not for the
-	 * person who created it).
-	 */
-	public ?string $userUuid;
 
 	/**
 	 * What the request may do in the space: `admin` (an organization key) or `user` (a member's
@@ -49,9 +38,7 @@ final readonly class Me extends Model
 	 */
 	protected function __construct(array $data)
 	{
-		$this->credential = Cast::string($data, 'credential');
 		$this->apiKeyUuid = Cast::nullableString($data, 'apiKeyUuid');
-		$this->userUuid = Cast::nullableString($data, 'userUuid');
 		$this->role = Cast::nullableString($data, 'role');
 		$this->onBehalfOfUserUuid = Cast::nullableString($data, 'onBehalfOfUserUuid');
 		$this->space = Cast::nullableObject($data, 'space', MeSpace::fromArray(...));

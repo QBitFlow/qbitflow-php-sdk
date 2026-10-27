@@ -12,14 +12,31 @@ namespace QBitFlow\Enums;
  */
 final class BillingFailureReason
 {
+	/** The customer's wallet doesn't hold the bill: they add funds to it. */
 	public const INSUFFICIENT_BALANCE = 'insufficientBalance';
 
+	/**
+	 * What remains of the allowance the customer signed doesn't cover the bill (or it expired):
+	 * they top it up on the management page.
+	 */
 	public const ALLOWANCE_EXHAUSTED = 'allowanceExhausted';
 
+	/**
+	 * The customer's wallet revoked the token approval the subscription pulls through: they
+	 * approve it again on the management page.
+	 */
 	public const APPROVAL_REVOKED = 'approvalRevoked';
 
+	/**
+	 * The bill, at today's price, exceeds the maximum the customer signed: they sign a new maximum
+	 * on the management page.
+	 */
 	public const MAX_AMOUNT_EXCEEDED = 'maxAmountExceeded';
 
+	/**
+	 * Another refusal of the charge caused by the customer's wallet (e.g. a transaction reverted
+	 * on-chain); retried like the others.
+	 */
 	public const OTHER = 'other';
 
 	/**

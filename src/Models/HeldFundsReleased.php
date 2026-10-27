@@ -84,11 +84,6 @@ final readonly class HeldFundsReleased extends Model
 	public bool $received;
 
 	/**
-	 * `heldFundsRelease` ({@see \QBitFlow\Enums\TransferType}).
-	 */
-	public string $type;
-
-	/**
 	 * The transfer's transaction: its block and what it cost its sender.
 	 */
 	public TransferSettlement $settlement;
@@ -121,7 +116,6 @@ final readonly class HeldFundsReleased extends Model
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
 		$this->received = Cast::bool($data, 'received');
-		$this->type = Cast::string($data, 'type');
 		$this->settlement = Cast::object($data, 'settlement', TransferSettlement::fromArray(...));
 		$this->ledgers = Cast::listOf($data, 'ledgers', LedgerEntry::fromArray(...));
 	}

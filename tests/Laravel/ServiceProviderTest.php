@@ -154,11 +154,11 @@ final class ServiceProviderTest extends TestCase
 	#[Test]
 	public function it_uses_a_psr18_client_bound_in_the_container(): void
 	{
-		$http = MockHttpClient::static(200, '{"credential":"apiKey"}');
+		$http = MockHttpClient::static(200, '{"apiKeyUuid":"k-1"}');
 		$this->app->instance(ClientInterface::class, $http);
 		$this->register();
 
-		$this->assertSame('apiKey', $this->app->make(QBitFlow::class)->me()->credential);
+		$this->assertSame('k-1', $this->app->make(QBitFlow::class)->me()->apiKeyUuid);
 		$this->assertSame(1, $http->count());
 	}
 }

@@ -16,6 +16,10 @@ use QBitFlow\Support\Validator;
 final readonly class CreateSubscriptionSessionParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param array<string,string>|null $metadata
 	 */
 	public function __construct(
@@ -36,11 +40,23 @@ final readonly class CreateSubscriptionSessionParams
 		 * `"0.25"` for a live subscription (inline or its product's; `details.min`).
 		 */
 		public ?string $priceUsd = null,
-		/** Your reference for the subscription (an order or customer id), kept on it: unique per space. */
+		/**
+		 * Your reference for the subscription (an order or customer id), kept on it: unique per
+		 * space, 1 to 100 of `A-Z a-z 0-9 . _ : @ -`, never `.` or `..` alone.
+		 */
 		public ?string $reference = null,
-		/** Where the customer goes after subscribing (placeholders as for a payment). */
+		/**
+		 * Where the customer goes after subscribing (placeholders as for a payment). A member's own
+		 * key may send it (and `cancelUrl`) while the organization's `members.checkoutRedirects`
+		 * policy allows it (on by default); with the policy off, it is a 403 `policy_disabled` with
+		 * `details['policy']` and `details['field']` naming it (`successUrl` first). An organization
+		 * key (acting On-Behalf-Of a member or not) may always send both.
+		 */
 		public ?string $successUrl = null,
-		/** Where the customer goes after a cancelled or failed checkout. */
+		/**
+		 * Where the customer goes after a cancelled or failed checkout. A member's own key may send
+		 * it while `members.checkoutRedirects` allows it, as `successUrl`.
+		 */
 		public ?string $cancelUrl = null,
 		/** One of the space's customers. */
 		public ?string $customerUuid = null,

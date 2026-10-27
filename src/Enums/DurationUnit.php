@@ -12,18 +12,25 @@ namespace QBitFlow\Enums;
  */
 final class DurationUnit
 {
+	/** Seconds. */
 	public const SECONDS = 'seconds';
 
+	/** Minutes. */
 	public const MINUTES = 'minutes';
 
+	/** Hours. */
 	public const HOURS = 'hours';
 
+	/** Days. */
 	public const DAYS = 'days';
 
+	/** Weeks (7 days). */
 	public const WEEKS = 'weeks';
 
+	/** Months, counted as 30 days. */
 	public const MONTHS = 'months';
 
+	/** Years, counted as 365 days. */
 	public const YEARS = 'years';
 
 	/**

@@ -237,7 +237,7 @@ final class TransportTest extends TestCase
 			[409, 'merchant_not_ready', ConflictException::class], [409, 'already_joined', ConflictException::class],
 			[409, 'held_funds_pending', ConflictException::class], [409, 'idempotency_key_in_use', ConflictException::class],
 			[410, 'merchant_closed', GoneException::class], [422, 'idempotency_key_reused', IdempotencyException::class],
-			[422, 'something_else', ApiException::class], [413, 'request_too_large', ApiException::class], [405, '', ApiException::class],
+			[422, 'something_else', ApiException::class], [413, 'request_too_large', ApiException::class], [405, '', ApiException::class], [405, 'method_not_allowed', ApiException::class],
 			[429, 'rate_limit_exceeded', RateLimitException::class], [500, 'internal', ServerException::class],
 			[503, 'network_unavailable', ServerException::class], [504, 'timeout', ServerException::class],
 			[301, '', ServerException::class], [304, '', ServerException::class],
@@ -266,6 +266,47 @@ final class TransportTest extends TestCase
 		$this->assertSame('the message', $error->errorMessage);
 		$this->assertSame('req-body', $error->requestId);
 		$this->assertSame([], $error->details);
+	}
+
+	/**
+	 * A member's key sending a redirect URL while the organization's members.checkoutRedirects
+	 * policy is off: 403 policy_disabled, `details.policy` and `details.field` reachable through
+	 * the generic details.
+	 */
+	#[Test]
+	public function a_policy_disabled_field_is_in_the_details(): void
+	{
+		$body = '{"error":"your organization doesn\'t let members set successUrl","code":"policy_disabled",'
+			. '"details":{"policy":"members.checkoutRedirects","field":"successUrl"},"requestId":"req-1"}';
+		$error = $this->transport()->errorFromResponse(new RawResponse(403, [], $body));
+
+		$this->assertInstanceOf(PermissionDeniedException::class, $error);
+		$this->assertSame(['policy_disabled', 'members.checkoutRedirects', 'successUrl', 'req-1'],
+			[$error->apiCode, $error->details['policy'] ?? null, $error->details['field'] ?? null, $error->requestId]);
+	}
+
+	/** A 403 forbidden carries no details: the role or the On-Behalf-Of value is the reason. */
+	#[Test]
+	public function a_forbidden_has_no_details(): void
+	{
+		$body = '{"error":"Only your organization\'s owner and admins can do this","code":"forbidden","requestId":"req-2"}';
+		$error = $this->transport()->errorFromResponse(new RawResponse(403, [], $body));
+
+		$this->assertInstanceOf(PermissionDeniedException::class, $error);
+		$this->assertSame(['forbidden', []], [$error->apiCode, $error->details]);
+	}
+
+	/** A field error's `reason` (sent by routes outside the SDK only) is ignored: field and message still parse. */
+	#[Test]
+	public function a_field_error_reason_is_ignored(): void
+	{
+		$body = '{"error":"handle is reserved","code":"validation_failed","details":{"errors":[{"field":"handle","message":"handle is reserved","reason":"reserved"}]}}';
+		$error = $this->transport()->errorFromResponse(new RawResponse(400, [], $body));
+
+		$this->assertInstanceOf(ValidationException::class, $error);
+		$this->assertCount(1, $error->fieldErrors);
+		$this->assertSame(['handle', 'handle is reserved'], [$error->fieldErrors[0]->field, $error->fieldErrors[0]->message]);
+		$this->assertFalse(property_exists($error->fieldErrors[0], 'reason'), 'FieldError::$reason is not modelled');
 	}
 
 	#[Test]
@@ -554,6 +595,26 @@ final class TransportTest extends TestCase
 				$this->fail('want a ServerException');
 			} catch (ServerException $e) {
 				$this->assertSame(302, $e->status);
+				$this->assertFalse($e->isRetryable());
+			}
+		}
+		$this->assertSame(2, $this->http->count());
+		$this->assertSame([], $this->sleeps);
+	}
+
+	/** A path called with a method it doesn't take (405, with `Allow`): a plain ApiException, never retried. */
+	#[Test]
+	public function method_not_allowed_is_an_api_error_and_not_retried(): void
+	{
+		$body = '{"error":"method not allowed","code":"method_not_allowed","requestId":"req-405"}';
+		$transport = $this->transport(MockHttpClient::static(405, $body, ['Allow' => 'GET, PATCH']));
+		foreach ([false, true] as $idempotent) {
+			try {
+				$transport->send($idempotent ? 'POST' : 'GET', '/products', body: $idempotent ? [] : null, idempotent: $idempotent);
+				$this->fail('want an ApiException');
+			} catch (ApiException $e) {
+				$this->assertSame(ApiException::class, $e::class);
+				$this->assertSame([405, 'method_not_allowed', 'req-405'], [$e->status, $e->apiCode, $e->requestId]);
 				$this->assertFalse($e->isRetryable());
 			}
 		}

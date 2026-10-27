@@ -21,6 +21,7 @@ final class BillingStage
 	/** Over the customer's maximum: waiting for their new one. */
 	public const PENDING = 'pending';
 
+	/** Over: see the outcome. */
 	public const DONE = 'done';
 
 	/**

@@ -20,7 +20,6 @@ use QBitFlow\Enums\InvitationStatus;
 use QBitFlow\Enums\RefundStatus;
 use QBitFlow\Enums\SubscriptionStatus;
 use QBitFlow\Enums\TransactionKind;
-use QBitFlow\Enums\WebhookPayloadVersion;
 use QBitFlow\Events\WebhookTestEvent;
 use QBitFlow\Exceptions\AuthenticationException;
 use QBitFlow\Exceptions\BadRequestException;
@@ -125,8 +124,8 @@ final class ServiceEndpointsTest extends TestCase
 				check: static fn (self $t, mixed $v) => $t->assertNull($v)),
 
 			'customers.list' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->customers->list(new Params\CustomerListParams(limit: 5, cursor: self::CURSOR, email: 'ada+1@example.com',
-				reference: 'crm-1', verified: true), $o),
-				'GET', '/customers', $page($m('Customer')), 'cursor=' . self::CURSOR . '&email=ada%2B1%40example.com&limit=5&reference=crm-1&verified=true',
+				reference: 'crm-1'), $o),
+				'GET', '/customers', $page($m('Customer')), 'cursor=' . self::CURSOR . '&email=ada%2B1%40example.com&limit=5&reference=crm-1',
 				check: static function (self $t, Page $v): void {
 					$t->assertCount(1, $v->items);
 					$t->assertTrue($v->hasMore);
@@ -138,7 +137,7 @@ final class ServiceEndpointsTest extends TestCase
 				body: '{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+33 6 12 34 56 78","reference":"crm-1","metadata":{"crm:id":"C-5521"}}',
 				idempotent: true, status: 201,
 				check: static function (self $t, Models\Customer $v): void {
-					$t->assertSame(['c-1', 'Ada', true, 'm-1'], [$v->uuid, $v->firstName, $v->verified, $v->userUuid]);
+					$t->assertSame(['c-1', 'Ada', 'm-1'], [$v->uuid, $v->firstName, $v->userUuid]);
 				}),
 			'customers.get' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->customers->get(self::UUID_A, $o), 'GET', '/customers/' . self::UUID_A, $m('Customer')),
 			'customers.getByReference' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->customers->getByReference('crm-1', $o), 'GET', '/customers', $list($m('Customer')), 'reference=crm-1'),
@@ -340,8 +339,8 @@ final class ServiceEndpointsTest extends TestCase
 				check: static fn (self $t, Models\WebhookEndpointCreated $v) => $t->assertSame('whsec_x', $v->secret)),
 			'webhooks.endpoints.get' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->webhooks->endpoints->get(self::UUID_A, $o), 'GET', '/webhooks/endpoints/' . self::UUID_A, $m('WebhookEndpointCreated')),
 			'webhooks.endpoints.update' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->webhooks->endpoints->update(self::UUID_A, new Params\UpdateWebhookEndpointParams(events: [],
-				description: '', payloadVersion: WebhookPayloadVersion::V2, enabled: true), $o),
-				'PATCH', '/webhooks/endpoints/' . self::UUID_A, $m('WebhookEndpointCreated'), body: '{"events":[],"description":"","payloadVersion":"v2","enabled":true}'),
+				description: '', enabled: true), $o),
+				'PATCH', '/webhooks/endpoints/' . self::UUID_A, $m('WebhookEndpointCreated'), body: '{"events":[],"description":"","enabled":true}'),
 			'webhooks.endpoints.delete' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->webhooks->endpoints->delete(self::UUID_A, $o), 'DELETE', '/webhooks/endpoints/' . self::UUID_A, '', status: 204),
 			'webhooks.events.list' => $r(static fn (QBitFlow $c, ?RequestOptions $o) => $c->webhooks->events->list(new Params\EventListParams(limit: 2, cursor: self::CURSOR,
 				type: EventType::WEBHOOK_TEST, includeMembers: true), $o),
@@ -551,7 +550,7 @@ final class ServiceEndpointsTest extends TestCase
 			'refunds.list userUuid' => ['userUuid', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(userUuid: '1'))],
 			'refunds.list exclusive' => ['userUuid', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(includeMembers: true, userUuid: self::MEMBER_UUID))],
 			'refunds.list status' => ['status[1]', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: [RefundStatus::PENDING, 'denied']))],
-			'refunds.list too many statuses' => ['status', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: array_merge(RefundStatus::values(), [RefundStatus::PENDING, RefundStatus::APPROVED])))],
+			'refunds.list too many statuses' => ['status', static fn (QBitFlow $c) => $c->refunds->list(new Params\RefundListParams(status: array_merge(RefundStatus::values(), RefundStatus::values())))],
 			'members.update fee' => ['organizationFeePercent', static fn (QBitFlow $c) => $c->members->update(self::MEMBER_UUID, new Params\UpdateMemberParams('51'))],
 			'members.update fee required' => ['organizationFeePercent', static fn (QBitFlow $c) => $c->members->update(self::MEMBER_UUID, new Params\UpdateMemberParams(''))],
 			'invitations.create email' => ['email', static fn (QBitFlow $c) => $c->invitations->create(new Params\CreateInvitationParams(email: '', holdFunds: false))],
@@ -562,7 +561,6 @@ final class ServiceEndpointsTest extends TestCase
 			'accounting.exportCsv date' => ['from', static fn (QBitFlow $c) => $c->accounting->exportCsv('2026-02-30', '2026-03-01')],
 			'webhooks.endpoints.create url' => ['url', static fn (QBitFlow $c) => $c->webhooks->endpoints->create(new Params\CreateWebhookEndpointParams(url: 'ftp://x'))],
 			'webhooks.endpoints.update test event' => ['events[0]', static fn (QBitFlow $c) => $c->webhooks->endpoints->update(self::UUID_A, new Params\UpdateWebhookEndpointParams(events: [EventType::WEBHOOK_TEST]))],
-			'webhooks.endpoints.update payload version' => ['payloadVersion', static fn (QBitFlow $c) => $c->webhooks->endpoints->update(self::UUID_A, new Params\UpdateWebhookEndpointParams(payloadVersion: 'v1'))],
 			'webhooks.events.list cursor' => ['cursor', static fn (QBitFlow $c) => $c->webhooks->events->list(new Params\EventListParams(cursor: str_repeat('c', 201)))],
 			'request options after params' => ['name', static fn (QBitFlow $c) => $c->products->update(self::UUID_A, new Params\UpdateProductParams(name: '<b>'), new RequestOptions(requestId: 'bad id'))],
 		];
@@ -641,8 +639,8 @@ final class ServiceEndpointsTest extends TestCase
 		return [
 			'products.iterate' => ['/products', 'includeHidden=true&limit=2', $uuidItem,
 				static fn (QBitFlow $c, int $n) => $collect($c->products->iterate(new Params\ProductListParams(limit: 2, includeHidden: true)), $byUuid, $n)],
-			'customers.iterate' => ['/customers', 'email=a%40b.co&limit=2&verified=false', $uuidItem,
-				static fn (QBitFlow $c, int $n) => $collect($c->customers->iterate(new Params\CustomerListParams(limit: 2, email: 'a@b.co', verified: false)), $byUuid, $n)],
+			'customers.iterate' => ['/customers', 'email=a%40b.co&limit=2', $uuidItem,
+				static fn (QBitFlow $c, int $n) => $collect($c->customers->iterate(new Params\CustomerListParams(limit: 2, email: 'a@b.co')), $byUuid, $n)],
 			'payments.iterate' => ['/payments', 'createdAfter=' . self::AFTER_Q . '&limit=2', $uuidItem,
 				static fn (QBitFlow $c, int $n) => $collect($c->payments->iterate(new Params\PaymentListParams(limit: 2, createdAfter: self::after())), $byUuid, $n)],
 			'transactions.iterate' => ['/transactions', 'type=payment', $uuidItem,

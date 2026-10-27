@@ -11,7 +11,7 @@ use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Models\Duration;
 
 /**
- * The SDK's one set of client-side checks (behaviour §8, docs `validators.md`).
+ * The SDK's one set of client-side checks, mirroring the API's validators.
  *
  * They mirror the API's binding rules so a bad input fails before the round trip, with a
  * {@see ValidationException} naming each failing input by its wire name. Lengths count Unicode
@@ -159,15 +159,25 @@ final class Validator
 		}
 	}
 
-	/** A merchant reference, when set: 1 to 100 of `A-Z a-z 0-9 . _ : @ -`. */
+	/**
+	 * A merchant reference, when set: 1 to 100 of `A-Z a-z 0-9 . _ : @ -`, and never `.` or `..`
+	 * alone (dot-segments, which a URL path resolves away: a URL built on such a reference could
+	 * never name it). `...`, `.a` and `INV.2026.001` pass.
+	 */
 	public function reference(string $field, ?string $value): void
 	{
 		if ($value === null || $value === '' || ! $this->length($field, $value, 1, 100)) {
 			return;
 		}
-		if (preg_match(self::REFERENCE, $value) !== 1) {
-			$this->add($field, 'must contain only letters, digits and . _ : @ -');
+		if (! self::isReference($value)) {
+			$this->add($field, 'must contain only letters, digits and . _ : @ -, and cannot be "." or ".."');
 		}
+	}
+
+	/** The API's reference rule: `A-Z a-z 0-9 . _ : @ -` only, never `.` or `..` alone (length aside). */
+	public static function isReference(string $value): bool
+	{
+		return preg_match(self::REFERENCE, $value) === 1 && $value !== '.' && $value !== '..';
 	}
 
 	/** A phone number, when set: at most 32 characters, digits and `. - ( )` space, an optional `+`. */
@@ -526,7 +536,7 @@ final class Validator
 			throw self::fieldError($field, 'is required');
 		}
 		// "." and ".." would be resolved as relative path segments (by URL parsers and by the
-		// server's path cleaning) and reach another route: refused, identically in every SDK.
+		// server's path cleaning) and reach another route: refused before sending.
 		if ($value === '.' || $value === '..') {
 			throw self::fieldError($field, 'cannot be "." or ".."');
 		}

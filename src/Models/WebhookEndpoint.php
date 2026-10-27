@@ -41,11 +41,6 @@ readonly class WebhookEndpoint extends Model
 	public bool $includeMembers;
 
 	/**
-	 * The payload it receives: `v2` (the event envelope), the only version.
-	 */
-	public string $payloadVersion;
-
-	/**
 	 * A note for the dashboard; null (absent) when none.
 	 */
 	public ?string $description;
@@ -54,11 +49,6 @@ readonly class WebhookEndpoint extends Model
 	 * When it was created.
 	 */
 	public DateTimeImmutable $createdAt;
-
-	/**
-	 * When its secret last changed.
-	 */
-	public ?DateTimeImmutable $rotatedAt;
 
 	/**
 	 * When it was disabled (it receives nothing): after 3 days without a successful delivery
@@ -93,10 +83,8 @@ readonly class WebhookEndpoint extends Model
 		$this->url = Cast::string($data, 'url');
 		$this->events = Cast::stringList($data, 'events');
 		$this->includeMembers = Cast::bool($data, 'includeMembers');
-		$this->payloadVersion = Cast::string($data, 'payloadVersion');
 		$this->description = Cast::nullableString($data, 'description');
 		$this->createdAt = Cast::date($data, 'createdAt');
-		$this->rotatedAt = Cast::nullableDate($data, 'rotatedAt');
 		$this->disabledAt = Cast::nullableDate($data, 'disabledAt');
 		$this->disabledReason = Cast::nullableString($data, 'disabledReason');
 		$this->failingSince = Cast::nullableDate($data, 'failingSince');

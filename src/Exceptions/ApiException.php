@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace QBitFlow\Exceptions;
 
 /**
- * An HTTP error response, and the parent of every typed error below (as the Go SDK's
- * `*APIError` is embedded by each). Thrown as is for an HTTP error without a more specific
- * type (e.g. 413 `request_too_large`, a 405).
+ * An HTTP error response, and the parent of every typed HTTP error (catch it to handle any
+ * error the API answered). Thrown as is for an HTTP error without a more specific type (e.g. 413
+ * `request_too_large`, 405 `method_not_allowed`).
  */
 class ApiException extends QBitFlowException
 {

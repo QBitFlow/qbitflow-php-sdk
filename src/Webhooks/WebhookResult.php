@@ -24,6 +24,11 @@ use Throwable;
  */
 final readonly class WebhookResult
 {
+	/**
+	 * Built by the {@see WebhookRouter}; build one yourself only to test your own code.
+	 *
+	 * @param string|null $reason The `error` of the response body (null: derived from the status and the error).
+	 */
 	public function __construct(
 		/** The HTTP status to answer. */
 		public int $status,

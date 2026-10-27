@@ -15,6 +15,7 @@ use QBitFlow\Support\Cast;
  */
 final readonly class Duration
 {
+	/** A duration of `$value` `$unit`s (`new Duration()`: none). Checked when sent, not here. */
 	public function __construct(
 		/** The number of units, 0 to 4294967295; 0 means no duration. */
 		public int $value = 0,
@@ -23,36 +24,43 @@ final readonly class Duration
 	) {
 	}
 
+	/** `$value` seconds. */
 	public static function seconds(int $value): self
 	{
 		return new self($value, DurationUnit::SECONDS);
 	}
 
+	/** `$value` minutes. */
 	public static function minutes(int $value): self
 	{
 		return new self($value, DurationUnit::MINUTES);
 	}
 
+	/** `$value` hours. */
 	public static function hours(int $value): self
 	{
 		return new self($value, DurationUnit::HOURS);
 	}
 
+	/** `$value` days. */
 	public static function days(int $value): self
 	{
 		return new self($value, DurationUnit::DAYS);
 	}
 
+	/** `$value` weeks. */
 	public static function weeks(int $value): self
 	{
 		return new self($value, DurationUnit::WEEKS);
 	}
 
+	/** `$value` months (a month counts 30 days). */
 	public static function months(int $value): self
 	{
 		return new self($value, DurationUnit::MONTHS);
 	}
 
+	/** `$value` years (a year counts 365 days). */
 	public static function years(int $value): self
 	{
 		return new self($value, DurationUnit::YEARS);

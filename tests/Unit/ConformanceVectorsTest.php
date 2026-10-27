@@ -34,10 +34,13 @@ use ReflectionParameter;
 use stdClass;
 
 /**
- * Runs the cross-SDK conformance vectors the Go reference generated
- * (`.claude/cross-sdk-checks/v3/vectors`, see its README): signature, events, validation,
- * decoding and request building. Skipped when the vectors are not present (set
- * QBITFLOW_VECTORS_DIR to run them from elsewhere).
+ * Runs the test vectors QBitFlow shares across its SDKs (the same inputs and expected outcomes
+ * for the Go, JavaScript, Python and PHP SDKs): webhook signatures, event parsing, client-side
+ * validation, response decoding and request building.
+ *
+ * The vectors are maintained outside this repository: the test runs when QBITFLOW_VECTORS_DIR
+ * names a directory holding them (signature.json, events.json, validation.json, decoding.json,
+ * requests.json), and is skipped otherwise.
  */
 final class ConformanceVectorsTest extends TestCase
 {
@@ -46,11 +49,8 @@ final class ConformanceVectorsTest extends TestCase
 	private static function dir(): ?string
 	{
 		$dir = getenv('QBITFLOW_VECTORS_DIR');
-		if (! is_string($dir) || $dir === '') {
-			$dir = dirname(__DIR__, 3) . '/.claude/cross-sdk-checks/v3/vectors';
-		}
 
-		return is_dir($dir) ? $dir : null;
+		return is_string($dir) && $dir !== '' && is_dir($dir) ? $dir : null;
 	}
 
 	/** @return array<string,array{0: array<string,mixed>}> */
@@ -273,7 +273,7 @@ final class ConformanceVectorsTest extends TestCase
 	private function requireVectors(array $case): void
 	{
 		if ($case === []) {
-			$this->markTestSkipped('conformance vectors not found (set QBITFLOW_VECTORS_DIR)');
+			$this->markTestSkipped('shared test vectors not available (set QBITFLOW_VECTORS_DIR to run them)');
 		}
 	}
 

@@ -41,11 +41,13 @@ class RateLimitException extends ApiException
 		return $this->retryAfter;
 	}
 
+	/** The requests allowed per period (`details.limit`); 0 when unknown. */
 	public function getLimit(): int
 	{
 		return $this->limit;
 	}
 
+	/** The rate limit's period in seconds (`details.periodSeconds`); 0 when unknown. */
 	public function getPeriodSeconds(): int
 	{
 		return $this->periodSeconds;

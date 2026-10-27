@@ -17,6 +17,10 @@ namespace QBitFlow;
  */
 final readonly class RequestOptions
 {
+	/**
+	 * Pass the options by name; one left null is not used. They are checked when the call is made
+	 * (a {@see \QBitFlow\Exceptions\ValidationException}, nothing sent).
+	 */
 	public function __construct(
 		/**
 		 * Acts in a member's space for this call (`On-Behalf-Of`: a member's userUuid; organization

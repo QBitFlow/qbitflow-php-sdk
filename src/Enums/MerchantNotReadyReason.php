@@ -12,10 +12,19 @@ namespace QBitFlow\Enums;
  */
 final class MerchantNotReadyReason
 {
+	/** The space's wallets accept no currency (no wallet yet). */
 	public const NO_WALLET = 'noWallet';
 
+	/**
+	 * The organization holds the member's funds (its payments go to the organization's wallets),
+	 * and the organization's wallets accept no currency.
+	 */
 	public const ORGANIZATION_NO_WALLET = 'organizationNoWallet';
 
+	/**
+	 * A subscription checkout: subscriptions are paid in tokens, and the space's wallets accept
+	 * only native coins.
+	 */
 	public const NO_TOKEN_WALLET = 'noTokenWallet';
 
 	/**

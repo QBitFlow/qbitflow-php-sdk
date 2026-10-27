@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace QBitFlow\Laravel;
 
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
@@ -33,13 +34,14 @@ use QBitFlow\Webhooks\WebhookRouter;
  */
 final class QBitFlowServiceProvider extends ServiceProvider
 {
+	/** Binds the client, the webhook middleware and the webhook router, and merges the config. */
 	public function register(): void
 	{
 		$this->mergeConfigFrom($this->configPath(), 'qbitflow');
 
-		$this->app->singleton(QBitFlow::class, static function ($app): QBitFlow {
+		$this->app->singleton(QBitFlow::class, static function (Container $app): QBitFlow {
 			/** @var ConfigRepository $config */
-			$config = $app['config'];
+			$config = $app->make('config');
 
 			$apiKey = $config->get('qbitflow.api_key');
 			if (! is_string($apiKey) || trim($apiKey) === '') {
@@ -53,8 +55,8 @@ final class QBitFlowServiceProvider extends ServiceProvider
 			return new QBitFlow(
 				apiKey: $apiKey,
 				baseUrl: is_string($baseUrl) && trim($baseUrl) !== '' ? $baseUrl : null,
-				timeout: $config->get('qbitflow.timeout') !== null ? (float) $config->get('qbitflow.timeout') : null,
-				maxRetries: $config->get('qbitflow.max_retries') !== null ? (int) $config->get('qbitflow.max_retries') : null,
+				timeout: is_scalar($timeout = $config->get('qbitflow.timeout')) ? (float) $timeout : null,
+				maxRetries: is_scalar($maxRetries = $config->get('qbitflow.max_retries')) ? (int) $maxRetries : null,
 				// A PSR-18 client bound in the container (proxies, logging, a fake in tests) wins
 				// over auto-detection.
 				httpClient: $app->bound(ClientInterface::class) ? $app->make(ClientInterface::class) : null,
@@ -64,9 +66,9 @@ final class QBitFlowServiceProvider extends ServiceProvider
 		});
 		$this->app->alias(QBitFlow::class, 'qbitflow');
 
-		$this->app->bind(VerifyQBitFlowWebhook::class, static function ($app): VerifyQBitFlowWebhook {
+		$this->app->bind(VerifyQBitFlowWebhook::class, static function (Container $app): VerifyQBitFlowWebhook {
 			/** @var ConfigRepository $config */
-			$config = $app['config'];
+			$config = $app->make('config');
 			$secret = $config->get('qbitflow.webhook_secret');
 			$tolerance = $config->get('qbitflow.webhook_tolerance');
 
@@ -78,9 +80,9 @@ final class QBitFlowServiceProvider extends ServiceProvider
 
 		// A fresh router per resolution, on QBITFLOW_WEBHOOK_SECRET: the WebhookController's,
 		// and yours (app(WebhookRouter::class)->on(…)) for a route of your own.
-		$this->app->bind(WebhookRouter::class, static function ($app): WebhookRouter {
+		$this->app->bind(WebhookRouter::class, static function (Container $app): WebhookRouter {
 			/** @var ConfigRepository $config */
-			$config = $app['config'];
+			$config = $app->make('config');
 			$secret = $config->get('qbitflow.webhook_secret');
 			$tolerance = $config->get('qbitflow.webhook_tolerance');
 			if (! is_string($secret) || $secret === '') {
@@ -91,6 +93,7 @@ final class QBitFlowServiceProvider extends ServiceProvider
 		});
 	}
 
+	/** Publishes the config, registers the Artisan commands, the middleware alias and the route macro. */
 	public function boot(): void
 	{
 		if ($this->app instanceof Application && $this->app->runningInConsole()) {

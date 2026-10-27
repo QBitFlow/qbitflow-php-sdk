@@ -41,9 +41,6 @@ final class Webhook
 	/** Carries the event's type. */
 	public const EVENT_TYPE_HEADER = 'QBitFlow-Event-Type';
 
-	/** Carries the payload version (`v2`, the only one). */
-	public const VERSION_HEADER = 'QBitFlow-Webhook-Version';
-
 	/** How far (seconds) a signature's timestamp may be from now, by default. */
 	public const DEFAULT_TOLERANCE = 300;
 
@@ -79,7 +76,7 @@ final class Webhook
 	 * @throws WebhookSignatureException With `reason` saying why.
 	 * @throws ValidationException       For an empty secret (a configuration error).
 	 */
-	public static function verify(string $rawBody, string $signatureHeader, string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): void
+	public static function verify(string $rawBody, string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): void
 	{
 		if ($secret === '') {
 			throw Validator::fieldError('secret', "is required (the endpoint's whsec_… secret)");
@@ -135,7 +132,7 @@ final class Webhook
 	 * @throws WebhookSignatureException
 	 * @throws ValidationException For a body over 1 MiB, or an empty secret.
 	 */
-	public static function verifyRequest(RequestInterface $request, string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): string
+	public static function verifyRequest(RequestInterface $request, #[\SensitiveParameter] string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): string
 	{
 		$body = self::readBody($request->getBody());
 		if ($body === null) {
@@ -202,7 +199,7 @@ final class Webhook
 	 * @throws WebhookSignatureException
 	 * @throws ValidationException
 	 */
-	public static function constructEvent(string $rawBody, string $signatureHeader, string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): Event
+	public static function constructEvent(string $rawBody, string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = self::DEFAULT_TOLERANCE, ?Closure $now = null): Event
 	{
 		self::assertBodySize($rawBody);
 		self::verify($rawBody, $signatureHeader, $secret, $tolerance, $now);
@@ -224,7 +221,7 @@ final class Webhook
 	 *
 	 * @throws ValidationException For an empty secret or a negative timestamp.
 	 */
-	public static function sign(string $rawBody, string $secret, ?int $timestamp = null): string
+	public static function sign(string $rawBody, #[\SensitiveParameter] string $secret, ?int $timestamp = null): string
 	{
 		if ($secret === '') {
 			throw Validator::fieldError('secret', "is required (the endpoint's whsec_… secret)");

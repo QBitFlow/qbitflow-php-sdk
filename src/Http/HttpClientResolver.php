@@ -28,30 +28,40 @@ final class HttpClientResolver
 {
 	/**
 	 * PSR-17 factory classes that implement both the request and stream factory
-	 * interfaces, in preference order.
+	 * interfaces, in preference order. Names, not `::class` constants: each is an optional
+	 * package the project may or may not have installed.
 	 *
-	 * @var list<class-string>
+	 * @var list<string>
 	 */
 	private const FACTORIES = [
-		\GuzzleHttp\Psr7\HttpFactory::class,
-		\Nyholm\Psr7\Factory\Psr17Factory::class,
-		\Laminas\Diactoros\RequestFactory::class,
-		\Slim\Psr7\Factory\RequestFactory::class,
-		\Http\Discovery\Psr17Factory::class,
+		'GuzzleHttp\Psr7\HttpFactory',
+		'Nyholm\Psr7\Factory\Psr17Factory',
+		'Laminas\Diactoros\RequestFactory',
+		'Slim\Psr7\Factory\RequestFactory',
+		'Http\Discovery\Psr17Factory',
 	];
+
+	/** Symfony's PSR-18 adapter (optional package). */
+	private const SYMFONY_PSR18 = 'Symfony\Component\HttpClient\Psr18Client';
+
+	/** Symfony's HTTP client factory (optional package). */
+	private const SYMFONY_HTTP_CLIENT = 'Symfony\Component\HttpClient\HttpClient';
 
 	/**
 	 * Resolve a PSR-18 client.
 	 *
-	 * @param float $timeout Request timeout in seconds, applied where the implementation
-	 *                       allows it.
+	 * @param float  $timeout Request timeout in seconds, applied where the implementation
+	 *                        allows it.
+	 * @param string $guzzle  The Guzzle client class (for the SDK's tests).
 	 *
 	 * @throws QBitFlowException If no known implementation is installed.
 	 */
-	public static function resolve(float $timeout): ClientInterface
+	public static function resolve(float $timeout, string $guzzle = \GuzzleHttp\Client::class): ClientInterface
 	{
-		if (class_exists(\GuzzleHttp\Client::class)) {
-			return new \GuzzleHttp\Client([
+		// Guzzle 6's client is not a PSR-18 client (Guzzle implements it from 7.0): skipped, so
+		// the PSR-18 adapter the project installed next to it is discovered below.
+		if (class_exists($guzzle) && is_a($guzzle, ClientInterface::class, true)) {
+			return new $guzzle([
 				'timeout' => $timeout,
 				'connect_timeout' => $timeout,
 				// Non-2xx responses are classified by the transport, not thrown by Guzzle.
@@ -63,17 +73,19 @@ final class HttpClientResolver
 			]);
 		}
 
-		if (class_exists(\Symfony\Component\HttpClient\Psr18Client::class)) {
-			return class_exists(\Symfony\Component\HttpClient\HttpClient::class)
-				? new \Symfony\Component\HttpClient\Psr18Client(
-					// `timeout` is Symfony's idle timeout; `max_duration` bounds the whole request.
-					\Symfony\Component\HttpClient\HttpClient::create([
-						'timeout' => $timeout,
-						'max_duration' => $timeout,
-						'max_redirects' => 0,
-					]),
-				)
-				: new \Symfony\Component\HttpClient\Psr18Client();
+		$symfony = self::SYMFONY_PSR18;
+		if (class_exists($symfony) && is_a($symfony, ClientInterface::class, true)) {
+			$create = self::SYMFONY_HTTP_CLIENT . '::create';
+			if (! is_callable($create)) {
+				return new $symfony();
+			}
+
+			// `timeout` is Symfony's idle timeout; `max_duration` bounds the whole request.
+			return new $symfony($create([
+				'timeout' => $timeout,
+				'max_duration' => $timeout,
+				'max_redirects' => 0,
+			]));
 		}
 
 		// Anything else the project happens to have, if php-http/discovery is available.
@@ -179,14 +191,14 @@ final class HttpClientResolver
 	 *
 	 * @param class-string $interface
 	 *
-	 * @return list<class-string>
+	 * @return list<string> Class names of optional packages.
 	 */
 	private static function splitFactories(string $interface): array
 	{
 		return match ($interface) {
-			RequestFactoryInterface::class => [\Laminas\Diactoros\RequestFactory::class, \Slim\Psr7\Factory\RequestFactory::class],
-			ResponseFactoryInterface::class => [\Laminas\Diactoros\ResponseFactory::class, \Slim\Psr7\Factory\ResponseFactory::class],
-			default => [\Laminas\Diactoros\StreamFactory::class, \Slim\Psr7\Factory\StreamFactory::class],
+			RequestFactoryInterface::class => ['Laminas\Diactoros\RequestFactory', 'Slim\Psr7\Factory\RequestFactory'],
+			ResponseFactoryInterface::class => ['Laminas\Diactoros\ResponseFactory', 'Slim\Psr7\Factory\ResponseFactory'],
+			default => ['Laminas\Diactoros\StreamFactory', 'Slim\Psr7\Factory\StreamFactory'],
 		};
 	}
 

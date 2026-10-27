@@ -47,6 +47,7 @@ class WebhookSignatureException extends ApiException
 		parent::__construct($message, $status, $apiCode, $details, $requestId, $fieldErrors, $rawBody, $previous);
 	}
 
+	/** Why the signature was refused: one of the `REASON_*` constants. */
 	public function getReason(): string
 	{
 		return $this->reason;

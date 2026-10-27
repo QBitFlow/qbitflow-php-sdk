@@ -19,6 +19,10 @@ use QBitFlow\Support\Validator;
 final readonly class CreatePaymentSessionParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param array<string,string>|null $metadata
 	 */
 	public function __construct(
@@ -40,16 +44,25 @@ final readonly class CreatePaymentSessionParams
 		public ?string $priceUsd = null,
 		/**
 		 * Your reference for the payment (an order or invoice id), kept on it: unique per space
-		 * (open sessions included), 1 to 100 of `A-Z a-z 0-9 . _ : @ -`.
+		 * (open sessions included), 1 to 100 of `A-Z a-z 0-9 . _ : @ -`, never `.` or `..` alone.
 		 */
 		public ?string $reference = null,
 		/**
 		 * Where the customer goes after paying, through QBitFlow's page for the payment (the
 		 * placeholders filled in). Default: the space's `checkout.defaults` setting. https only in
 		 * live mode. Reaching it is no proof of payment: fulfil on `payment.completed`.
+		 * A member's own key may send it (and `cancelUrl`) while the organization's
+		 * `members.checkoutRedirects` policy allows it (on by default). With the policy off, it is a
+		 * 403 `policy_disabled` with `details['policy']` (`members.checkoutRedirects`) and
+		 * `details['field']` naming it (`successUrl` first when both are sent), nothing created: the
+		 * member's checkouts then follow the organization's `checkout.defaults`. An organization key
+		 * (acting On-Behalf-Of a member or not) may always send both.
 		 */
 		public ?string $successUrl = null,
-		/** Where the customer goes after a cancelled or failed payment (same placeholders). */
+		/**
+		 * Where the customer goes after a cancelled or failed payment (same placeholders). A
+		 * member's own key may send it while `members.checkoutRedirects` allows it, as `successUrl`.
+		 */
 		public ?string $cancelUrl = null,
 		/** One of the space's customers (unknown: 404); the checkout then asks the customer nothing. */
 		public ?string $customerUuid = null,

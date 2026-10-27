@@ -9,9 +9,10 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The website's code snippets come from the `// docs:start <id>` regions in examples/: runs the
- * hub's `scripts/embed-snippets.mjs --check` over this SDK (regions, manifest, README blocks).
- * The hub is QBITFLOW_HUB_DIR, else the checkout this SDK sits in (`../..`); the test is skipped
- * when there is none, or no `node`. No network.
+ * snippet tooling's `scripts/embed-snippets.mjs --check` over this SDK (regions, manifest, README
+ * blocks). The tooling lives in QBitFlow's maintainers' workspace, outside this repository: it is
+ * found through QBITFLOW_HUB_DIR, else two directories up (where the maintainers' checkout keeps
+ * this SDK). The test is skipped when there is none, or no `node`. No network.
  */
 final class SnippetsTest extends TestCase
 {
@@ -25,7 +26,7 @@ final class SnippetsTest extends TestCase
 		} else {
 			$hub = dirname($sdk, 2);
 			if (! self::isHub($hub)) {
-				self::markTestSkipped('No QBitFlow hub checkout around this SDK: set QBITFLOW_HUB_DIR to check the snippets');
+				self::markTestSkipped('The snippet tooling is not available (maintainers only): set QBITFLOW_HUB_DIR to check the snippets');
 			}
 		}
 
@@ -40,7 +41,7 @@ final class SnippetsTest extends TestCase
 		$output = (string) stream_get_contents($pipes[1]);
 		fclose($pipes[1]);
 
-		self::assertSame(0, proc_close($process), "embed-snippets --check failed (run: node <hub>/scripts/embed-snippets.mjs .):\n" . $output);
+		self::assertSame(0, proc_close($process), "embed-snippets --check failed (run: node <workspace>/scripts/embed-snippets.mjs .):\n" . $output);
 	}
 
 	private static function isHub(string $dir): bool

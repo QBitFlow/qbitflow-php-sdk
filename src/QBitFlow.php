@@ -113,9 +113,9 @@ final class QBitFlow
 	private readonly Requester $requester;
 
 	/**
-	 * @param string                       $apiKey         Your API key (sent as `X-API-Key`): non-blank, starting with `sk_`.
-	 * @param string|null                  $baseUrl        The API root (default `https://api.qbitflow.app/v2`): an absolute http(s) URL; a trailing `/` is stripped.
-	 * @param float|null                   $timeout        Seconds per HTTP attempt (default 30), applied to the HTTP client the SDK builds. A retried call may take longer in total.
+	 * @param string                       $apiKey         Your API key (sent as `X-API-Key`): non-blank, starting with `sk_`, printable ASCII without spaces (surrounding blanks are trimmed).
+	 * @param string|null                  $baseUrl        The API root (default `https://api.qbitflow.app/v2`): an absolute http(s) URL without credentials, query or fragment; a trailing `/` is stripped.
+	 * @param float|null                   $timeout        Seconds per HTTP attempt (default 30), the whole attempt through the last byte of the body, applied to the HTTP client the SDK builds. A retried call may take longer in total.
 	 * @param int|null                     $maxRetries     Retries of a retryable call (default 3); 0 disables them.
 	 * @param string|null                  $onBehalfOf     Acts in a member's space on every request (`On-Behalf-Of`: the member's userUuid).
 	 * @param ClientInterface|null         $httpClient     Your own PSR-18 client (proxies, instrumentation). It must not follow redirects, and its own timeout applies.
@@ -125,6 +125,7 @@ final class QBitFlow
 	 * @throws ValidationException For a bad key or option. Nothing is sent: call {@see QBitFlow::me()} to check the key online.
 	 */
 	public function __construct(
+		#[\SensitiveParameter]
 		string $apiKey,
 		?string $baseUrl = null,
 		?float $timeout = null,
@@ -141,12 +142,23 @@ final class QBitFlow
 		if (! str_starts_with($apiKey, 'sk_')) {
 			throw Validator::fieldError('apiKey', 'must be a QBitFlow API key (sk_…)');
 		}
+		// A value no header can carry (the PSR-7 implementations would refuse it at the first
+		// request, quoting the key in their error): refused here, never echoed.
+		if (preg_match('/^[\x21-\x7E]+$/D', $apiKey) !== 1) {
+			throw Validator::fieldError('apiKey', 'must be printable ASCII without spaces (a QBitFlow API key, sk_…)');
+		}
 
 		$base = self::DEFAULT_BASE_URL;
 		if ($baseUrl !== null) {
 			$base = rtrim(trim($baseUrl), '/');
 			if (! Validator::isHttpUrl($base) || ! in_array(strtolower((string) parse_url($base, PHP_URL_SCHEME)), ['http', 'https'], true)) {
 				throw Validator::fieldError('baseUrl', 'must be an absolute http or https URL');
+			}
+			// A query or a fragment would swallow every route's path, and credentials would travel
+			// with every request (and into HTTP clients' error messages).
+			$parts = (array) parse_url($base);
+			if (str_contains($base, '?') || str_contains($base, '#') || isset($parts['user']) || isset($parts['pass'])) {
+				throw Validator::fieldError('baseUrl', 'must not contain credentials, a query or a fragment');
 			}
 		}
 		if ($timeout !== null && (! is_finite($timeout) || $timeout <= 0)) {
@@ -277,71 +289,85 @@ final class QBitFlow
 		return $client;
 	}
 
+	/** The `$products` service, as a method (for the Laravel facade: `QBitFlow::products()`). */
 	public function products(): ProductsService
 	{
 		return $this->products;
 	}
 
+	/** The `$customers` service, as a method (for the Laravel facade: `QBitFlow::customers()`). */
 	public function customers(): CustomersService
 	{
 		return $this->customers;
 	}
 
+	/** The `$checkoutSessions` service, as a method (for the Laravel facade: `QBitFlow::checkoutSessions()`). */
 	public function checkoutSessions(): CheckoutSessionsService
 	{
 		return $this->checkoutSessions;
 	}
 
+	/** The `$payments` service, as a method (for the Laravel facade: `QBitFlow::payments()`). */
 	public function payments(): PaymentsService
 	{
 		return $this->payments;
 	}
 
+	/** The `$transactions` service, as a method (for the Laravel facade: `QBitFlow::transactions()`). */
 	public function transactions(): TransactionsService
 	{
 		return $this->transactions;
 	}
 
+	/** The `$failures` service, as a method (for the Laravel facade: `QBitFlow::failures()`). */
 	public function failures(): FailuresService
 	{
 		return $this->failures;
 	}
 
+	/** The `$subscriptions` service, as a method (for the Laravel facade: `QBitFlow::subscriptions()`). */
 	public function subscriptions(): SubscriptionsService
 	{
 		return $this->subscriptions;
 	}
 
+	/** The `$refunds` service, as a method (for the Laravel facade: `QBitFlow::refunds()`). */
 	public function refunds(): RefundsService
 	{
 		return $this->refunds;
 	}
 
+	/** The `$members` service, as a method (for the Laravel facade: `QBitFlow::members()`). */
 	public function members(): MembersService
 	{
 		return $this->members;
 	}
 
+	/** The `$invitations` service, as a method (for the Laravel facade: `QBitFlow::invitations()`). */
 	public function invitations(): InvitationsService
 	{
 		return $this->invitations;
 	}
 
+	/** The `$wallets` service, as a method (for the Laravel facade: `QBitFlow::wallets()`). */
 	public function wallets(): WalletsService
 	{
 		return $this->wallets;
 	}
 
+	/** The `$accounting` service, as a method (for the Laravel facade: `QBitFlow::accounting()`). */
 	public function accounting(): AccountingService
 	{
 		return $this->accounting;
 	}
 
+	/** The `$webhooks` service, as a method (for the Laravel facade: `QBitFlow::webhooks()`). */
 	public function webhooks(): WebhooksService
 	{
 		return $this->webhooks;
 	}
 
+	/** The `$currencies` service, as a method (for the Laravel facade: `QBitFlow::currencies()`). */
 	public function currencies(): CurrenciesService
 	{
 		return $this->currencies;
@@ -373,6 +399,10 @@ final class QBitFlow
 		return null;
 	}
 
+	/**
+	 * Wires the client's services on `$requester`: from the constructor, and for the clients
+	 * that share a transport (fromTransport(), which skips the constructor).
+	 */
 	private function init(Requester $requester): void
 	{
 		$this->requester = $requester;

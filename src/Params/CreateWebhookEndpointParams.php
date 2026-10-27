@@ -13,6 +13,10 @@ use QBitFlow\Support\Validator;
 final readonly class CreateWebhookEndpointParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param list<string>|null $events The event types to receive ({@see EventType}; at most 20, not
 	 *                                  `webhook.test`; an unknown type is the API's 400); null or
 	 *                                  empty: every type, including types added later.

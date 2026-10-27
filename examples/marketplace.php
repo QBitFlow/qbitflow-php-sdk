@@ -74,7 +74,7 @@ foreach ($member->acceptedCurrencies as $currency) {
 
 // docs:start client-on-behalf-of
 // An organization key acts in a member's space: every request sends On-Behalf-Of.
-$seller = $client->onBehalfOf($memberUuid); // shares $client's transport and settings
+$seller = $client->onBehalfOf($memberUuid); // shares $client's transport and configuration
 echo count($seller->products->list()->items), " products on the first page of the member's space\n";
 // docs:end client-on-behalf-of
 

@@ -12,8 +12,13 @@ namespace QBitFlow\Enums;
  */
 final class NotRefundableReason
 {
+	/**
+	 * The transaction has its refund (a customer's request, pending or answered, or a merchant's
+	 * refund sent and confirmed): never refunded twice.
+	 */
 	public const REFUND_EXISTS = 'refundExists';
 
+	/** Held for a member and released to them since. */
 	public const HELD_FUNDS_RELEASED = 'heldFundsReleased';
 
 	/**

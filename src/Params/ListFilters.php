@@ -20,6 +20,7 @@ final class ListFilters
 	{
 	}
 
+	/** Adds the shared filters to `$query`. */
 	public static function encode(
 		Query $query,
 		?string $customerUuid,
@@ -37,6 +38,7 @@ final class ListFilters
 			->string('userUuid', $userUuid);
 	}
 
+	/** Checks the shared filters into `$v`: the UUIDs, and `includeMembers` not combined with `userUuid`. */
 	public static function validate(Validator $v, ?string $customerUuid, ?string $productUuid, bool $includeMembers, ?string $userUuid): void
 	{
 		$v->uuid('customerUuid', $customerUuid);

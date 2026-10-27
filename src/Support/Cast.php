@@ -10,7 +10,7 @@ use QBitFlow\Exceptions\ServerException;
 use stdClass;
 
 /**
- * Hydration helpers: the SDK's decoding policy (behaviour §6), shared by every model.
+ * Hydration helpers: the SDK's decoding policy, shared by every model.
  *
  * Responses are decoded with JSON objects as `stdClass` and lists as PHP arrays, so `{}` and
  * `[]` stay distinct. A model's `fromArray()` receives the object's properties as an array
@@ -387,7 +387,10 @@ final class Cast
 	public static function fields(mixed $value, string $key): array
 	{
 		if ($value instanceof stdClass) {
-			return get_object_vars($value);
+			/** @var array<string,mixed> $fields A decoded JSON object's keys are strings. */
+			$fields = get_object_vars($value);
+
+			return $fields;
 		}
 		// A non-empty associative array is an object too (a caller's own data). A list is not,
 		// an empty one included: a decoded JSON `[]` where an object is expected is refused.

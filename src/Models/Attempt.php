@@ -14,11 +14,6 @@ use QBitFlow\Support\Cast;
 final readonly class Attempt extends Model
 {
 	/**
-	 * `failed` ({@see \QBitFlow\Enums\AttemptStatus}).
-	 */
-	public string $status;
-
-	/**
 	 * The error code (e.g. `insufficient_funds`, `token_not_approved`): what to do about it.
 	 */
 	public ?string $code;
@@ -43,7 +38,6 @@ final readonly class Attempt extends Model
 	 */
 	protected function __construct(array $data)
 	{
-		$this->status = Cast::string($data, 'status');
 		$this->code = Cast::nullableString($data, 'code');
 		$this->message = Cast::nullableString($data, 'message');
 		$this->txHash = Cast::nullableString($data, 'txHash');

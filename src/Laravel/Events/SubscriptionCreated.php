@@ -19,6 +19,7 @@ final class SubscriptionCreated
 	/** The event's data. */
 	public readonly Models\Subscription $data;
 
+	/** Wraps the verified event; its typed data is also on `$data`. */
 	public function __construct(
 		/** The verified webhook event. */
 		public readonly SubscriptionCreatedEvent $event,

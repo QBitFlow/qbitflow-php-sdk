@@ -8,7 +8,6 @@ use Closure;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use QBitFlow\Enums\Credential;
 use QBitFlow\Enums\Role;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\Http\Requester;
@@ -32,8 +31,27 @@ final class ClientBehaviourTest extends TestCase
 		foreach (['', '   ', 'pk_live_123', 'SK_live', 'key'] as $key) {
 			$this->assertSame(['apiKey'], $this->failingFields(static fn () => new QBitFlow($key)), $key);
 		}
-		foreach (['sk_', 'sk_123_live_abc', 'sk_019eca82-5680-7b00-8000-0000000000b1_test_x', '  sk_padded  '] as $key) {
+		foreach (['sk_', 'sk_test_019eca82-5680-7b00-8000-0000000000b1_s3cr3t', 'sk_123_live_abc', 'sk_019eca82-5680-7b00-8000-0000000000b1_test_x', '  sk_padded  '] as $key) {
 			$this->assertInstanceOf(QBitFlow::class, new QBitFlow($key));
+		}
+	}
+
+	/**
+	 * A key no HTTP header can carry (CR/LF, a space or a control character inside, non-ASCII) is
+	 * refused at construction, without echoing it: the PSR-7 implementations would otherwise throw
+	 * a raw InvalidArgumentException quoting the key at the first request.
+	 */
+	#[Test]
+	public function it_refuses_a_key_no_header_can_carry(): void
+	{
+		foreach (["sk_ab\r\nX-Evil: 1", "sk_a b", "sk_a\tb", "sk_a\x00b", 'sk_é'] as $key) {
+			try {
+				new QBitFlow($key);
+				$this->fail('want a ValidationException: ' . json_encode($key));
+			} catch (ValidationException $e) {
+				$this->assertSame(['apiKey'], array_map(static fn ($f) => $f->field, $e->fieldErrors));
+				$this->assertStringNotContainsString($key, $e->getMessage());
+			}
 		}
 	}
 
@@ -55,6 +73,25 @@ final class ClientBehaviourTest extends TestCase
 		$this->assertStringNotContainsString('secret', print_r(new QBitFlow('sk_live_secret_1234'), true), 'the key never shows in debug output');
 	}
 
+	/** A refused base URL is never quoted back (it may carry credentials). */
+	#[Test]
+	public function a_refused_base_url_is_not_quoted(): void
+	{
+		foreach (['https://user:hunter2@api.example.com/v2', 'https://api.example.com/v2?token=hunter2', 'https://api.example.com/v2#hunter2',
+			'ftp://hunter2.example.com', 'https://hunter2 .example.com'] as $url) {
+			try {
+				new QBitFlow('sk_x', baseUrl: $url);
+				$this->fail('want a ValidationException: ' . $url);
+			} catch (ValidationException $e) {
+				$this->assertSame(['baseUrl'], array_map(static fn ($f) => $f->field, $e->fieldErrors), $url);
+				$this->assertStringNotContainsString('hunter2', $e->getMessage(), $url);
+			}
+		}
+		foreach (['http://localhost:3001/v2', 'HTTPS://API.EXAMPLE.COM/v2/', 'https://api.example.com'] as $url) {
+			$this->assertInstanceOf(QBitFlow::class, new QBitFlow('sk_x', baseUrl: $url), $url);
+		}
+	}
+
 	#[Test]
 	public function it_checks_the_options(): void
 	{
@@ -62,6 +99,16 @@ final class ClientBehaviourTest extends TestCase
 			'baseUrl ftp' => static fn () => new QBitFlow('sk_x', baseUrl: 'ftp://api.example.com'),
 			'baseUrl relative' => static fn () => new QBitFlow('sk_x', baseUrl: '/v2'),
 			'baseUrl empty' => static fn () => new QBitFlow('sk_x', baseUrl: ''),
+			// A query or fragment would swallow every route's path; credentials would travel with every request.
+			'baseUrl query' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://api.example.com/v2?x=1'),
+			'baseUrl empty query' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://api.example.com/v2?'),
+			'baseUrl fragment' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://api.example.com/v2#top'),
+			'baseUrl credentials' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://user:pass@api.example.com/v2'),
+			'baseUrl user' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://user@api.example.com/v2'),
+			'baseUrl empty user' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://@api.example.com/v2'),
+			'baseUrl password only' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://:pass@api.example.com/v2'),
+			'baseUrl empty fragment' => static fn () => new QBitFlow('sk_x', baseUrl: 'https://api.example.com/v2#'),
+			'baseUrl no host' => static fn () => new QBitFlow('sk_x', baseUrl: 'https:///v2'),
 			'timeout zero' => static fn () => new QBitFlow('sk_x', timeout: 0),
 			'timeout negative' => static fn () => new QBitFlow('sk_x', timeout: -1.0),
 			'maxRetries' => static fn () => new QBitFlow('sk_x', maxRetries: -1),
@@ -169,10 +216,11 @@ final class ClientBehaviourTest extends TestCase
 				"test": true, "role": "admin", "organizationFeePercent": "7.5", "createdAt": "2026-09-01T12:00:00Z"},
 			"user": {"ignored": true}}'));
 		$me = $client->me();
-		$this->assertSame(Credential::API_KEY, $me->credential);
+		$this->assertFalse(property_exists($me, 'credential'), 'always apiKey for a key: not modelled');
+		$this->assertSame('019cadfd-8900-7b00-8000-0000000000f1', $me->apiKeyUuid);
 		$this->assertSame(Role::USER, $me->role);
 		$this->assertSame(self::MEMBER_UUID, $me->onBehalfOfUserUuid);
-		$this->assertNull($me->userUuid);
+		$this->assertFalse(property_exists($me, 'userUuid'), 'a session-only field: not modelled');
 		$this->assertNotNull($me->space);
 		$this->assertTrue($me->space->test);
 		$this->assertSame('Example Shop', $me->space->organizationName);

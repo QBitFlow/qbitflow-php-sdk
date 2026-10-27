@@ -17,7 +17,6 @@ use QBitFlow\Enums\EventType;
 use QBitFlow\Enums\RefundStatus;
 use QBitFlow\Enums\Role;
 use QBitFlow\Enums\TransactionKind;
-use QBitFlow\Enums\WebhookPayloadVersion;
 use QBitFlow\Events\Event;
 use QBitFlow\Exceptions\ConflictException;
 use QBitFlow\Exceptions\NotFoundException;
@@ -29,8 +28,7 @@ use QBitFlow\QBitFlow;
 use QBitFlow\Webhooks\Webhook;
 
 /**
- * Live checks against a QBitFlow API (the Go SDK's integration suite). Never part of an
- * offline run:
+ * Live checks against a QBitFlow API. Never part of an offline run:
  *
  * - `QBITFLOW_API_KEY` not set → skipped;
  * - `QBITFLOW_API_KEY` set without `QBITFLOW_BASE_URL` → FAILS (never aim at production by accident);
@@ -293,7 +291,7 @@ final class LiveApiTest extends TestCase
 			lastName: 'Test', phoneNumber: '+33 6 12 34 56 78', reference: 'sdk-php-' . $s, metadata: ['crm' => '42']));
 		$this->cleanups[] = fn () => $this->client->customers->delete($customer->uuid);
 		$this->assertNotNull($customer->phoneNumber);
-		$this->assertSame(['Ada', true, '42'], [$customer->firstName, $customer->verified, $customer->metadata['crm'] ?? null]);
+		$this->assertSame(['Ada', '42'], [$customer->firstName, $customer->metadata['crm'] ?? null]);
 		$this->assertSame($customer->uuid, $this->client->customers->getByReference('sdk-php-' . $s)->uuid);
 		$byEmail = $this->client->customers->list(new Params\CustomerListParams(email: $customer->email));
 		$this->assertSame([$customer->uuid], array_map(static fn ($c): string => $c->uuid, $byEmail->items));
@@ -385,7 +383,7 @@ final class LiveApiTest extends TestCase
 		$this->assertNotSame('', $created->secret);
 
 		$got = $this->client->webhooks->endpoints->get($created->uuid);
-		$this->assertSame([$created->url, WebhookPayloadVersion::V2], [$got->url, $got->payloadVersion]);
+		$this->assertSame($created->url, $got->url);
 		$found = false;
 		foreach ($this->client->webhooks->endpoints->iterate(new Params\EndpointListParams(limit: 1)) as $endpoint) {
 			$found = $found || $endpoint->uuid === $created->uuid;

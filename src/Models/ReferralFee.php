@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace QBitFlow\Models;
 
-use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
  * The referrer's share of QBitFlow's fee on a payment or bill.
+ *
+ * How long the referral lasts is internal to QBitFlow: a `deadline` key, if one is sent, is ignored.
  */
 final readonly class ReferralFee extends Model
 {
@@ -23,17 +24,11 @@ final readonly class ReferralFee extends Model
 	public string $feePercent;
 
 	/**
-	 * Until when the referrer earns its share.
-	 */
-	public DateTimeImmutable $deadline;
-
-	/**
 	 * @param array<string,mixed> $data
 	 */
 	protected function __construct(array $data)
 	{
 		$this->address = Cast::string($data, 'address');
 		$this->feePercent = Cast::string($data, 'feePercent');
-		$this->deadline = Cast::date($data, 'deadline');
 	}
 }

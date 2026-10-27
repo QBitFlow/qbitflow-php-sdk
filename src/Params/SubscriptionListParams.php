@@ -16,6 +16,11 @@ final readonly class SubscriptionListParams
 {
 	use WithCursor;
 
+	/**
+	 * Every filter is optional: pass the ones you need by name; one left null is not sent.
+	 * Nothing is checked here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** The page size (server default 20, max 100). */
 		public ?int $limit = null,

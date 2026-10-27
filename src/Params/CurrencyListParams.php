@@ -11,6 +11,11 @@ use QBitFlow\Support\Query;
  */
 final readonly class CurrencyListParams
 {
+	/**
+	 * Every filter is optional: pass the ones you need by name; one left null is not sent.
+	 * Nothing is checked here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** Lists the test networks' currencies (whatever the key's mode); false: mainnet. */
 		public bool $test = false,

@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static \QBitFlow\Services\WebhooksService         webhooks()
  * @method static \QBitFlow\Services\CurrenciesService       currencies()
  * @method static string                                     getBaseUrl()
+ * @method static string|null                                getOnBehalfOf()
  *
  * @see \QBitFlow\QBitFlow
  */

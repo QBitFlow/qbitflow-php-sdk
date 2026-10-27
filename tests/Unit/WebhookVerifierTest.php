@@ -12,7 +12,6 @@ use QBitFlow\Enums\EventType;
 use QBitFlow\Enums\LedgerEntryType;
 use QBitFlow\Enums\RefundStatus;
 use QBitFlow\Enums\SubscriptionStatus;
-use QBitFlow\Enums\TransferType;
 use QBitFlow\Events;
 use QBitFlow\Events\Event;
 use QBitFlow\Exceptions\ApiException;
@@ -192,7 +191,7 @@ final class WebhookVerifierTest extends TestCase
 		$this->assertInstanceOf(Events\WebhookTestEvent::class, $event);
 		$this->assertSame('evt_3f1c2d4e-5a6b-5c7d-8e9f-0a1b2c3d4e5f', $event->id);
 		$this->assertSame(EventType::WEBHOOK_TEST, $event->type);
-		$this->assertSame('v2', $event->version);
+		$this->assertFalse(property_exists($event, 'version'), 'the payload version is checked, not exposed');
 		$this->assertFalse($event->test);
 		$this->assertSame('2026-10-01T12:00:00+00:00', $event->createdAt->format(DATE_ATOM));
 		$this->assertNull($event->userUuid);
@@ -258,7 +257,7 @@ final class WebhookVerifierTest extends TestCase
 
 		$released = Webhook::parseEvent(self::envelope(EventType::HELD_FUNDS_RELEASED, $cases[EventType::HELD_FUNDS_RELEASED][2], ',"userUuid":"u-1"'));
 		$this->assertSame('u-1', $released->userUuid);
-		$this->assertSame(TransferType::HELD_FUNDS_RELEASE, $released->data->type);
+		$this->assertFalse(property_exists($released->data, 'type'), 'always heldFundsRelease: not modelled');
 		$this->assertSame(LedgerEntryType::PAYMENT, $released->data->ledgers[0]->type);
 		$this->assertNull($released->data->ledgers[1]->settlement);
 		$this->assertNull($released->data->settlement->transaction);
@@ -286,8 +285,9 @@ final class WebhookVerifierTest extends TestCase
 			'{"uuid":"sub@1","txType":"createSubscription","organizationName":"Shop","test":true,"priceUsd":"9.99","amountUsd":"9.99","fees":[],"availableCurrencies":[{"id":8,"code":"BASE:USDC"}],'
 			. '"metadata":{"plan":"pro"},"frequency":{"value":1,"unit":"weeks"},"trialPeriod":{"value":14,"unit":"days"},"minPeriods":3,"upgradingFromTrial":false}'));
 		$this->assertInstanceOf(Models\SubscriptionSessionData::class, $sub->data);
-		$this->assertSame([3, 'weeks', 14, false, 'pro', 'BASE:USDC'], [$sub->data->minPeriods, $sub->data->frequency->unit, $sub->data->trialPeriod?->value,
-			$sub->data->upgradingFromTrial, $sub->data->metadata['plan'], $sub->data->availableCurrencies[0]->code]);
+		$this->assertSame([3, 'weeks', 14, false, 'pro'], [$sub->data->minPeriods, $sub->data->frequency->unit, $sub->data->trialPeriod?->value,
+			$sub->data->upgradingFromTrial, $sub->data->metadata['plan']]);
+		$this->assertFalse(property_exists($sub->data, 'availableCurrencies'), 'the hosted page\'s copy: ignored');
 
 		$fees = Webhook::parseEvent(self::envelope(EventType::CHECKOUT_EXPIRED, '{"uuid":"pay@2","txType":"payment","organizationName":"Shop","priceUsd":"3.99","amountUsd":"4.81",'
 			. '"fees":[{"type":"custom","label":"Shipping","description":"Standard, 3 to 5 days","amountUsd":"0.75"},{"type":"processingFee","label":"Processing fee","amountUsd":"0.07"}],"availableCurrencies":[],"metadata":{}}'))->data;

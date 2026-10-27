@@ -75,22 +75,6 @@ readonly class PaymentSessionData extends Model
 	public ?string $cancelUrl;
 
 	/**
-	 * The merchant's success page on the hosted page's copy only: absent from `checkout.expired`.
-	 */
-	public ?string $redirectUrl;
-
-	/**
-	 * The merchant's organization, as the checkout shows it.
-	 */
-	public string $organizationName;
-
-	/**
-	 * The member the checkout pays (a marketplace's seller), by name; null on the organization's
-	 * own checkouts.
-	 */
-	public ?string $userName;
-
-	/**
 	 * True for a checkout paid on test networks.
 	 */
 	public bool $test;
@@ -99,13 +83,6 @@ readonly class PaymentSessionData extends Model
 	 * The session's kind: `payment` or `createSubscription` ({@see \QBitFlow\Enums\TransactionType}).
 	 */
 	public string $txType;
-
-	/**
-	 * The currencies the customer could pay with.
-	 *
-	 * @var list<Currency>
-	 */
-	public array $availableCurrencies;
 
 	/**
 	 * The merchant's own data on the checkout; `[]` without any.
@@ -140,12 +117,8 @@ readonly class PaymentSessionData extends Model
 		$this->amountUsd = Cast::string($data, 'amountUsd');
 		$this->successUrl = Cast::nullableString($data, 'successUrl');
 		$this->cancelUrl = Cast::nullableString($data, 'cancelUrl');
-		$this->redirectUrl = Cast::nullableString($data, 'redirectUrl');
-		$this->organizationName = Cast::string($data, 'organizationName');
-		$this->userName = Cast::nullableString($data, 'userName');
 		$this->test = Cast::bool($data, 'test');
 		$this->txType = Cast::string($data, 'txType');
-		$this->availableCurrencies = Cast::listOf($data, 'availableCurrencies', Currency::fromArray(...));
 		$this->metadata = Cast::stringMap($data, 'metadata');
 		$this->createdAt = Cast::nullableDate($data, 'createdAt');
 		$this->expiresAt = Cast::nullableDate($data, 'expiresAt');

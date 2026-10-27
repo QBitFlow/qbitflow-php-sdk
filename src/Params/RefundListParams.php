@@ -19,6 +19,10 @@ final readonly class RefundListParams
 	public const MAX_STATUSES = 5;
 
 	/**
+	 * Every filter is optional: pass the ones you need by name; one left null is not sent.
+	 * Nothing is checked here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param list<string> $status
 	 */
 	public function __construct(
@@ -27,8 +31,8 @@ final readonly class RefundListParams
 		/** The previous page's `nextCursor`, verbatim; null for the first page. */
 		public ?string $cursor = null,
 		/**
-		 * Keeps only the refunds in one of these statuses (at most 5 of `pending`, `approved`,
-		 * `rejected`, `failed`; {@see RefundStatus}), sent as a repeated `?status=`;
+		 * Keeps only the refunds in one of these statuses (at most 5 entries among `pending`,
+		 * `approved` and `rejected`; {@see RefundStatus}), sent as a repeated `?status=`;
 		 * `[]`: every status. `[RefundStatus::PENDING]` lists the ones awaiting an answer.
 		 */
 		public array $status = [],

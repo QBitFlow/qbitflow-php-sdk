@@ -19,6 +19,10 @@ final class InstallCommand extends Command
 
 	protected $description = 'Publish the QBitFlow config and prepare your environment';
 
+	/**
+	 * Publishes the config, adds `QBITFLOW_API_KEY` and `QBITFLOW_WEBHOOK_SECRET` to `.env` and
+	 * `.env.example` when missing, and prints the next steps.
+	 */
 	public function handle(): int
 	{
 		$this->publishConfig();

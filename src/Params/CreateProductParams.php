@@ -12,6 +12,10 @@ use QBitFlow\Support\Validator;
 final readonly class CreateProductParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param array<string,string>|null $metadata
 	 */
 	public function __construct(
@@ -26,7 +30,7 @@ final readonly class CreateProductParams
 		/** Optional: 2 to 500 characters. */
 		public ?string $description = null,
 		/**
-		 * Your reference, unique per space and mode (1 to 100 of `A-Z a-z 0-9 . _ : @ -`); the
+		 * Your reference, unique per space and mode (1 to 100 of `A-Z a-z 0-9 . _ : @ -`, never `.` or `..` alone); the
 		 * product's uuid when not set.
 		 */
 		public ?string $reference = null,

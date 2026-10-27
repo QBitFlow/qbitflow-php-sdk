@@ -33,6 +33,7 @@ final class FailureCategory
 	/** The customer's signature was refused. */
 	public const SIGNATURE_REJECTED = 'signatureRejected';
 
+	/** Any other failure. */
 	public const OTHER = 'other';
 
 	/**

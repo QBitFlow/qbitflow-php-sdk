@@ -9,6 +9,7 @@ namespace QBitFlow\Models;
  */
 final readonly class SubscriptionCancellation
 {
+	/** Built by `subscriptions->cancel()` from the API's answer. */
 	public function __construct(
 		/** The subscription as the API answered it. */
 		public Subscription $subscription,

@@ -13,6 +13,7 @@ namespace QBitFlow\Exceptions;
  */
 final readonly class FieldError
 {
+	/** A failing input: its wire name and what is wrong with it. */
 	public function __construct(
 		/** The input's wire name, dotted when nested (e.g. `frequency.unit`). */
 		public string $field,

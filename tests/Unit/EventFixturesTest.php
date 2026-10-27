@@ -17,7 +17,6 @@ use QBitFlow\Enums\RefundInitiator;
 use QBitFlow\Enums\RefundStatus;
 use QBitFlow\Enums\SubscriptionStatus;
 use QBitFlow\Enums\TransactionType;
-use QBitFlow\Enums\TransferType;
 use QBitFlow\Events;
 use QBitFlow\Events\Event;
 use QBitFlow\Models;
@@ -26,9 +25,9 @@ use QBitFlow\Webhooks\Webhook;
 use stdClass;
 
 /**
- * The docs' example body of each event type (`docs/api` webhooks.md § Examples, generated from the
- * API's code; the Go reference's `testdata/events`, copied verbatim in `tests/Fixtures/events`):
- * every one parses, every key of its data is modelled, and the values come through typed.
+ * The API documentation's example body of each event type (copied verbatim in
+ * `tests/Fixtures/events`): every one parses, every key of its data is modelled (except the keys
+ * the SDK deliberately leaves out, which must be ignored), and the values come through typed.
  */
 final class EventFixturesTest extends TestCase
 {
@@ -51,6 +50,17 @@ final class EventFixturesTest extends TestCase
 		EventType::WEBHOOK_TEST => [Events\WebhookTestEvent::class, Models\WebhookTest::class],
 	];
 
+	/**
+	 * Wire keys the API sends but the SDK deliberately doesn't model (constant for an API key, or
+	 * the hosted checkout page's): they must be ignored, never become properties.
+	 */
+	private const IGNORED = [
+		Models\HeldFundsReleased::class => ['type'],
+		Models\PaymentSessionData::class => ['availableCurrencies', 'userName', 'organizationName'],
+		Models\Customer::class => ['verified'],
+		Models\Attempt::class => ['status'],
+	];
+
 	private static function raw(string $type): string
 	{
 		return (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/' . $type . '.json');
@@ -60,7 +70,7 @@ final class EventFixturesTest extends TestCase
 	{
 		$event = Webhook::parseEvent(self::raw($type));
 		$this->assertSame($type, $event->type);
-		$this->assertSame('v2', $event->version);
+		$this->assertFalse(property_exists($event, 'version'), 'the envelope version is not modelled');
 		$this->assertStringStartsWith('evt_', $event->id);
 		$this->assertGreaterThan(new DateTimeImmutable('2000-01-01'), $event->createdAt);
 
@@ -104,7 +114,18 @@ final class EventFixturesTest extends TestCase
 			$this->assertSame(array_keys(get_object_vars($wire)), array_keys($model), $path);
 		} elseif ($wire instanceof stdClass) {
 			$this->assertIsObject($model, $path);
+			$ignored = [];
+			foreach (self::IGNORED as $class => $keys) {
+				if ($model instanceof $class) {
+					$ignored = [...$ignored, ...$keys];
+				}
+			}
 			foreach (get_object_vars($wire) as $key => $value) {
+				if (in_array($key, $ignored, true)) {
+					$this->assertFalse(property_exists($model, $key), $path . '.' . $key . ' is deliberately not modelled');
+
+					continue;
+				}
 				$this->assertTrue(property_exists($model, $key), $path . '.' . $key . ' is modelled');
 				$this->assertModelled($value, $model->{$key}, $path . '.' . $key);
 			}
@@ -233,8 +254,8 @@ final class EventFixturesTest extends TestCase
 		$this->assertSame('019eca82-5680-7b00-8000-0000000000b1', $event->userUuid);
 		$released = $event->data;
 		$this->assertInstanceOf(Models\HeldFundsReleased::class, $released);
-		$this->assertSame([true, TransferType::HELD_FUNDS_RELEASE, 3, '98.9068', '98.9068', 'BASE:USDC'],
-			[$released->received, $released->type, count($released->ledgers), $released->amount, $released->amountUsd, $released->currency->code]);
+		$this->assertSame([true, 3, '98.9068', '98.9068', 'BASE:USDC'],
+			[$released->received, count($released->ledgers), $released->amount, $released->amountUsd, $released->currency->code]);
 		$this->assertStringStartsWith('transfer@', $released->uuid);
 		$this->assertNotNull($released->settlement->transaction);
 		$first = $released->ledgers[0];
@@ -254,9 +275,8 @@ final class EventFixturesTest extends TestCase
 		$p = $this->load(EventType::CHECKOUT_EXPIRED)->data;
 		$this->assertInstanceOf(Models\PaymentSessionData::class, $p);
 		$this->assertNotInstanceOf(Models\SubscriptionSessionData::class, $p);
-		$this->assertSame([TransactionType::PAYMENT, '10', '10', 2, null, 'BASE:USDC', 'order-1043', 'Example Shop', 'order-1043', null, []],
-			[$p->txType, $p->priceUsd, $p->amountUsd, count($p->availableCurrencies), $p->availableCurrencies[0]->address, $p->availableCurrencies[1]->code,
-				$p->metadata['orderId'], $p->organizationName, $p->reference, $p->redirectUrl, $p->fees]);
+		$this->assertSame([TransactionType::PAYMENT, '10', '10', 'order-1043', 'order-1043', []],
+			[$p->txType, $p->priceUsd, $p->amountUsd, $p->metadata['orderId'], $p->reference, $p->fees]);
 		$this->assertNotNull($p->expiresAt);
 		$this->assertNotNull($p->createdAt);
 	}

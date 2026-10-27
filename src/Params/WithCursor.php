@@ -14,6 +14,6 @@ trait WithCursor
 	/** A copy of these params with another cursor (null: the first page). */
 	public function withCursor(?string $cursor): static
 	{
-		return new static(...[...get_object_vars($this), 'cursor' => $cursor]);
+		return (new \ReflectionClass(static::class))->newInstanceArgs([...get_object_vars($this), 'cursor' => $cursor]);
 	}
 }

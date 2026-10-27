@@ -21,6 +21,7 @@ use stdClass;
  */
 final class Requester
 {
+	/** The transport to call, and the client's default `On-Behalf-Of` (null: none). */
 	public function __construct(
 		public readonly Transport $transport,
 		public readonly ?string $onBehalfOf = null,
@@ -159,7 +160,7 @@ final class Requester
 			if (! self::hasNext($page, $cursor)) {
 				return $items;
 			}
-			$cursor = $page->nextCursor;
+			$cursor = (string) $page->nextCursor; // hasNext(): set and moved
 			$query['cursor'] = $cursor;
 		}
 	}
@@ -169,7 +170,7 @@ final class Requester
 	 * reference is exactly the one asked for: checking it means a server that ignored the filter
 	 * can never hand back another resource. None is a {@see NotFoundException}, like a 404
 	 * (status 404, code `not_found`), carrying the list answer's request id. The reference is
-	 * checked like a created one's (1 to 100 of `A-Z a-z 0-9 . _ : @ -`).
+	 * checked like a created one's (1 to 100 of `A-Z a-z 0-9 . _ : @ -`, never `.` or `..` alone).
 	 *
 	 * @template T of object
 	 *

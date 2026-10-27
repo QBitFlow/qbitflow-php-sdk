@@ -12,6 +12,9 @@ use QBitFlow\Support\Query;
  */
 final readonly class ReadParams
 {
+	/**
+	 * Pass the option by name (false: the flag is not sent).
+	 */
 	public function __construct(
 		/** Reads a member's row from the organization's space (organization key without On-Behalf-Of). */
 		public bool $includeMembers = false,

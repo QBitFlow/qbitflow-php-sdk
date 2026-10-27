@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace QBitFlow\Params;
 
 use QBitFlow\Enums\EventType;
-use QBitFlow\Enums\WebhookPayloadVersion;
 use QBitFlow\Support\Validator;
 
 /**
@@ -14,6 +13,10 @@ use QBitFlow\Support\Validator;
 final readonly class UpdateWebhookEndpointParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param list<string>|null $events Replaces the event types ({@see EventType}; at most 20, not
 	 *                                  `webhook.test`): null leaves them unchanged, `[]` means
 	 *                                  every type.
@@ -26,11 +29,6 @@ final readonly class UpdateWebhookEndpointParams
 		public ?bool $includeMembers = null,
 		/** The new note; `''` clears it, null leaves it unchanged. */
 		public ?string $description = null,
-		/**
-		 * The payload it receives: `v2`, the only version today (anything else is refused); null
-		 * leaves it unchanged ({@see WebhookPayloadVersion}).
-		 */
-		public ?string $payloadVersion = null,
 		/**
 		 * False pauses the endpoint (it receives nothing, deliveries in progress stop); true
 		 * enables it again, also after it was disabled for failing.
@@ -46,7 +44,6 @@ final readonly class UpdateWebhookEndpointParams
 		$v->url('url', $this->url);
 		$v->endpointEvents('events', array_values($this->events ?? []));
 		$v->text('description', $this->description, 0, 200);
-		$v->oneOf('payloadVersion', $this->payloadVersion, [WebhookPayloadVersion::V2]);
 		$v->throwIfAny();
 	}
 
@@ -65,9 +62,6 @@ final readonly class UpdateWebhookEndpointParams
 		}
 		if ($this->description !== null) {
 			$out['description'] = $this->description;
-		}
-		if ($this->payloadVersion !== null && $this->payloadVersion !== '') {
-			$out['payloadVersion'] = $this->payloadVersion;
 		}
 		if ($this->enabled !== null) {
 			$out['enabled'] = $this->enabled;

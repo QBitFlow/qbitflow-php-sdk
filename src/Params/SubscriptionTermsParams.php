@@ -13,6 +13,11 @@ use stdClass;
  */
 final readonly class SubscriptionTermsParams
 {
+	/**
+	 * Pass the arguments by name. Nothing is checked here: the values are checked with the
+	 * params that hold them, by the service method, before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** How often it bills: at least 1 unit, at most 1 year (the API also requires at least 1 hour in live mode, 5 minutes in test mode). */
 		public ?Duration $frequency = null,

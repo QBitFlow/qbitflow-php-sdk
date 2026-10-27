@@ -39,8 +39,9 @@ final readonly class MeSpace extends Model
 	public bool $test;
 
 	/**
-	 * The caller's own role in the organization: `owner`, `admin`, `user` or `handle`
-	 * ({@see \QBitFlow\Enums\Role}).
+	 * The key's own role in the organization: `admin` for an organization key (also while it acts
+	 * On-Behalf-Of a member, where the top-level `Me::$role` is `user`), `user` for a member's
+	 * key ({@see \QBitFlow\Enums\Role}).
 	 */
 	public string $role;
 

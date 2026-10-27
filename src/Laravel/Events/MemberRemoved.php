@@ -18,6 +18,7 @@ final class MemberRemoved
 	/** The event's data. */
 	public readonly Models\Member $data;
 
+	/** Wraps the verified event; its typed data is also on `$data`. */
 	public function __construct(
 		/** The verified webhook event. */
 		public readonly MemberRemovedEvent $event,

@@ -109,6 +109,7 @@ class QBitFlowException extends RuntimeException implements ExceptionInterface
 		return $this->details;
 	}
 
+	/** The request's id (the body's `requestId`, else the `X-Request-Id` header): quote it to support. */
 	public function getRequestId(): string
 	{
 		return $this->requestId;
@@ -120,6 +121,7 @@ class QBitFlowException extends RuntimeException implements ExceptionInterface
 		return $this->fieldErrors;
 	}
 
+	/** The response body as received, for debugging; `''` without a response. */
 	public function getRawBody(): string
 	{
 		return $this->rawBody;

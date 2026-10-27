@@ -29,17 +29,9 @@ final readonly class Customer extends Model
 
 	/**
 	 * The email address, lowercase (matched case-insensitively). Several customers of a space may
-	 * share one (see `verified`).
+	 * share one: a checkout that named no customer creates one from the email its payer typed.
 	 */
 	public string $email;
-
-	/**
-	 * True for a customer the merchant created (the API, the dashboard), who vouches for its
-	 * details; false for one QBitFlow created from the email a payer typed at a checkout that
-	 * named no customer (nobody proved the payer owns that address). A checkout never links a
-	 * typed email to a verified customer.
-	 */
-	public bool $verified;
 
 	/**
 	 * The phone number; null (absent) when not given.
@@ -88,7 +80,6 @@ final readonly class Customer extends Model
 		$this->firstName = Cast::string($data, 'firstName');
 		$this->lastName = Cast::nullableString($data, 'lastName');
 		$this->email = Cast::string($data, 'email');
-		$this->verified = Cast::bool($data, 'verified');
 		$this->phoneNumber = Cast::nullableString($data, 'phoneNumber');
 		$this->address = Cast::nullableString($data, 'address');
 		$this->reference = Cast::nullableString($data, 'reference');

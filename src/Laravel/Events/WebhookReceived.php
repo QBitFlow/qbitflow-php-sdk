@@ -13,6 +13,7 @@ use QBitFlow\Events\Event;
  */
 final class WebhookReceived
 {
+	/** Wraps the verified event. */
 	public function __construct(
 		/** The verified webhook event. */
 		public readonly Event $event,

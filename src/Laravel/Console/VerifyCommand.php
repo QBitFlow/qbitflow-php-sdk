@@ -22,6 +22,11 @@ final class VerifyCommand extends Command
 
 	protected $description = 'Check that the configured QBitFlow API key works, and show what it is';
 
+	/**
+	 * Calls `GET /me` with the configured key and prints what it is.
+	 *
+	 * @return int 0 when the key works; 1 when it is missing or rejected, or the API can't be reached.
+	 */
 	public function handle(): int
 	{
 		try {
@@ -56,10 +61,9 @@ final class VerifyCommand extends Command
 
 		$space = $me->space;
 		$this->table(['Field', 'Value'], [
-			['Credential', $me->credential],
 			['Role', $me->role ?? ''],
-			['Organization', $space?->organizationName ?? ''],
-			['Space', $space?->uuid ?? ''],
+			['Organization', $space->organizationName ?? ''],
+			['Space', $space->uuid ?? ''],
 			['Mode', $space === null ? '' : ($space->test ? 'test' : 'live')],
 			['Member', $space?->member !== null ? trim($space->member->firstName . ' ' . ($space->member->lastName ?? '')) . ' (' . $space->member->userUuid . ')' : '—'],
 		]);

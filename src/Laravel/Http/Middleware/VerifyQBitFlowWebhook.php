@@ -38,15 +38,32 @@ final class VerifyQBitFlowWebhook
 	/** The request attribute the verified event is stored under. */
 	public const EVENT_ATTRIBUTE = 'qbitflow.event';
 
+	/** The endpoint's secret, wrapped so that no dump or `serialize()` of the middleware shows it. */
+	private readonly ?\SensitiveParameterValue $secret;
+
+	/**
+	 * @param string|null $secret    The endpoint's `whsec_…` secret (null or `''`: not configured, every request then fails with a configuration error).
+	 * @param int         $tolerance How far, in seconds, a signature's timestamp may be from now (default 300; 0 or less means 300).
+	 */
 	public function __construct(
-		private readonly ?string $secret = null,
+		#[\SensitiveParameter]
+		?string $secret = null,
 		private readonly int $tolerance = Webhook::DEFAULT_TOLERANCE,
 	) {
+		$this->secret = $secret === null || $secret === '' ? null : new \SensitiveParameterValue($secret);
 	}
 
+	/**
+	 * Verifies and parses the delivery, then passes the request on with the event in the
+	 * `qbitflow.event` attribute; answers 400 or 413 itself otherwise.
+	 *
+	 * @param Closure(Request): Response $next The next middleware.
+	 *
+	 * @throws QBitFlowException When the webhook secret is not configured.
+	 */
 	public function handle(Request $request, Closure $next): Response
 	{
-		if ($this->secret === null || $this->secret === '') {
+		if ($this->secret === null) {
 			throw new QBitFlowException('QBitFlow webhook secret is not configured: set QBITFLOW_WEBHOOK_SECRET (the endpoint\'s whsec_… secret).');
 		}
 
@@ -54,7 +71,7 @@ final class VerifyQBitFlowWebhook
 		// A router with no handler only verifies and parses: 200 with the event, or the 400.
 		$result = (int) $request->headers->get('Content-Length', '0') > Webhook::MAX_BODY_BYTES || strlen($body) > Webhook::MAX_BODY_BYTES
 			? new WebhookResult(413)
-			: (new WebhookRouter($this->secret, $this->tolerance))->handle($body, (string) $request->headers->get(Webhook::SIGNATURE_HEADER, ''));
+			: (new WebhookRouter($this->secret->getValue(), $this->tolerance))->handle($body, (string) $request->headers->get(Webhook::SIGNATURE_HEADER, ''));
 		if (! $result->ok() || $result->event === null) {
 			return new JsonResponse(['error' => $result->reason()], $result->status);
 		}

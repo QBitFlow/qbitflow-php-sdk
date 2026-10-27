@@ -79,7 +79,8 @@ final class ProductsService extends Service
 	 * The space's product with your reference, hidden or not: runs `list()`'s reference filter
 	 * (`GET /products?reference=`) and returns its one product. No product with that reference is
 	 * a {@see \QBitFlow\Exceptions\NotFoundException} (status 404, code `not_found`), as an unknown
-	 * uuid is. The reference is checked like a created one's (1 to 100 of `A-Z a-z 0-9 . _ : @ -`).
+	 * uuid is. The reference is checked like a created one's (1 to 100 of `A-Z a-z 0-9 . _ : @ -`,
+	 * never `.` or `..` alone).
 	 */
 	public function getByReference(string $reference, ?RequestOptions $options = null): Product
 	{

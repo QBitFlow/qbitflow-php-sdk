@@ -25,9 +25,6 @@ final class RefundStatus
 	/** Rejected by whoever decides it (`refund.rejected`). */
 	public const REJECTED = 'rejected';
 
-	/** Declared, never set: a failed approval leaves the request pending. */
-	public const FAILED = 'failed';
-
 	/**
 	 * Every value this SDK knows.
 	 *
@@ -39,7 +36,6 @@ final class RefundStatus
 			self::PENDING,
 			self::APPROVED,
 			self::REJECTED,
-			self::FAILED,
 		];
 	}
 

@@ -11,6 +11,11 @@ use QBitFlow\Support\Query;
  */
 final readonly class WalletListParams
 {
+	/**
+	 * Every filter is optional: pass the ones you need by name; one left null is not sent.
+	 * Nothing is checked here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** Adds each token wallet's balance. */
 		public bool $withBalances = false,

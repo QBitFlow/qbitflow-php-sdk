@@ -140,11 +140,6 @@ readonly class Payment extends Model
 	public ?string $customerReference;
 
 	/**
-	 * A qbf.cash tipper's message to the handle's owner.
-	 */
-	public ?string $note;
-
-	/**
 	 * Names the customer, even once deleted (API reads only, never in webhooks).
 	 */
 	public ?CustomerSummary $customer;
@@ -225,7 +220,6 @@ readonly class Payment extends Model
 		$this->productUuid = Cast::nullableString($data, 'productUuid');
 		$this->customerUuid = Cast::nullableString($data, 'customerUuid');
 		$this->customerReference = Cast::nullableString($data, 'customerReference');
-		$this->note = Cast::nullableString($data, 'note');
 		$this->customer = Cast::nullableObject($data, 'customer', CustomerSummary::fromArray(...));
 		$this->settlement = Cast::object($data, 'settlement', Settlement::fromArray(...));
 		$this->confirmedAt = Cast::nullableDate($data, 'confirmedAt');

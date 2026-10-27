@@ -10,6 +10,11 @@ namespace QBitFlow\Params;
  */
 final readonly class FeeItem
 {
+	/**
+	 * Pass the arguments by name. Nothing is checked here: the values are checked with the
+	 * params that hold them, by the service method, before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** The line's name, as the checkout shows it: one line, 1 to 40 characters ("VAT (20%)", "Shipping"). */
 		public string $label,

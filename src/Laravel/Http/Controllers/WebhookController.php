@@ -71,16 +71,24 @@ final class WebhookController
 	];
 
 	/**
-	 * @param WebhookRouter $router The container's (bound by the service provider with `QBITFLOW_WEBHOOK_SECRET`).
+	 * Registers, on the router, a handler per known event type (dispatching its Laravel event)
+	 * and an any-type handler (dispatching {@see LaravelEvents\WebhookReceived}).
+	 *
+	 * @param Dispatcher            $events     Laravel's event dispatcher.
+	 * @param WebhookRouter         $router     The container's (bound by the service provider with `QBITFLOW_WEBHOOK_SECRET`).
+	 * @param ExceptionHandler|null $exceptions Receives the exceptions listeners throw (the delivery is then answered 500).
 	 */
 	public function __construct(
 		private readonly Dispatcher $events,
 		private readonly WebhookRouter $router,
 		private readonly ?ExceptionHandler $exceptions = null,
 	) {
-		foreach (self::TYPES as $type => $laravelEvent) {
-			$router->on($type, function (mixed $data, Event $event) use ($laravelEvent): void {
-				$this->events->dispatch(new $laravelEvent($event));
+		foreach (array_keys(self::TYPES) as $type) {
+			$router->on($type, function (mixed $data, Event $event): void {
+				$laravelEvent = self::laravelEvent($event);
+				if ($laravelEvent !== null) {
+					$this->events->dispatch($laravelEvent);
+				}
 			});
 		}
 		$router->onAny(function (Event $event): void {
@@ -88,6 +96,14 @@ final class WebhookController
 		});
 	}
 
+	/**
+	 * Answers a webhook delivery: dispatches the Laravel events of the event the middleware
+	 * verified (or verifies the raw request itself when mounted without the middleware).
+	 *
+	 * @return JsonResponse 200 once every listener ran (unknown types included); 400 for a bad
+	 *                      signature or body; 413 for a body over 1 MiB; 500 when a listener
+	 *                      threw (reported, and QBitFlow retries).
+	 */
 	public function __invoke(Request $request): JsonResponse
 	{
 		$event = $request->attributes->get(VerifyQBitFlowWebhook::EVENT_ATTRIBUTE);
@@ -105,6 +121,29 @@ final class WebhookController
 		}
 
 		return new JsonResponse(json_decode($result->responseBody(), true), $result->status);
+	}
+
+	/** The Laravel event of an SDK event ({@see self::EVENTS}); null for a type without one. */
+	private static function laravelEvent(Event $event): ?object
+	{
+		return match (true) {
+			$event instanceof Events\PaymentCompletedEvent => new LaravelEvents\PaymentCompleted($event),
+			$event instanceof Events\SubscriptionCreatedEvent => new LaravelEvents\SubscriptionCreated($event),
+			$event instanceof Events\SubscriptionBilledEvent => new LaravelEvents\SubscriptionBilled($event),
+			$event instanceof Events\SubscriptionStatusChangedEvent => new LaravelEvents\SubscriptionStatusChanged($event),
+			$event instanceof Events\SubscriptionActionRequiredChangedEvent => new LaravelEvents\SubscriptionActionRequiredChanged($event),
+			$event instanceof Events\SubscriptionBillingFailedEvent => new LaravelEvents\SubscriptionBillingFailed($event),
+			$event instanceof Events\SubscriptionUpcomingBillEvent => new LaravelEvents\SubscriptionUpcomingBill($event),
+			$event instanceof Events\RefundRequestedEvent => new LaravelEvents\RefundRequested($event),
+			$event instanceof Events\RefundApprovedEvent => new LaravelEvents\RefundApproved($event),
+			$event instanceof Events\RefundRejectedEvent => new LaravelEvents\RefundRejected($event),
+			$event instanceof Events\MemberJoinedEvent => new LaravelEvents\MemberJoined($event),
+			$event instanceof Events\MemberRemovedEvent => new LaravelEvents\MemberRemoved($event),
+			$event instanceof Events\HeldFundsReleasedEvent => new LaravelEvents\HeldFundsReleased($event),
+			$event instanceof Events\CheckoutExpiredEvent => new LaravelEvents\CheckoutExpired($event),
+			$event instanceof Events\WebhookTestEvent => new LaravelEvents\WebhookTestReceived($event),
+			default => null,
+		};
 	}
 
 	private function report(Throwable $error): void

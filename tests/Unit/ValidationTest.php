@@ -9,7 +9,6 @@ use QBitFlow\Enums\EventType;
 use QBitFlow\Enums\RefundStatus;
 use QBitFlow\Enums\SubscriptionStatus;
 use QBitFlow\Enums\TransactionKind;
-use QBitFlow\Enums\WebhookPayloadVersion;
 use QBitFlow\Http\Transport;
 use QBitFlow\Models\Duration;
 use QBitFlow\Params\AcceptedCurrenciesParams;
@@ -406,10 +405,11 @@ final class ValidationTest extends TestCase
 		$this->check('refund exclusive', new RefundListParams(includeMembers: true, userUuid: self::UUID), ['userUuid']);
 		$this->check('refund includeMembers false + user', new RefundListParams(includeMembers: false, userUuid: self::UUID));
 		$this->check('accepted currencies', new AcceptedCurrenciesParams(userUuid: 'x'), ['userUuid']);
-		$all = [RefundStatus::PENDING, RefundStatus::APPROVED, RefundStatus::REJECTED, RefundStatus::FAILED, RefundStatus::PENDING]; // duplicates allowed
+		$all = [RefundStatus::PENDING, RefundStatus::APPROVED, RefundStatus::REJECTED, RefundStatus::PENDING, RefundStatus::APPROVED]; // duplicates allowed
 		$this->check('refund statuses', new RefundListParams(status: $all));
 		$this->check('refund status unknown', new RefundListParams(status: ['approved', 'denied', '']), ['status[1]', 'status[2]']);
 		$this->check('refund status cancelled (retired)', new RefundListParams(status: ['cancelled']), ['status[0]']);
+		$this->check('refund status failed (never sent: not a filter value)', new RefundListParams(status: ['pending', 'failed']), ['status[1]']);
 		$this->check('refund 6 statuses', new RefundListParams(status: [...$all, RefundStatus::PENDING]), ['status']);
 		$this->check('refund txUuid', new RefundListParams(txUuid: 'order-1'), ['txUuid']);
 		$this->check('product reference filter', new ProductListParams(reference: 'a b'), ['reference']);
@@ -442,8 +442,6 @@ final class ValidationTest extends TestCase
 		$this->check('empty entry', new CreateWebhookEndpointParams(url: 'https://x.io', events: ['']), ['events[0]']);
 		$this->check('update webhook.test', new UpdateWebhookEndpointParams(events: [EventType::WEBHOOK_TEST]), ['events[0]']);
 		$this->check('unknown type passes (the API judges)', new CreateWebhookEndpointParams(url: 'https://x.io', events: ['future.event']));
-		$this->check('payloadVersion v1', new UpdateWebhookEndpointParams(payloadVersion: 'v1'), ['payloadVersion']);
-		$this->check('payloadVersion v2', new UpdateWebhookEndpointParams(payloadVersion: WebhookPayloadVersion::V2));
 	}
 
 	#[Test]
@@ -479,7 +477,7 @@ final class ValidationTest extends TestCase
 			[new UpdateProductParams(subscription: new SubscriptionTermsParams()), '{"subscription":{}}'],
 			[new UpdateWebhookEndpointParams(), '{}'],
 			[new UpdateWebhookEndpointParams(events: [], description: ''), '{"events":[],"description":""}'],
-			[new UpdateWebhookEndpointParams(payloadVersion: WebhookPayloadVersion::V2, enabled: false), '{"payloadVersion":"v2","enabled":false}'],
+			[new UpdateWebhookEndpointParams(enabled: false), '{"enabled":false}'],
 			[new UpdateSubscriptionParams(), '{}'],
 			[new UpdateSubscriptionParams(['coupon' => '', 'plan' => 'pro-annual']), '{"metadata":{"coupon":"","plan":"pro-annual"}}'],
 			[new UpdateMemberParams('0'), '{"organizationFeePercent":"0"}'],

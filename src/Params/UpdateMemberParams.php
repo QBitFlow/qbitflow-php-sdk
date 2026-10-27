@@ -11,6 +11,11 @@ use QBitFlow\Support\Validator;
  */
 final readonly class UpdateMemberParams
 {
+	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/**
 		 * Required: the organization's fee on the member's payments from now on, a percent string

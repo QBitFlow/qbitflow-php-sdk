@@ -12,13 +12,14 @@ namespace QBitFlow\Enums;
  */
 final class Role
 {
-	public const OWNER = 'owner';
-
+	/** An organization key: every method, the organization's members and invitations included. */
 	public const ADMIN = 'admin';
 
+	/**
+	 * A member's key, or an organization key acting On-Behalf-Of a member: the member's own space
+	 * only.
+	 */
 	public const USER = 'user';
-
-	public const HANDLE = 'handle';
 
 	/**
 	 * Every value this SDK knows.
@@ -28,10 +29,8 @@ final class Role
 	public static function values(): array
 	{
 		return [
-			self::OWNER,
 			self::ADMIN,
 			self::USER,
-			self::HANDLE,
 		];
 	}
 

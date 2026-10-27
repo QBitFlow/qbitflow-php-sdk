@@ -33,7 +33,7 @@ final readonly class Refund extends Model
 
 	/**
 	 * `pending` (a customer's request not answered yet), `approved` (its transfer confirmed) or
-	 * `rejected`; `failed` is declared but never set ({@see \QBitFlow\Enums\RefundStatus}).
+	 * `rejected` ({@see \QBitFlow\Enums\RefundStatus}).
 	 */
 	public string $status;
 

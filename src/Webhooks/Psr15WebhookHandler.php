@@ -21,10 +21,15 @@ use Psr\Http\Server\RequestHandlerInterface;
  */
 final class Psr15WebhookHandler implements RequestHandlerInterface
 {
+	/** Wraps `$router`; prefer `$router->psr15()`. */
 	public function __construct(private readonly WebhookRouter $router)
 	{
 	}
 
+	/**
+	 * Answers a webhook delivery with the router: 405 to anything but a POST, 413 to a body over
+	 * 1 MiB, else the router's status (200, 400 or 500) with a JSON body.
+	 */
 	public function handle(ServerRequestInterface $request): ResponseInterface
 	{
 		return $this->router->handleRequest($request);

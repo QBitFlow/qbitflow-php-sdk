@@ -58,7 +58,7 @@ final class WebhookRouter
 	/** @var list<callable(Event): mixed> */
 	private array $anyHandlers = [];
 
-	/** @var list<callable(Throwable, ?Event): mixed> */
+	/** @var list<callable(?Event, Throwable): mixed> */
 	private array $errorHandlers = [];
 
 	private ?ResponseFactoryInterface $responseFactory = null;
@@ -66,6 +66,9 @@ final class WebhookRouter
 	private ?StreamFactoryInterface $streamFactory = null;
 
 	private readonly int $tolerance;
+
+	/** The endpoint's secret, wrapped so that no dump or `serialize()` of the router shows it. */
+	private readonly \SensitiveParameterValue $secret;
 
 	/**
 	 * @param string $secret    The endpoint's `whsec_…` secret.
@@ -75,12 +78,13 @@ final class WebhookRouter
 	 */
 	public function __construct(
 		#[\SensitiveParameter]
-		private readonly string $secret,
+		string $secret,
 		int $tolerance = Webhook::DEFAULT_TOLERANCE,
 	) {
 		if ($secret === '') {
 			throw Validator::fieldError('secret', "is required (the endpoint's whsec_… secret)");
 		}
+		$this->secret = new \SensitiveParameterValue($secret);
 		$this->tolerance = $tolerance > 0 ? $tolerance : Webhook::DEFAULT_TOLERANCE;
 	}
 
@@ -131,7 +135,7 @@ final class WebhookRouter
 	}
 
 	/**
-	 * Runs `$listener($event, $error)` (the same order in every QBitFlow SDK) for every result carrying an error: a 400 (bad signature,
+	 * Runs `$listener($event, $error)` for every result carrying an error: a 400 (bad signature,
 	 * not a v2 event, unreadable body; `$event` is null then) or a 500 (a handler threw). Not for
 	 * 405 and 413. Log there. An exception thrown by the listener is ignored.
 	 *
@@ -167,7 +171,7 @@ final class WebhookRouter
 			return new WebhookResult(413); // before the signature: nothing reads an oversized body
 		}
 		try {
-			Webhook::verify($rawBody, $signatureHeader, $this->secret, $this->tolerance);
+			Webhook::verify($rawBody, $signatureHeader, $this->secret->getValue(), $this->tolerance);
 			$event = Webhook::parseEvent($rawBody);
 		} catch (WebhookSignatureException|ValidationException $e) {
 			return $this->failed(new WebhookResult(400, null, $e));
@@ -288,7 +292,7 @@ final class WebhookRouter
 			return new WebhookResult(405);
 		}
 		$length = trim($contentLength);
-		if ($length !== '' && ctype_digit($length) && (strlen(ltrim($length, '0')) > 8 || (int) $length > Webhook::MAX_BODY_BYTES)) {
+		if (preg_match('/^[0-9]+$/D', $length) === 1 && (strlen(ltrim($length, '0')) > 8 || (int) $length > Webhook::MAX_BODY_BYTES)) {
 			return new WebhookResult(413); // early, from Content-Length
 		}
 		try {

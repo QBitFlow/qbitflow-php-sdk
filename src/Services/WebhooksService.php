@@ -58,7 +58,7 @@ final class WebhooksService extends Service
 	 *
 	 * @param (Closure(): (int|DateTimeInterface))|null $now
 	 */
-	public function verify(string $rawBody, string $signatureHeader, string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE, ?Closure $now = null): void
+	public function verify(string $rawBody, string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE, ?Closure $now = null): void
 	{
 		Webhook::verify($rawBody, $signatureHeader, $secret, $tolerance, $now);
 	}
@@ -68,7 +68,7 @@ final class WebhooksService extends Service
 	 *
 	 * @param (Closure(): (int|DateTimeInterface))|null $now
 	 */
-	public function constructEvent(string $rawBody, string $signatureHeader, string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE, ?Closure $now = null): Event
+	public function constructEvent(string $rawBody, string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE, ?Closure $now = null): Event
 	{
 		return Webhook::constructEvent($rawBody, $signatureHeader, $secret, $tolerance, $now);
 	}

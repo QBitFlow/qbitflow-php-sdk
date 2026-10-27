@@ -13,6 +13,11 @@ use QBitFlow\Support\Validator;
  */
 final readonly class CreateInvitationParams
 {
+	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 */
 	public function __construct(
 		/** Required: the person to invite, at most 254 characters. */
 		public string $email,

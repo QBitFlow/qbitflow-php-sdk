@@ -38,9 +38,6 @@ abstract readonly class Event
 	/** The event's type ({@see EventType}). */
 	public string $type;
 
-	/** The payload version (`v2`). */
-	public string $version;
-
 	/** When it happened. */
 	public DateTimeImmutable $createdAt;
 
@@ -64,7 +61,6 @@ abstract readonly class Event
 	{
 		$this->id = Cast::string($data, 'id');
 		$this->type = Cast::string($data, 'type');
-		$this->version = Cast::string($data, 'version');
 		$this->createdAt = Cast::date($data, 'createdAt');
 		$this->test = Cast::bool($data, 'test');
 		$this->userUuid = Cast::nullableString($data, 'userUuid');
@@ -80,7 +76,8 @@ abstract readonly class Event
 	/**
 	 * Builds the event of the envelope's `type` (an {@see UnknownEvent} for a type this SDK
 	 * does not know). Used for API responses (the event log); webhook bodies go through
-	 * {@see \QBitFlow\Webhooks\Webhook::parseEvent()}, which also checks the version.
+	 * {@see \QBitFlow\Webhooks\Webhook::parseEvent()}, which also refuses an envelope
+	 * whose payload version isn't the one this SDK reads.
 	 *
 	 * @param array<string,mixed> $data The envelope, decoded.
 	 *

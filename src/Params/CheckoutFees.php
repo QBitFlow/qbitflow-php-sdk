@@ -26,6 +26,10 @@ final readonly class CheckoutFees
 	public const MAX_AMOUNT_USD = Validator::MAX_USD;
 
 	/**
+	 * Pass the arguments by name. Nothing is checked here: the values are checked with the
+	 * params that hold them, by the service method, before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param list<FeeItem> $items
 	 */
 	public function __construct(
@@ -37,8 +41,9 @@ final readonly class CheckoutFees
 		 * were taken ($100 + $20 VAT at 0.99 % → a $1.20 processing fee, $121.20 charged, $120.00
 		 * kept). `p` is the checkout's rate: QBitFlow's fee for your space when the checkout is
 		 * created (a volume schedule, unless QBitFlow set you a custom rate). Null: the space's
-		 * `checkout.customerPaysProcessingFee` setting decides (set in the dashboard, off by
-		 * default); `false` turns it off for this checkout.
+		 * `checkout.customerPaysProcessingFee` setting decides (off by default; set by the
+		 * organization, for its own space and for each member's: a member can't change it);
+		 * `false` turns it off for this checkout.
 		 */
 		public ?bool $processingFee = null,
 		/** Up to 10 lines of your own, shown in this order before the processing fee. */
@@ -47,7 +52,7 @@ final readonly class CheckoutFees
 	}
 
 	/**
-	 * Checks the lines (behaviour §8): at most 10; each label the name rule, 1 to 40; each
+	 * Checks the lines: at most 10; each label the name rule, 1 to 40; each
 	 * description the text rule, at most 200; each amount the usd rule. Field errors on
 	 * `fees.items[<i>].<field>` (`fees.items` for the count).
 	 */

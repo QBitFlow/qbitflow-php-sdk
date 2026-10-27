@@ -20,9 +20,6 @@ final readonly class EventDetail
 	/** The event's type ({@see \QBitFlow\Enums\EventType}). */
 	public string $type;
 
-	/** The payload version (`v2`). */
-	public string $version;
-
 	/** When it happened. */
 	public DateTimeImmutable $createdAt;
 
@@ -52,12 +49,12 @@ final readonly class EventDetail
 	 */
 	public array $deliveries;
 
+	/** @param list<EndpointDelivery> $deliveries */
 	private function __construct(Event $event, array $deliveries)
 	{
 		$this->event = $event;
 		$this->id = $event->id;
 		$this->type = $event->type;
-		$this->version = $event->version;
 		$this->createdAt = $event->createdAt;
 		$this->test = $event->test;
 		$this->userUuid = $event->userUuid;

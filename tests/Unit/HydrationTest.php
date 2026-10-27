@@ -11,7 +11,6 @@ use PHPUnit\Framework\Attributes\Test;
 use QBitFlow\Enums\AccountingEventType;
 use QBitFlow\Enums\BillingStage;
 use QBitFlow\Enums\Chain;
-use QBitFlow\Enums\Credential;
 use QBitFlow\Enums\DurationUnit;
 use QBitFlow\Enums\FeeLineType;
 use QBitFlow\Enums\LedgerEntryType;
@@ -33,11 +32,24 @@ use QBitFlow\Tests\Support\TestCase;
 use stdClass;
 
 /**
- * The models match the wire (property names are the JSON keys, every key modelled; the Go
- * reference's fixtures), and the decoding policy (behaviour §6).
+ * The models match the wire (property names are the JSON keys, every key modelled but the ones
+ * deliberately left out), and the decoding policy (lenient on absence, strict on a wrong JSON type).
  */
 final class HydrationTest extends TestCase
 {
+	/**
+	 * Wire keys the API sends but the SDK deliberately doesn't model (constant for an API key, or
+	 * the dashboard's or the hosted checkout page's): decoding ignores them, no property holds them.
+	 */
+	private const IGNORED = [
+		Models\Me::class => ['credential'],
+		Models\Attempt::class => ['status'],
+		Models\Customer::class => ['verified'],
+		Models\HeldFundsReleased::class => ['type'],
+		Models\WebhookEndpoint::class => ['payloadVersion', 'rotatedAt'],
+		Models\PaymentSessionData::class => ['availableCurrencies', 'userName', 'organizationName'],
+	];
+
 	/** @return array<string,array{0: string, 1: string}> */
 	public static function fixtures(): array
 	{
@@ -76,15 +88,24 @@ final class HydrationTest extends TestCase
 			}
 		} elseif ($wire instanceof stdClass) {
 			$this->assertIsObject($model, $path);
-			$keys = array_keys(get_object_vars($wire));
+			$ignored = [];
+			foreach (self::IGNORED as $class => $names) {
+				if ($model instanceof $class) {
+					$ignored = [...$ignored, ...$names];
+				}
+			}
+			foreach ($ignored as $key) {
+				$this->assertFalse(property_exists($model, $key), $path . ': the wire key ' . $key . ' is deliberately not modelled');
+			}
+			$keys = array_values(array_diff(array_keys(get_object_vars($wire)), $ignored));
 			foreach ($keys as $key) {
 				$this->assertTrue(property_exists($model, $key), $path . ': the wire key ' . $key . ' is a property');
 			}
 			foreach (array_diff(array_keys(get_object_vars($model)), $keys) as $absent) {
 				$this->assertNull($model->{$absent}, $path . '.' . $absent . ': a property the fixture leaves out is optional (null)');
 			}
-			foreach (get_object_vars($wire) as $key => $value) {
-				$this->assertSameKeys($value, $model->{$key}, $path . '.' . $key);
+			foreach ($keys as $key) {
+				$this->assertSameKeys($wire->{$key}, $model->{$key}, $path . '.' . $key);
 			}
 		} elseif (is_array($wire)) {
 			$this->assertIsArray($model, $path);
@@ -142,8 +163,8 @@ final class HydrationTest extends TestCase
 
 		$ss = self::decode(Models\SubscriptionSessionData::class, Fixtures::model('SubscriptionSessionData'));
 		$this->assertSame(['4.81', '3.99', 2, TransactionType::CREATE_SUBSCRIPTION], [$ss->amountUsd, $ss->priceUsd, count($ss->fees), $ss->txType]);
-		$this->assertSame(['ETH', 'order-1044', 1, DurationUnit::MONTHS, 3, true],
-			[$ss->availableCurrencies[1]->code, $ss->metadata['orderId'], $ss->frequency->value, $ss->frequency->unit, $ss->minPeriods, $ss->upgradingFromTrial]);
+		$this->assertSame(['order-1044', 1, DurationUnit::MONTHS, 3, true],
+			[$ss->metadata['orderId'], $ss->frequency->value, $ss->frequency->unit, $ss->minPeriods, $ss->upgradingFromTrial]);
 
 		$sb = self::decode(Models\Subscription::class, Fixtures::model('Subscription'));
 		$this->assertSame('9.99', $sb->priceUsd);
@@ -200,8 +221,14 @@ final class HydrationTest extends TestCase
 		$me = self::decode(Models\Me::class, Fixtures::model('Me'));
 		$this->assertSame(['m-1', Role::ADMIN, '7.5', 'Ada'], [$me->onBehalfOfUserUuid, $me->space?->role, $me->space?->organizationFeePercent, $me->space?->member?->firstName]);
 		$this->assertNotNull($me->space->trustedAt);
-		// The session-only fields (user, spaces, reauthenticatedUntil) are not modelled: ignored.
-		$this->assertSame(Credential::API_KEY, self::decode(Models\Me::class, '{"credential":"apiKey","spaces":[],"user":{"uuid":"u"}}')->credential);
+		// The fields no API key needs (credential, always apiKey; the session's user, spaces,
+		// reauthenticatedUntil; the staff console's space.staffView) are not modelled: ignored.
+		$bare = self::decode(Models\Me::class, '{"credential":"apiKey","spaces":[],"user":{"uuid":"u"},"space":{"uuid":"s-1","staffView":false}}');
+		$this->assertSame('s-1', $bare->space?->uuid);
+		foreach (['credential', 'spaces', 'user'] as $key) {
+			$this->assertFalse(property_exists($bare, $key), 'Me::$' . $key . ' is not modelled');
+		}
+		$this->assertFalse(property_exists($bare->space, 'staffView'), 'MeSpace::$staffView is not modelled');
 
 		$page = Transport::decode(new RawResponse(200, [], Fixtures::model('Page')), Requester::page(Models\CustomerSummary::fromArray(...)));
 		$this->assertTrue($page->hasMore);
@@ -213,6 +240,8 @@ final class HydrationTest extends TestCase
 
 		$detail = self::decode(Models\EventDetail::class, Fixtures::model('EventDetail'));
 		$this->assertSame(['evt_1', 'payment.completed', 'm-1'], [$detail->id, $detail->type, $detail->userUuid]);
+		$this->assertFalse(property_exists($detail, 'version'), 'the envelope version is not modelled (always v2)');
+		$this->assertFalse(property_exists($detail->event, 'version'));
 		$this->assertInstanceOf(Models\PaymentCompleted::class, $detail->data);
 		$this->assertSame(['e-1', true, 2, true, 500, 120], [$detail->deliveries[0]->endpointUuid, $detail->deliveries[0]->delivered,
 			$detail->deliveries[0]->attempts[0]->attempt, $detail->deliveries[0]->attempts[0]->skipped,
@@ -234,6 +263,17 @@ final class HydrationTest extends TestCase
 		$pay = self::decode(Models\Payment::class, '{"uuid":"pay@1","amount":"10","priceUsd":"10","fees":[],"metadata":{},"settlement":{"feePercent":"0.99"}}');
 		$this->assertSame([null, null, null, null, null, null, null, null],
 			[$pay->settlement->split, $pay->settlement->transaction, $pay->confirmedAt, $pay->paid, $pay->refund, $pay->refundable, $pay->customer, $pay->productDescription]);
+
+		// confirmedAt may be absent on old records.
+		$this->assertNull(self::decode(Models\Bill::class, '{"uuid":"sub-hist@1","amount":"10"}')->confirmedAt);
+		$this->assertNull(self::decode(Models\Transaction::class, '{"type":"bill","uuid":"sub-hist@1","amount":"10"}')->confirmedAt);
+
+		// A skipped attempt (a member's endpoint while the members.webhooks policy is off): nothing
+		// was posted, so no statusCode.
+		$skipped = self::decode(Models\DeliveryAttempt::class, '{"uuid":"a-1","eventId":"evt_1","eventType":"payment.completed","endpointUuid":"e-1",'
+			. '"attempt":1,"delivered":false,"skipped":true,"error":"policy members.webhooks is off","durationMs":0,"attemptedAt":"2026-10-01T12:00:01Z"}');
+		$this->assertSame([true, false, null, 'policy members.webhooks is off'], [$skipped->skipped, $skipped->delivered, $skipped->statusCode, $skipped->error]);
+		$this->assertFalse(self::decode(Models\DeliveryAttempt::class, '{"uuid":"a-2","delivered":true,"statusCode":200}')->skipped, 'absent skipped is false');
 
 		$ref = self::decode(Models\Refund::class, '{"uuid":"refund@1","txUuid":"pay@1","status":"pending","paid":"10","paidMinUnits":"10000000",'
 			. '"refundPercent":"100","amount":"10","amountMinUnits":"10000000"}');
@@ -296,6 +336,71 @@ final class HydrationTest extends TestCase
 	{
 		$this->expectException(ServerException::class);
 		Transport::decode(new RawResponse(200, [], '{"items":[],"hasMore":"false"}'), Requester::page(Models\Product::fromArray(...)));
+	}
+
+	/**
+	 * What no API key can act on is not modelled, yet the server may still send it: the decoding
+	 * ignores those keys, and keeps a value no constant names (open enums).
+	 */
+	#[Test]
+	public function out_of_scope_wire_fields_are_ignored(): void
+	{
+		$me = self::decode(Models\Me::class, '{"credential":"session","userUuid":"u-1","role":"handle","space":{"uuid":"s-1","userUuid":"m-1","test":false,"role":"handle"}}');
+		$this->assertFalse(property_exists($me, 'userUuid'), 'Me::$userUuid is not modelled');
+		$this->assertFalse(property_exists($me, 'credential'), 'Me::$credential is not modelled');
+		$this->assertSame(['handle', 'handle', 'm-1'], [$me->role, $me->space?->role, $me->space?->userUuid]);
+		$this->assertFalse(class_exists('QBitFlow\\Enums\\Credential'), 'no Credential enum');
+		$this->assertNotContains('handle', Role::values());
+		// An API key is at most admin: `owner` is no Role constant, yet still decodes (kept raw).
+		$owner = self::decode(Models\Me::class, '{"credential":"apiKey","role":"owner","space":{"uuid":"s-1","role":"owner"}}');
+		$this->assertSame(['owner', 'owner'], [$owner->role, $owner->space?->role]);
+		$this->assertSame('owner', self::decode(Models\Invitation::class, '{"uuid":"i-1","role":"owner"}')->role);
+		$this->assertSame([Role::ADMIN, Role::USER], Role::values());
+		$this->assertFalse(defined(Role::class . '::OWNER'), 'Role::OWNER is not modelled');
+
+		$p = self::decode(Models\Payment::class, substr(Fixtures::model('Payment'), 0, -1) . ',"note":"thanks"}');
+		$this->assertFalse(property_exists($p, 'note'), 'Payment::$note is not modelled');
+		$this->assertSame('pay@1', $p->uuid);
+		$completed = self::decode(Models\PaymentCompleted::class, substr(Fixtures::model('PaymentCompleted'), 0, -1) . ',"note":"thanks"}');
+		$this->assertFalse(property_exists($completed, 'note'));
+
+		$session = self::decode(Models\PaymentSessionData::class, '{"uuid":"pay@1","organizationName":"Shop","userName":"Ada","availableCurrencies":[' . Fixtures::CURRENCY . '],"txType":"refund","redirectUrl":"https://x/thanks"}');
+		foreach (['redirectUrl', 'organizationName', 'userName', 'availableCurrencies'] as $key) {
+			$this->assertFalse(property_exists($session, $key), 'PaymentSessionData::$' . $key . ' is not modelled');
+		}
+		$this->assertSame('refund', $session->txType, 'an unknown txType is kept');
+		$this->assertSame([TransactionType::PAYMENT, TransactionType::CREATE_SUBSCRIPTION], TransactionType::values());
+		$sub = self::decode(Models\SubscriptionSessionData::class, '{' . Fixtures::SESSION . ',"redirectUrl":"https://x/thanks"}');
+		$this->assertFalse(property_exists($sub, 'redirectUrl'));
+
+		$released = self::decode(Models\HeldFundsReleased::class, '{"uuid":"transfer@1","received":true,"type":"heldFundsRelease","ledgers":[]}');
+		$this->assertFalse(property_exists($released, 'type'), 'HeldFundsReleased::$type is not modelled (always heldFundsRelease)');
+		$this->assertTrue($released->received);
+		$this->assertFalse(class_exists('QBitFlow\\Enums\\TransferType'), 'no TransferType enum');
+
+		$customer = self::decode(Models\Customer::class, '{"uuid":"c-1","verified":false,"email":"a@b.co"}');
+		$this->assertFalse(property_exists($customer, 'verified'), 'Customer::$verified is not modelled');
+		$this->assertSame('a@b.co', $customer->email);
+
+		$endpoint = self::decode(Models\WebhookEndpoint::class, '{"uuid":"e-1","payloadVersion":"v2","rotatedAt":"2026-10-01T12:00:00Z"}');
+		$this->assertFalse(property_exists($endpoint, 'payloadVersion'), 'WebhookEndpoint::$payloadVersion is not modelled (always v2)');
+		$this->assertFalse(property_exists($endpoint, 'rotatedAt'), 'WebhookEndpoint::$rotatedAt is not modelled (rotation is the dashboard\'s)');
+
+		$attempt = self::decode(Models\Attempt::class, '{"status":"failed","code":"insufficient_funds","at":"2026-10-01T12:00:00Z"}');
+		$this->assertFalse(property_exists($attempt, 'status'), 'Attempt::$status is not modelled (always failed)');
+		$this->assertSame('insufficient_funds', $attempt->code);
+		$this->assertFalse(class_exists('QBitFlow\\Enums\\AttemptStatus'), 'no AttemptStatus enum');
+
+		$refund = self::decode(Models\Refund::class, '{"uuid":"refund@1","status":"failed"}');
+		$this->assertSame('failed', $refund->status, 'a status no constant names is kept raw');
+		$this->assertSame([RefundStatus::PENDING, RefundStatus::APPROVED, RefundStatus::REJECTED], RefundStatus::values());
+
+		// A referral fee's deadline is internal since API 2.0.0: ignored when a server still sends it.
+		$referral = self::decode(Models\ReferralFee::class, '{"address":"0xref","feePercent":"20","deadline":"2027-01-01T00:00:00Z"}');
+		$this->assertFalse(property_exists($referral, 'deadline'), 'ReferralFee::$deadline is not modelled');
+		$this->assertSame(['0xref', '20'], [$referral->address, $referral->feePercent]);
+		$settlement = self::decode(Models\Settlement::class, '{"feePercent":"0.99","referralFee":{"address":"0xref","feePercent":"20","deadline":"not even a date"}}');
+		$this->assertSame('0xref', $settlement->referralFee?->address);
 	}
 
 	#[Test]

@@ -12,6 +12,7 @@ namespace QBitFlow\Enums;
  */
 final class BillingOutcome
 {
+	/** The bill was charged. */
 	public const PAID = 'paid';
 
 	/** Nothing to bill: paid already, cancelled, or gone. */

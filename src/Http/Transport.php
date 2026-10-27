@@ -35,7 +35,7 @@ use Throwable;
 
 /**
  * The HTTP layer every client of one configuration shares: headers, body encoding, the retry
- * policy (behaviour §3) and the mapping of error responses onto the typed exceptions (§4).
+ * policy and the mapping of error responses onto the typed exceptions.
  *
  * - **Retries:** every GET and the 6 idempotent creates are retried on a network error, a 5xx,
  *   a 429, and (creates only) a 409 `idempotency_key_in_use`; attempt n (0-based) waits
@@ -66,6 +66,12 @@ final class Transport
 
 	private const CODE_IDEMPOTENCY_KEY_REUSED = 'idempotency_key_reused';
 
+	/**
+	 * The API key, wrapped so that no dump (`print_r`, `var_dump`, `var_export`, an array cast)
+	 * and no `serialize()` of the transport, or of a service or client holding it, shows it.
+	 */
+	private readonly \SensitiveParameterValue $apiKey;
+
 	private readonly ClientInterface $httpClient;
 
 	private readonly RequestFactoryInterface $requestFactory;
@@ -91,7 +97,8 @@ final class Transport
 	 * @param (Closure(): string)|null     $newKey     Generates an `Idempotency-Key`.
 	 */
 	public function __construct(
-		private readonly string $apiKey,
+		#[\SensitiveParameter]
+		string $apiKey,
 		private readonly string $baseUrl,
 		private readonly float $timeout,
 		private readonly int $maxRetries,
@@ -102,6 +109,7 @@ final class Transport
 		?Closure $now = null,
 		?Closure $newKey = null,
 	) {
+		$this->apiKey = new \SensitiveParameterValue($apiKey);
 		$this->httpClient = $httpClient ?? HttpClientResolver::resolve($timeout);
 		$this->requestFactory = $requestFactory ?? HttpClientResolver::requestFactory();
 		$this->streamFactory = $streamFactory ?? HttpClientResolver::streamFactory();
@@ -112,21 +120,25 @@ final class Transport
 		$this->newKey = $newKey ?? self::uuidV4(...);
 	}
 
+	/** The API key this transport sends. */
 	public function apiKey(): string
 	{
-		return $this->apiKey;
+		return $this->apiKey->getValue();
 	}
 
+	/** The API root, without a trailing `/`. */
 	public function baseUrl(): string
 	{
 		return $this->baseUrl;
 	}
 
+	/** Seconds per HTTP attempt. */
 	public function timeout(): float
 	{
 		return $this->timeout;
 	}
 
+	/** How many times a retryable call is retried (0: never). */
 	public function maxRetries(): int
 	{
 		return $this->maxRetries;
@@ -175,7 +187,7 @@ final class Transport
 		}
 
 		$headers = [
-			'X-API-Key' => $this->apiKey,
+			'X-API-Key' => $this->apiKey->getValue(),
 			'User-Agent' => 'qbitflow-php/' . QBitFlow::VERSION,
 			'Accept' => $accept ?? 'application/json',
 		];
@@ -231,7 +243,7 @@ final class Transport
 	}
 
 	/**
-	 * Maps a non-2xx response onto the SDK's typed error (behaviour §4).
+	 * Maps a non-2xx response onto the SDK's typed error.
 	 */
 	public function errorFromResponse(RawResponse $response): ApiException
 	{
@@ -291,7 +303,7 @@ final class Transport
 		}
 	}
 
-	/** Whether a failed attempt may be retried (behaviour §3). */
+	/** Whether a failed attempt may be retried. */
 	public static function shouldRetry(QBitFlowException $error, bool $idempotent): bool
 	{
 		if ($error instanceof ConflictException) {
@@ -383,11 +395,11 @@ final class Transport
 	/**
 	 * Performs one HTTP attempt.
 	 *
-	 * @param array<string,string> $headers
+	 * @param array<string,string> $headers Sensitive: they carry the API key (kept out of stack traces).
 	 *
 	 * @throws NetworkException When no response was received.
 	 */
-	private function roundTrip(string $method, string $url, array $headers, ?string $payload): RawResponse
+	private function roundTrip(string $method, string $url, #[\SensitiveParameter] array $headers, ?string $payload): RawResponse
 	{
 		$request = $this->requestFactory->createRequest($method, $url);
 		foreach ($headers as $name => $value) {

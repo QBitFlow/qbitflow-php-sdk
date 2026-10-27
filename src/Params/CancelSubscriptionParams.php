@@ -11,6 +11,9 @@ use QBitFlow\Support\Query;
  */
 final readonly class CancelSubscriptionParams
 {
+	/**
+	 * Pass the option by name; null leaves the API's default (cancel now).
+	 */
 	public function __construct(
 		/**
 		 * Cancels now (null or true, the default: status `cancelled`); false stops it now (status

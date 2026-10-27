@@ -13,6 +13,10 @@ use QBitFlow\Support\Validator;
 final readonly class UpdateProductParams
 {
 	/**
+	 * Pass the arguments by name; an optional one left null is not sent. Nothing is checked
+	 * here: the service method checks the values before sending (a
+	 * {@see \QBitFlow\Exceptions\ValidationException} naming each bad one, nothing sent).
+	 *
 	 * @param array<string,string>|null $metadata
 	 */
 	public function __construct(

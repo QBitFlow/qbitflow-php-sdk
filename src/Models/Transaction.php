@@ -167,7 +167,8 @@ final readonly class Transaction extends Model
 	public Settlement $settlement;
 
 	/**
-	 * When the chain confirmed it.
+	 * When the chain confirmed it (its block's time); null only on records made before it was
+	 * recorded.
 	 */
 	public ?DateTimeImmutable $confirmedAt;
 
