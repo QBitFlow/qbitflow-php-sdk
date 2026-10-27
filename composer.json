@@ -1,13 +1,13 @@
 {
 	"name": "qbitflow/qbitflow-php",
 	"description": "Official PHP SDK for QBitFlow - Next Generation Crypto Payment Processing",
+	"type": "library",
 	"keywords": [
 		"qbitflow",
 		"cryptocurrency",
 		"crypto",
 		"payment",
 		"payment-processing",
-		"bitcoin",
 		"solana",
 		"ethereum",
 		"blockchain",
@@ -29,8 +29,8 @@
 		}
 	],
 	"support": {
-		"issues": "https://github.com/qbitflow/qbitflow-php-sdk/issues",
-		"source": "https://github.com/qbitflow/qbitflow-php-sdk",
+		"issues": "https://github.com/QBitFlow/qbitflow-php-sdk/issues",
+		"source": "https://github.com/QBitFlow/qbitflow-php-sdk",
 		"docs": "https://qbitflow.app/docs"
 	},
 	"require": {
@@ -53,8 +53,12 @@
 		"illuminate/support": "^10.0 || ^11.0 || ^12.0",
 		"nyholm/psr7": "^1.8",
 		"php-http/discovery": "^1.19",
+		"phpstan/phpstan": "^2.1",
 		"phpunit/phpunit": "^10.5 || ^11.0",
 		"vlucas/phpdotenv": "^5.6"
+	},
+	"conflict": {
+		"illuminate/support": "<10.0"
 	},
 	"suggest": {
 		"guzzlehttp/guzzle": "The simplest way to satisfy the PSR-18 and PSR-17 requirements. Already present in every Laravel application.",
@@ -88,8 +92,17 @@
 		}
 	},
 	"scripts": {
-		"test": "phpunit",
-		"test:coverage": "phpunit --coverage-text"
+		"test": "phpunit --testsuite Unit",
+		"test:integration": "phpunit --testsuite Integration",
+		"test:coverage": "phpunit --testsuite Unit --coverage-text",
+		"analyse": "phpstan analyse --memory-limit=1G",
+		"lint": "find src tests examples config -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null",
+		"check": [
+			"@composer validate --strict",
+			"@lint",
+			"@analyse",
+			"@test"
+		]
 	},
 	"minimum-stability": "stable",
 	"prefer-stable": true

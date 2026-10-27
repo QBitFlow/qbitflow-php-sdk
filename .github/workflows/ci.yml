@@ -1,0 +1,91 @@
+# The offline gates, on every supported PHP minor and Laravel major. No secrets, no network
+# calls to QBitFlow: the Integration suite (live API) never runs here.
+#
+# PHP floors: composer.json requires the patched releases ~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12
+# (CVE-2026-109618 / CVE-2026-109619, see SECURITY.md). setup-php installs the latest release of
+# each minor, which satisfies them; the "platform" step fails the job loudly if an image ever
+# lags behind, instead of hiding it with --ignore-platform-req.
+name: CI
+
+on:
+  push:
+    branches: [main, v3]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Laravel 10: PHP 8.1 to 8.3 (8.2 and 8.3 here). Laravel 11 and 12: PHP 8.2 and up.
+          - { php: '8.2', laravel: '10' }
+          - { php: '8.2', laravel: '11' }
+          - { php: '8.2', laravel: '12' }
+          - { php: '8.3', laravel: '10' }
+          - { php: '8.3', laravel: '11' }
+          - { php: '8.3', laravel: '12' }
+          - { php: '8.4', laravel: '11' }
+          - { php: '8.4', laravel: '12' }
+          - { php: '8.5', laravel: '12' }
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json
+          coverage: none
+          tools: composer:v2
+
+      - name: Show the PHP version
+        run: php -v
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-lock
+
+      - name: Pin Laravel ${{ matrix.laravel }}
+        run: >
+          composer require --dev --no-update --no-interaction
+          "illuminate/config:^${{ matrix.laravel }}.0"
+          "illuminate/console:^${{ matrix.laravel }}.0"
+          "illuminate/events:^${{ matrix.laravel }}.0"
+          "illuminate/http:^${{ matrix.laravel }}.0"
+          "illuminate/routing:^${{ matrix.laravel }}.0"
+          "illuminate/support:^${{ matrix.laravel }}.0"
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-progress --no-interaction
+
+      - name: Check the platform (patched PHP floors)
+        run: composer check-platform-reqs --no-dev
+
+      - name: Lint
+        run: find src tests examples config -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      # Analysed against one dependency set, the latest Laravel: older Laravel releases ship
+      # looser PHPDoc types (container results as mixed) that say nothing about this code. The
+      # unit tests run on every Laravel version.
+      - name: Static analysis (PHPStan)
+        if: matrix.laravel == '12'
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+      - name: Unit tests
+        run: vendor/bin/phpunit --testsuite Unit
+
+      - name: Audit dependencies
+        run: composer audit --no-dev
