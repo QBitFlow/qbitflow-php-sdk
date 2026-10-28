@@ -61,7 +61,8 @@ optionally Laravel 10, 11 or 12.
     `SubscriptionCancellation` with `pending` for an HTTP 202) and `testBill()` (test mode).
 -   **Marketplaces**: `members` (`list`, `iterate`, `get`, `update`, `remove`, `trust`,
     `listHeldFunds`, `getHeldFunds`, `getOwnHeldFunds`) and `invitations` (`create`, with
-    `holdFunds` and `sendEmail`; `list`, `iterate`, `revoke`); `Enums\MerchantNotReadyReason`
+    `holdFunds` and `sendEmail`; `list` and `iterate`, the member invitations: the team's are
+    managed from the dashboard; `revoke`); `Enums\MerchantNotReadyReason`
     for `409 merchant_not_ready`.
 -   **Wallets and currencies**: `wallets->list()` (with balances), `listForMember()`,
     `listAcceptedCurrencies()`; `currencies->list()` and `get()`; the `Currency` object's `code`

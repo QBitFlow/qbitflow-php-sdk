@@ -200,9 +200,9 @@ final class HydrationTest extends TestCase
 		$this->assertInstanceOf(Models\Invitation::class, $inv, 'flat: the invitation\'s fields and its link');
 		$this->assertSame(['i-1', true, false, '0'], [$inv->uuid, $inv->test, $inv->holdFunds, $inv->organizationFeePercent]);
 		$this->assertNotSame('', $inv->link);
-		// A team invitation: mode-free, so test, holdFunds and the fee are absent.
-		$team = self::decode(Models\Invitation::class, '{"uuid":"i-2","email":"a@b.co","role":"admin","expiresAt":"2026-10-08T12:00:00Z","createdAt":"2026-10-01T12:00:00Z","status":"pending"}');
-		$this->assertSame([null, null, null, Role::ADMIN, null], [$team->test, $team->holdFunds, $team->organizationFeePercent, $team->role, $team->acceptedAt]);
+		// Decoding stays tolerant: a member invitation missing test, holdFunds or the fee decodes them as null.
+		$sparse = self::decode(Models\Invitation::class, '{"uuid":"i-2","email":"a@b.co","expiresAt":"2026-10-08T12:00:00Z","createdAt":"2026-10-01T12:00:00Z","status":"pending"}');
+		$this->assertSame([null, null, null, null], [$sparse->test, $sparse->holdFunds, $sparse->organizationFeePercent, $sparse->acceptedAt]);
 
 		$hf = self::decode(Models\HeldFunds::class, Fixtures::model('HeldFunds'));
 		$this->assertSame(['-1.0933', LedgerEntryType::REFUND, '-10.0042', 'pay@1'], [$hf->totalUsd, $hf->ledgers[1]->type, $hf->ledgers[1]->owed, $hf->ledgers[1]->refundedTxUuid]);
@@ -354,7 +354,8 @@ final class HydrationTest extends TestCase
 		// An API key is at most admin: `owner` is no Role constant, yet still decodes (kept raw).
 		$owner = self::decode(Models\Me::class, '{"credential":"apiKey","role":"owner","space":{"uuid":"s-1","role":"owner"}}');
 		$this->assertSame(['owner', 'owner'], [$owner->role, $owner->space?->role]);
-		$this->assertSame('owner', self::decode(Models\Invitation::class, '{"uuid":"i-1","role":"owner"}')->role);
+		// An API key only lists member invitations: their role, always `user`, is sent but not modelled.
+		$this->assertFalse(property_exists(self::decode(Models\Invitation::class, '{"uuid":"i-1","role":"user"}'), 'role'), 'Invitation::$role is not modelled');
 		$this->assertSame([Role::ADMIN, Role::USER], Role::values());
 		$this->assertFalse(defined(Role::class . '::OWNER'), 'Role::OWNER is not modelled');
 

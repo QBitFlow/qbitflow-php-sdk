@@ -1087,6 +1087,8 @@ try {
 The pending invitations, and revoking one that hasn't been accepted (`InvitationListParams` also
 filters by any other `status`):
 
+An API key lists member invitations only: the team's are managed from the dashboard.
+
 <!-- docs:snippet invitations-list -->
 ```php
 $page = $client->invitations->list(new \QBitFlow\Params\InvitationListParams(status: \QBitFlow\Enums\InvitationStatus::PENDING));

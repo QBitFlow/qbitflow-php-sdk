@@ -8,9 +8,8 @@ use DateTimeImmutable;
 use QBitFlow\Support\Cast;
 
 /**
- * An invitation to the organization: to be a member in one mode (role `user`), or to its team
- * (role `admin`, from the dashboard: mode-free, so `test`, `holdFunds` and
- * `organizationFeePercent` are absent).
+ * An invitation to be a member of the organization in one mode. An API key only sees member
+ * invitations: the team's are managed from the dashboard.
  */
 readonly class Invitation extends Model
 {
@@ -20,7 +19,7 @@ readonly class Invitation extends Model
 	public string $uuid;
 
 	/**
-	 * A member invitation's mode; null (absent) for a team invitation.
+	 * The invitation's mode (true: test); null when the API leaves it out.
 	 */
 	public ?bool $test;
 
@@ -30,19 +29,14 @@ readonly class Invitation extends Model
 	public string $email;
 
 	/**
-	 * `admin` (the team) or `user` (a member); see {@see \QBitFlow\Enums\Role}.
-	 */
-	public string $role;
-
-	/**
-	 * For a member, true when the organization holds their payments until it trusts them
-	 * (`members->trust()`), false when they are paid directly; null (absent) for the team.
+	 * True when the organization holds the member's payments until it trusts them
+	 * (`members->trust()`), false when they are paid directly; null when the API leaves it out.
 	 */
 	public ?bool $holdFunds;
 
 	/**
-	 * For a member, the organization's fee on their payments, a percent string (`"0"`: none);
-	 * null (absent) for the team.
+	 * The organization's fee on the member's payments, a percent string (`"0"`: none); null when
+	 * the API leaves it out.
 	 */
 	public ?string $organizationFeePercent;
 
@@ -90,7 +84,6 @@ readonly class Invitation extends Model
 		$this->uuid = Cast::string($data, 'uuid');
 		$this->test = Cast::nullableBool($data, 'test');
 		$this->email = Cast::string($data, 'email');
-		$this->role = Cast::string($data, 'role');
 		$this->holdFunds = Cast::nullableBool($data, 'holdFunds');
 		$this->organizationFeePercent = Cast::nullableString($data, 'organizationFeePercent');
 		$this->redirectUrl = Cast::nullableString($data, 'redirectUrl');

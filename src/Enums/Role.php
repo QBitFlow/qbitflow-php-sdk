@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * What a credential (or an invitation) may do in a space. An API key is `admin` (organization key) or `user` (a member's key, or On-Behalf-Of).
+ * What a credential may do in a space (`Me::$role`, `MeSpace::$role`). An API key is `admin`
+ * (organization key) or `user` (a member's key, or On-Behalf-Of).
  *
  * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
  * know yet is kept as is, never rejected. Compare against these constants.

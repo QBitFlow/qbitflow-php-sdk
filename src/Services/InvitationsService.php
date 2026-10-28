@@ -40,9 +40,10 @@ final class InvitationsService extends Service
 	}
 
 	/**
-	 * One page of the organization's invitations (`GET /invitations`; newest first, page size 20
-	 * by default, at most 100), its team's (role `admin`) included, optionally filtered by
-	 * `status`. Organization key only.
+	 * One page of the organization's member invitations of the key's mode (`GET /invitations`;
+	 * newest first, page size 20 by default, at most 100), optionally filtered by `status`. The
+	 * team's invitations are not listed: the team is managed from the dashboard. Organization key
+	 * only.
 	 *
 	 * @return Page<Invitation>
 	 */
