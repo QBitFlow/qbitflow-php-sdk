@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         executionOrder="random"
+         failOnRisky="true"
+         failOnWarning="true"
+         beStrictAboutOutputDuringTests="true"
+         displayDetailsOnTestsThatTriggerWarnings="true"
+         displayDetailsOnTestsThatTriggerErrors="true">
+	<!--
+		Unit: hermetic and offline. Every client is built against a mock PSR-18 transport with an
+		explicit base URL, so it runs the same with or without QBITFLOW_* exported. Two of its
+		tests need files kept outside this repository and skip themselves without them: the
+		shared cross-SDK test vectors (QBITFLOW_VECTORS_DIR) and the website snippet check
+		(QBITFLOW_HUB_DIR, and node).
+
+		Integration: talks to a real QBitFlow API. It skips itself when QBITFLOW_API_KEY is not
+		set, and FAILS when the key is set without QBITFLOW_BASE_URL: it never falls back to a
+		default server. Writes need QBITFLOW_LIVE_WRITES=1. See CONTRIBUTING.md.
+
+		A local phpunit.xml (git-ignored) overrides this file, e.g. to set environment variables.
+	-->
+	<testsuites>
+		<testsuite name="Unit">
+			<directory>tests/Unit</directory>
+			<directory>tests/Laravel</directory>
+			<file>tests/SnippetsTest.php</file>
+		</testsuite>
+		<testsuite name="Integration">
+			<directory>tests/Integration</directory>
+		</testsuite>
+	</testsuites>
+	<source>
+		<include>
+			<directory>src</directory>
+		</include>
+	</source>
+</phpunit>

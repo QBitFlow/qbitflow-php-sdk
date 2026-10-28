@@ -4,218 +4,476 @@ declare(strict_types=1);
 
 namespace QBitFlow\Support;
 
-use BackedEnum;
 use DateTimeImmutable;
 use Exception;
+use QBitFlow\Exceptions\ServerException;
+use stdClass;
 
 /**
- * Small casting helpers used when hydrating API responses into typed objects.
+ * Hydration helpers: the SDK's decoding policy, shared by every model.
  *
- * The API occasionally omits optional fields entirely and occasionally sends them as
- * `null`; every helper treats both the same way.
+ * Responses are decoded with JSON objects as `stdClass` and lists as PHP arrays, so `{}` and
+ * `[]` stay distinct. A model's `fromArray()` receives the object's properties as an array
+ * whose values may be `stdClass` (nested objects), lists, or scalars; plain associative arrays
+ * are accepted for nested objects too.
+ *
+ * - **Absent or `null`** where the field is not nullable decodes to its zero value: `''`, `0`,
+ *   `0.0`, `false`, `[]`, a zero-valued nested object, or Go's zero time
+ *   (`0001-01-01T00:00:00Z`, see {@see Time::isZero()}). Never an error. The `nullable*`
+ *   helpers return `null` instead.
+ * - **Present with the wrong JSON type** raises a {@see ServerException} (the transport adds
+ *   the HTTP status). Numeric widening is allowed: an integer into a float, an integral float
+ *   into an integer.
+ * - **Decimal strings** stay strings; **unknown enum values** are kept as the raw string;
+ *   **unknown keys** are ignored.
  *
  * @internal
  */
 final class Cast
 {
-	/**
-	 * @param array<string,mixed> $data
-	 */
-	public static function string(array $data, string $key, string $default = ''): string
-	{
-		$value = $data[$key] ?? null;
+	/** RFC 3339, with any offset and any number of fractional digits. */
+	private const RFC3339 = '/^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/';
 
-		return is_scalar($value) ? (string) $value : $default;
+	/** A digit string JSON_BIGINT_AS_STRING produced for an integer beyond PHP's range. */
+	private const BIG_INTEGER = '/^-?\d{19,}$/';
+
+	private function __construct()
+	{
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * A string field. Absent or null → `''`.
+	 *
+	 * @param array<array-key,mixed> $data
+	 */
+	public static function string(array $data, string $key): string
+	{
+		return self::nullableString($data, $key) ?? '';
+	}
+
+	/**
+	 * A nullable (or optional) string field. Absent or null → null.
+	 *
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function nullableString(array $data, string $key): ?string
 	{
 		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return null;
+		}
+		if (! is_string($value)) {
+			throw self::wrongType($key, 'a string', $value);
+		}
 
-		return is_scalar($value) ? (string) $value : null;
+		return $value;
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * A signed integer field. Absent or null → 0.
+	 *
+	 * @param array<array-key,mixed> $data
 	 */
-	public static function int(array $data, string $key, int $default = 0): int
+	public static function int(array $data, string $key): int
 	{
-		$value = $data[$key] ?? null;
-
-		return is_numeric($value) ? (int) $value : $default;
+		return self::nullableInt($data, $key) ?? 0;
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function nullableInt(array $data, string $key): ?int
 	{
 		$value = $data[$key] ?? null;
 
-		return is_numeric($value) ? (int) $value : null;
+		return $value === null ? null : self::toInt($key, $value);
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * An unsigned integer field, at most `$max` (a Go `uint8`/`uint16`/`uint32`/`uint64`).
+	 * Absent or null → 0.
+	 *
+	 * @param array<array-key,mixed> $data
 	 */
-	public static function float(array $data, string $key, float $default = 0.0): float
+	public static function uint(array $data, string $key, int $max = PHP_INT_MAX): int
+	{
+		return self::nullableUint($data, $key, $max) ?? 0;
+	}
+
+	/**
+	 * @param array<array-key,mixed> $data
+	 */
+	public static function nullableUint(array $data, string $key, int $max = PHP_INT_MAX): ?int
 	{
 		$value = $data[$key] ?? null;
 
-		return is_numeric($value) ? (float) $value : $default;
+		return $value === null ? null : self::toUint($key, $value, $max);
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * A float field. Absent or null → 0.0. An integer is widened.
+	 *
+	 * @param array<array-key,mixed> $data
+	 */
+	public static function float(array $data, string $key): float
+	{
+		return self::nullableFloat($data, $key) ?? 0.0;
+	}
+
+	/**
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function nullableFloat(array $data, string $key): ?float
 	{
 		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return null;
+		}
+		if (is_int($value) || is_float($value)) {
+			return (float) $value;
+		}
+		if (is_string($value) && preg_match(self::BIG_INTEGER, $value) === 1) {
+			return (float) $value; // an integer beyond PHP's int, decoded as a digit string
+		}
 
-		return is_numeric($value) ? (float) $value : null;
+		throw self::wrongType($key, 'a number', $value);
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * A boolean field. Absent or null → false.
+	 *
+	 * @param array<array-key,mixed> $data
 	 */
-	public static function bool(array $data, string $key, bool $default = false): bool
+	public static function bool(array $data, string $key): bool
+	{
+		return self::nullableBool($data, $key) ?? false;
+	}
+
+	/**
+	 * @param array<array-key,mixed> $data
+	 */
+	public static function nullableBool(array $data, string $key): ?bool
 	{
 		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return null;
+		}
+		if (! is_bool($value)) {
+			throw self::wrongType($key, 'a boolean', $value);
+		}
 
-		return $value === null ? $default : (bool) $value;
+		return $value;
 	}
 
 	/**
-	 * Parse an ISO-8601 timestamp, falling back to the Unix epoch when absent or unparseable.
+	 * A timestamp the API always sends. Absent or null → Go's zero time ({@see Time::isZero()}).
 	 *
-	 * @param array<string,mixed> $data
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function date(array $data, string $key): DateTimeImmutable
 	{
-		return self::nullableDate($data, $key) ?? new DateTimeImmutable('@0');
+		return self::nullableDate($data, $key) ?? Time::zero();
 	}
 
 	/**
-	 * @param array<string,mixed> $data
+	 * A nullable (or optional) timestamp: any RFC 3339 offset, microseconds kept.
+	 *
+	 * @param array<array-key,mixed> $data
 	 */
 	public static function nullableDate(array $data, string $key): ?DateTimeImmutable
 	{
 		$value = $data[$key] ?? null;
-
-		if (! is_string($value) || $value === '') {
+		if ($value === null) {
 			return null;
+		}
+		if (! is_string($value) || preg_match(self::RFC3339, $value) !== 1) {
+			throw self::wrongType($key, 'an RFC 3339 timestamp', $value);
 		}
 
 		try {
-			return new DateTimeImmutable($value);
-		} catch (Exception) {
-			return null;
+			$date = new DateTimeImmutable($value);
+		} catch (Exception $e) {
+			throw new ServerException(sprintf('"%s" is not a valid timestamp (%s)', $key, $value), previous: $e);
 		}
+
+		// DateTime silently rolls an impossible date over (2026-02-30 → 2026-03-02): refuse it.
+		if ($date->format('Y-m-d') !== substr($value, 0, 10)) {
+			throw new ServerException(sprintf('"%s" is not a valid timestamp (%s)', $key, $value));
+		}
+
+		return $date;
 	}
 
 	/**
-	 * Resolve a backed enum, returning `$default` when the API sends an unknown value.
+	 * A nested object the API always sends. Absent or null → the zero-valued object.
 	 *
-	 * Unknown values are tolerated on purpose: the API may introduce new statuses before
-	 * this SDK is updated, and that should not break an otherwise valid response.
+	 * @template T
 	 *
-	 * @template T of BackedEnum
-	 *
-	 * @param array<string,mixed> $data
-	 * @param class-string<T>     $enum
-	 * @param T                   $default
+	 * @param array<array-key,mixed>           $data
+	 * @param callable(array<string,mixed>): T $factory
 	 *
 	 * @return T
 	 */
-	public static function enum(array $data, string $key, string $enum, BackedEnum $default): BackedEnum
-	{
-		return self::nullableEnum($data, $key, $enum) ?? $default;
-	}
-
-	/**
-	 * @template T of BackedEnum
-	 *
-	 * @param array<string,mixed> $data
-	 * @param class-string<T>     $enum
-	 *
-	 * @return T|null
-	 */
-	public static function nullableEnum(array $data, string $key, string $enum): ?BackedEnum
+	public static function object(array $data, string $key, callable $factory): mixed
 	{
 		$value = $data[$key] ?? null;
 
-		if (! is_string($value) && ! is_int($value)) {
-			return null;
-		}
-
-		return $enum::tryFrom($value);
+		return $factory($value === null ? [] : self::fields($value, $key));
 	}
 
 	/**
-	 * Extract a nested object and hydrate it, or return null when absent.
+	 * A nullable (or optional) nested object. Absent or null → null.
 	 *
-	 * @template T of object
+	 * @template T
 	 *
-	 * @param array<string,mixed>   $data
+	 * @param array<array-key,mixed>           $data
 	 * @param callable(array<string,mixed>): T $factory
 	 *
 	 * @return T|null
 	 */
-	public static function nested(array $data, string $key, callable $factory): ?object
+	public static function nullableObject(array $data, string $key, callable $factory): mixed
 	{
 		$value = $data[$key] ?? null;
 
-		return is_array($value) ? $factory($value) : null;
+		return $value === null ? null : $factory(self::fields($value, $key));
 	}
 
 	/**
-	 * Hydrate a list of nested objects, skipping anything that is not an object.
+	 * A list of objects. Absent or null → `[]`.
 	 *
-	 * @template T of object
+	 * @template T
+	 *
+	 * @param array<array-key,mixed>           $data
+	 * @param callable(array<string,mixed>): T $factory
+	 *
+	 * @return list<T>
+	 */
+	public static function listOf(array $data, string $key, callable $factory): array
+	{
+		return self::list($data[$key] ?? null, $factory, $key);
+	}
+
+	/**
+	 * A list of unsigned integers (currency ids). Absent or null → `[]`.
+	 *
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @return list<int>
+	 */
+	public static function uintList(array $data, string $key): array
+	{
+		$out = [];
+		foreach (self::rawList($data[$key] ?? null, $key) as $index => $item) {
+			$out[] = self::toUint(sprintf('%s[%d]', $key, $index), $item, PHP_INT_MAX);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * A list of strings (enum values). Absent or null → `[]`.
+	 *
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @return list<string>
+	 */
+	public static function stringList(array $data, string $key): array
+	{
+		$out = [];
+		foreach (self::rawList($data[$key] ?? null, $key) as $index => $item) {
+			if (! is_string($item)) {
+				throw self::wrongType(sprintf('%s[%d]', $key, $index), 'a string', $item);
+			}
+			$out[] = $item;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * A raw JSON object, as an associative array (nested objects too). Absent or null → `[]`.
+	 *
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @return array<array-key,mixed>
+	 */
+	public static function map(array $data, string $key): array
+	{
+		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return [];
+		}
+
+		$plain = self::plain(self::fields($value, $key));
+		assert(is_array($plain));
+
+		return $plain;
+	}
+
+	/**
+	 * A map of strings (a resource's `metadata`): a JSON object whose values are all strings.
+	 * Absent or null → `[]`. A list (`[]` included) or a value that is not a string is the wrong
+	 * JSON type.
+	 *
+	 * @param array<array-key,mixed> $data
+	 *
+	 * @return array<string,string>
+	 */
+	public static function stringMap(array $data, string $key): array
+	{
+		$value = $data[$key] ?? null;
+		if ($value === null) {
+			return [];
+		}
+
+		$out = [];
+		foreach (self::fields($value, $key) as $name => $item) {
+			if (! is_string($item)) {
+				throw self::wrongType(sprintf('%s.%s', $key, $name), 'a string', $item);
+			}
+			$out[(string) $name] = $item;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * A whole response body that must be a JSON object.
+	 *
+	 * @template T
+	 *
+	 * @param callable(array<string,mixed>): T $factory
+	 *
+	 * @return T
+	 */
+	public static function one(mixed $value, callable $factory): mixed
+	{
+		if ($value === null) {
+			throw new ServerException('"response" must be an object, got null');
+		}
+
+		return $factory(self::fields($value, 'response'));
+	}
+
+	/**
+	 * A list of objects: a whole response body, or a field's value. Absent or null → `[]`.
+	 *
+	 * @template T
 	 *
 	 * @param callable(array<string,mixed>): T $factory
 	 *
 	 * @return list<T>
 	 */
-	public static function listOf(mixed $value, callable $factory): array
+	public static function list(mixed $value, callable $factory, string $key = 'response'): array
 	{
-		if (! is_array($value)) {
-			return [];
-		}
-
 		$out = [];
+		foreach (self::rawList($value, $key) as $index => $item) {
+			if ($item === null) {
+				$out[] = $factory([]);
 
-		foreach ($value as $item) {
-			if (is_array($item)) {
-				$out[] = $factory($item);
+				continue;
 			}
+			$out[] = $factory(self::fields($item, sprintf('%s[%d]', $key, $index)));
 		}
 
 		return $out;
 	}
 
 	/**
-	 * Cast a raw value to a list of integers (used for `availableCurrencies`).
+	 * The properties of a JSON object (a `stdClass`, or an associative array).
 	 *
-	 * @return list<int>
+	 * @return array<string,mixed>
 	 */
-	public static function intList(mixed $value): array
+	public static function fields(mixed $value, string $key): array
 	{
-		if (! is_array($value)) {
+		if ($value instanceof stdClass) {
+			/** @var array<string,mixed> $fields A decoded JSON object's keys are strings. */
+			$fields = get_object_vars($value);
+
+			return $fields;
+		}
+		// A non-empty associative array is an object too (a caller's own data). A list is not,
+		// an empty one included: a decoded JSON `[]` where an object is expected is refused.
+		if (is_array($value) && $value !== [] && ! array_is_list($value)) {
+			/** @var array<string,mixed> $value */
+			return $value;
+		}
+
+		throw self::wrongType($key, 'an object', $value);
+	}
+
+	/**
+	 * A decoded JSON value with every `stdClass` turned into an associative array.
+	 */
+	public static function plain(mixed $value): mixed
+	{
+		if ($value instanceof stdClass) {
+			$value = get_object_vars($value);
+		}
+		if (is_array($value)) {
+			return array_map(self::plain(...), $value);
+		}
+
+		return $value;
+	}
+
+	/**
+	 * @return list<mixed>
+	 */
+	private static function rawList(mixed $value, string $key): array
+	{
+		if ($value === null) {
 			return [];
 		}
-
-		$out = [];
-
-		foreach ($value as $item) {
-			if (is_numeric($item)) {
-				$out[] = (int) $item;
-			}
+		if (! is_array($value) || ! array_is_list($value)) {
+			throw self::wrongType($key, 'a list', $value);
 		}
 
-		return $out;
+		return $value;
+	}
+
+	private static function toInt(string $key, mixed $value): int
+	{
+		if (is_int($value)) {
+			return $value;
+		}
+		if (is_float($value) && is_finite($value) && floor($value) === $value) {
+			if ($value >= -9.2233720368547758E18 && $value < 9.2233720368547758E18) {
+				return (int) $value;
+			}
+
+			throw self::outOfRange($key, $value);
+		}
+		if (is_string($value) && preg_match(self::BIG_INTEGER, $value) === 1) {
+			throw self::outOfRange($key, $value);
+		}
+
+		throw self::wrongType($key, 'an integer', $value);
+	}
+
+	private static function toUint(string $key, mixed $value, int $max): int
+	{
+		$int = self::toInt($key, $value);
+		if ($int < 0 || $int > $max) {
+			throw self::outOfRange($key, $value);
+		}
+
+		return $int;
+	}
+
+	private static function wrongType(string $key, string $expected, mixed $value): ServerException
+	{
+		$got = match (true) {
+			$value instanceof stdClass => 'an object',
+			is_array($value) => array_is_list($value) ? 'a list' : 'an object',
+			default => get_debug_type($value),
+		};
+
+		return new ServerException(sprintf('"%s" must be %s, got %s', $key, $expected, $got));
+	}
+
+	private static function outOfRange(string $key, mixed $value): ServerException
+	{
+		return new ServerException(sprintf('"%s" is out of range (%s)', $key, is_scalar($value) ? (string) $value : get_debug_type($value)));
 	}
 }

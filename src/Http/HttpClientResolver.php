@@ -6,6 +6,7 @@ namespace QBitFlow\Http;
 
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use QBitFlow\Exceptions\QBitFlowException;
 
@@ -27,43 +28,64 @@ final class HttpClientResolver
 {
 	/**
 	 * PSR-17 factory classes that implement both the request and stream factory
-	 * interfaces, in preference order.
+	 * interfaces, in preference order. Names, not `::class` constants: each is an optional
+	 * package the project may or may not have installed.
 	 *
-	 * @var list<class-string>
+	 * @var list<string>
 	 */
 	private const FACTORIES = [
-		\GuzzleHttp\Psr7\HttpFactory::class,
-		\Nyholm\Psr7\Factory\Psr17Factory::class,
-		\Laminas\Diactoros\RequestFactory::class,
-		\Slim\Psr7\Factory\RequestFactory::class,
-		\Http\Discovery\Psr17Factory::class,
+		'GuzzleHttp\Psr7\HttpFactory',
+		'Nyholm\Psr7\Factory\Psr17Factory',
+		'Laminas\Diactoros\RequestFactory',
+		'Slim\Psr7\Factory\RequestFactory',
+		'Http\Discovery\Psr17Factory',
 	];
+
+	/** Symfony's PSR-18 adapter (optional package). */
+	private const SYMFONY_PSR18 = 'Symfony\Component\HttpClient\Psr18Client';
+
+	/** Symfony's HTTP client factory (optional package). */
+	private const SYMFONY_HTTP_CLIENT = 'Symfony\Component\HttpClient\HttpClient';
 
 	/**
 	 * Resolve a PSR-18 client.
 	 *
-	 * @param float $timeout Request timeout in seconds, applied where the implementation
-	 *                       allows it.
+	 * @param float  $timeout Request timeout in seconds, applied where the implementation
+	 *                        allows it.
+	 * @param string $guzzle  The Guzzle client class (for the SDK's tests).
 	 *
 	 * @throws QBitFlowException If no known implementation is installed.
 	 */
-	public static function resolve(float $timeout): ClientInterface
+	public static function resolve(float $timeout, string $guzzle = \GuzzleHttp\Client::class): ClientInterface
 	{
-		if (class_exists(\GuzzleHttp\Client::class)) {
-			return new \GuzzleHttp\Client([
+		// Guzzle 6's client is not a PSR-18 client (Guzzle implements it from 7.0): skipped, so
+		// the PSR-18 adapter the project installed next to it is discovered below.
+		if (class_exists($guzzle) && is_a($guzzle, ClientInterface::class, true)) {
+			return new $guzzle([
 				'timeout' => $timeout,
 				'connect_timeout' => $timeout,
 				// Non-2xx responses are classified by the transport, not thrown by Guzzle.
 				'http_errors' => false,
+				// The API never redirects. Following one would replay the X-API-Key header
+				// to whatever host the redirect names; surfacing the 3xx instead lets the
+				// transport report a misconfigured base URL.
+				'allow_redirects' => false,
 			]);
 		}
 
-		if (class_exists(\Symfony\Component\HttpClient\Psr18Client::class)) {
-			return class_exists(\Symfony\Component\HttpClient\HttpClient::class)
-				? new \Symfony\Component\HttpClient\Psr18Client(
-					\Symfony\Component\HttpClient\HttpClient::create(['timeout' => $timeout]),
-				)
-				: new \Symfony\Component\HttpClient\Psr18Client();
+		$symfony = self::SYMFONY_PSR18;
+		if (class_exists($symfony) && is_a($symfony, ClientInterface::class, true)) {
+			$create = self::SYMFONY_HTTP_CLIENT . '::create';
+			if (! is_callable($create)) {
+				return new $symfony();
+			}
+
+			// `timeout` is Symfony's idle timeout; `max_duration` bounds the whole request.
+			return new $symfony($create([
+				'timeout' => $timeout,
+				'max_duration' => $timeout,
+				'max_redirects' => 0,
+			]));
 		}
 
 		// Anything else the project happens to have, if php-http/discovery is available.
@@ -114,6 +136,22 @@ final class HttpClientResolver
 	}
 
 	/**
+	 * Resolve a PSR-17 response factory (for the webhook router's PSR-7/PSR-15 adapters).
+	 *
+	 * @throws QBitFlowException If no known implementation is installed.
+	 */
+	public static function responseFactory(): ResponseFactoryInterface
+	{
+		$factory = self::findFactory(ResponseFactoryInterface::class);
+
+		if ($factory instanceof ResponseFactoryInterface) {
+			return $factory;
+		}
+
+		throw self::missingPsr17();
+	}
+
+	/**
 	 * Instantiate the first known factory implementing the given interface.
 	 *
 	 * @param class-string $interface
@@ -135,9 +173,11 @@ final class HttpClientResolver
 
 		if (class_exists(\Http\Discovery\Psr17FactoryDiscovery::class)) {
 			try {
-				return $interface === RequestFactoryInterface::class
-					? \Http\Discovery\Psr17FactoryDiscovery::findRequestFactory()
-					: \Http\Discovery\Psr17FactoryDiscovery::findStreamFactory();
+				return match ($interface) {
+					RequestFactoryInterface::class => \Http\Discovery\Psr17FactoryDiscovery::findRequestFactory(),
+					ResponseFactoryInterface::class => \Http\Discovery\Psr17FactoryDiscovery::findResponseFactory(),
+					default => \Http\Discovery\Psr17FactoryDiscovery::findStreamFactory(),
+				};
 			} catch (\Throwable) {
 				return null;
 			}
@@ -151,13 +191,15 @@ final class HttpClientResolver
 	 *
 	 * @param class-string $interface
 	 *
-	 * @return list<class-string>
+	 * @return list<string> Class names of optional packages.
 	 */
 	private static function splitFactories(string $interface): array
 	{
-		return $interface === RequestFactoryInterface::class
-			? [\Laminas\Diactoros\RequestFactory::class, \Slim\Psr7\Factory\RequestFactory::class]
-			: [\Laminas\Diactoros\StreamFactory::class, \Slim\Psr7\Factory\StreamFactory::class];
+		return match ($interface) {
+			RequestFactoryInterface::class => ['Laminas\Diactoros\RequestFactory', 'Slim\Psr7\Factory\RequestFactory'],
+			ResponseFactoryInterface::class => ['Laminas\Diactoros\ResponseFactory', 'Slim\Psr7\Factory\ResponseFactory'],
+			default => ['Laminas\Diactoros\StreamFactory', 'Slim\Psr7\Factory\StreamFactory'],
+		};
 	}
 
 	private static function missingPsr17(): QBitFlowException
@@ -165,7 +207,7 @@ final class HttpClientResolver
 		return new QBitFlowException(
 			'No PSR-17 HTTP factory found. Install one (for example "composer require nyholm/psr7") '
 				. 'or pass your own factories to the QBitFlow constructor via the $requestFactory '
-				. 'and $streamFactory arguments.',
+				. 'and $streamFactory arguments (to a webhook router: withResponseFactory()).',
 		);
 	}
 }

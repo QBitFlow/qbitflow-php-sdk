@@ -1,0 +1,26 @@
+# Static analysis: `composer analyse` (vendor/bin/phpstan analyse). No baseline.
+parameters:
+	level: max
+	paths:
+		- src
+	# The SDK checks its inputs at runtime even where a PHPDoc type already says what they are:
+	# callers' arrays are not type-checked by PHP, so those checks stay.
+	treatPhpDocTypesAsCertain: false
+	ignoreErrors:
+		# QBitFlow::init() wires the client's readonly services, for the constructor and for the
+		# clients that share a transport (QBitFlow::fromTransport() creates them without the
+		# constructor, then calls init() once on the uninitialised instance): each property is
+		# still assigned exactly once.
+		-
+			identifier: property.readOnlyAssignNotInConstructor
+			path: src/QBitFlow.php
+			count: 15
+		# qbitflow:verify catches the ValidationException the service provider's binding throws
+		# when no API key is configured. The container's make() declares only
+		# BindingResolutionException, so analysed for PHP 8.2 and 8.3 the catch looks dead; from
+		# 8.4 the property read may run a hook and throw anything, so it is not reported there.
+		-
+			identifier: catch.neverThrown
+			path: src/Laravel/Console/VerifyCommand.php
+			count: 1
+			reportUnmatched: false

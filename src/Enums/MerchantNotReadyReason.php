@@ -1,0 +1,54 @@
+<?php
+
+declare(strict_types=1);
+
+namespace QBitFlow\Enums;
+
+/**
+ * `details.reason` of a 409 `merchant_not_ready`.
+ *
+ * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
+ * know yet is kept as is, never rejected. Compare against these constants.
+ */
+final class MerchantNotReadyReason
+{
+	/** The space's wallets accept no currency (no wallet yet). */
+	public const NO_WALLET = 'noWallet';
+
+	/**
+	 * The organization holds the member's funds (its payments go to the organization's wallets),
+	 * and the organization's wallets accept no currency.
+	 */
+	public const ORGANIZATION_NO_WALLET = 'organizationNoWallet';
+
+	/**
+	 * A subscription checkout: subscriptions are paid in tokens, and the space's wallets accept
+	 * only native coins.
+	 */
+	public const NO_TOKEN_WALLET = 'noTokenWallet';
+
+	/**
+	 * A subscription checkout of a member whose funds the organization holds: one-time payments
+	 * only until `members->trust()`.
+	 */
+	public const FUNDS_HELD = 'fundsHeld';
+
+	/**
+	 * Every value this SDK knows.
+	 *
+	 * @return list<string>
+	 */
+	public static function values(): array
+	{
+		return [
+			self::NO_WALLET,
+			self::ORGANIZATION_NO_WALLET,
+			self::NO_TOKEN_WALLET,
+			self::FUNDS_HELD,
+		];
+	}
+
+	private function __construct()
+	{
+	}
+}

@@ -6,166 +6,150 @@ namespace QBitFlow\Tests\Laravel;
 
 use Illuminate\Events\Dispatcher;
 use Illuminate\Http\Request;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use QBitFlow\Enums\SubscriptionStatus;
-use QBitFlow\Enums\TransactionStatusValue;
-use QBitFlow\Enums\TransactionType;
-use QBitFlow\Laravel\Events\SubscriptionBilled;
-use QBitFlow\Laravel\Events\SubscriptionStatusChanged;
-use QBitFlow\Laravel\Events\TransactionWebhookReceived;
+use QBitFlow\Enums\EventType;
+use QBitFlow\Events\UnknownEvent;
+use QBitFlow\Laravel\Events;
 use QBitFlow\Laravel\Http\Controllers\WebhookController;
+use QBitFlow\Laravel\Http\Middleware\VerifyQBitFlowWebhook;
+use QBitFlow\Webhooks\Webhook;
+use QBitFlow\Webhooks\WebhookRouter;
+use RuntimeException;
 
 final class WebhookControllerTest extends TestCase
 {
-	private Dispatcher $events;
-
 	/** @var list<object> */
 	private array $dispatched = [];
 
-	protected function setUp(): void
+	private const SECRET = 'whsec_test_secret';
+
+	/** @var list<\Throwable> */
+	private array $reported = [];
+
+	private function controller(?\Closure $listener = null): WebhookController
 	{
-		parent::setUp();
-
 		$this->dispatched = [];
-		$this->events = new Dispatcher();
+		$this->reported = [];
+		$dispatcher = new Dispatcher();
+		$dispatcher->listen('*', function (string $name, array $payload): void {
+			$this->dispatched[] = $payload[0];
+		});
+		if ($listener !== null) {
+			$dispatcher->listen(Events\PaymentCompleted::class, $listener);
+		}
+		$exceptions = $this->createMock(ExceptionHandler::class);
+		$exceptions->method('report')->willReturnCallback(function (\Throwable $e): void {
+			$this->reported[] = $e;
+		});
 
-		foreach ([
-			TransactionWebhookReceived::class,
-			SubscriptionStatusChanged::class,
-			SubscriptionBilled::class,
-		] as $event) {
-			$this->events->listen($event, function (object $e): void {
-				$this->dispatched[] = $e;
-			});
+		return new WebhookController($dispatcher, new WebhookRouter(self::SECRET), $exceptions);
+	}
+
+	/** A request the middleware verified: `$data` is the event's data (`$raw`: the whole body). */
+	private static function verified(string $type, string $data = '{}', bool $raw = false): Request
+	{
+		$request = Request::create('/webhooks/qbitflow', 'POST');
+		$request->attributes->set(VerifyQBitFlowWebhook::EVENT_ATTRIBUTE, Webhook::parseEvent($raw ? $data
+			: '{"id":"evt_1","type":"' . $type . '","version":"v2","createdAt":"2026-10-01T12:00:00Z","test":false,"data":' . $data . '}'));
+
+		return $request;
+	}
+
+	#[Test]
+	public function it_dispatches_the_typed_event_then_webhook_received(): void
+	{
+		$expected = [
+			EventType::PAYMENT_COMPLETED => Events\PaymentCompleted::class,
+			EventType::SUBSCRIPTION_CREATED => Events\SubscriptionCreated::class,
+			EventType::SUBSCRIPTION_BILLED => Events\SubscriptionBilled::class,
+			EventType::SUBSCRIPTION_STATUS_CHANGED => Events\SubscriptionStatusChanged::class,
+			EventType::SUBSCRIPTION_ACTION_REQUIRED_CHANGED => Events\SubscriptionActionRequiredChanged::class,
+			EventType::SUBSCRIPTION_BILLING_FAILED => Events\SubscriptionBillingFailed::class,
+			EventType::SUBSCRIPTION_UPCOMING_BILL => Events\SubscriptionUpcomingBill::class,
+			EventType::REFUND_REQUESTED => Events\RefundRequested::class,
+			EventType::REFUND_APPROVED => Events\RefundApproved::class,
+			EventType::REFUND_REJECTED => Events\RefundRejected::class,
+			EventType::MEMBER_JOINED => Events\MemberJoined::class,
+			EventType::MEMBER_REMOVED => Events\MemberRemoved::class,
+			EventType::HELD_FUNDS_RELEASED => Events\HeldFundsReleased::class,
+			EventType::CHECKOUT_EXPIRED => Events\CheckoutExpired::class,
+			EventType::WEBHOOK_TEST => Events\WebhookTestReceived::class,
+		];
+		$this->assertCount(count(EventType::values()), $expected);
+
+		foreach ($expected as $type => $class) {
+			$response = $this->controller()(self::verified($type));
+			$this->assertSame(200, $response->getStatusCode(), $type);
+			$this->assertSame(['received' => true], $response->getData(true));
+			$this->assertCount(2, $this->dispatched, $type);
+			$this->assertInstanceOf($class, $this->dispatched[0], $type);
+			$this->assertSame($this->dispatched[0]->event->data, $this->dispatched[0]->data);
+			$this->assertInstanceOf(Events\WebhookReceived::class, $this->dispatched[1]);
+			$this->assertSame($this->dispatched[0]->event, $this->dispatched[1]->event);
 		}
 	}
 
-	/**
-	 * @param array<string,mixed> $payload
-	 */
-	private function request(array $payload): Request
+	#[Test]
+	public function a_payment_carries_its_typed_data(): void
 	{
-		return Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], json_encode($payload, JSON_THROW_ON_ERROR));
-	}
+		$this->controller()(self::verified(EventType::PAYMENT_COMPLETED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/payment.completed.json'), raw: true));
+		$this->assertSame('order-1042', $this->dispatched[0]->data->reference);
+		$this->assertSame(['10', '10', 'BASE:USDC'], [$this->dispatched[0]->data->amount, $this->dispatched[0]->data->amountUsd, $this->dispatched[0]->data->currency->code]);
 
-	private function controller(): WebhookController
-	{
-		return new WebhookController($this->events);
+		$this->dispatched = [];
+		$this->controller()(self::verified(EventType::SUBSCRIPTION_BILLED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/subscription.billed.json'), raw: true));
+		$this->assertInstanceOf(Events\SubscriptionBilled::class, $this->dispatched[0]);
+		$this->assertNotNull($this->dispatched[0]->data->bill->periodEnd, 'nested: data->bill');
+		$this->assertSame('customer-7731', $this->dispatched[0]->data->subscription->reference);
+
+		$this->dispatched = [];
+		$this->controller()(self::verified(EventType::REFUND_APPROVED, (string) file_get_contents(dirname(__DIR__) . '/Fixtures/events/refund.approved.json'), raw: true));
+		$this->assertInstanceOf(Events\RefundApproved::class, $this->dispatched[0]);
+		$this->assertSame('50', $this->dispatched[0]->data->refundPercent);
 	}
 
 	#[Test]
-	public function it_dispatches_a_transaction_event_for_a_completed_payment(): void
+	public function an_unknown_type_is_acknowledged_with_webhook_received_only(): void
 	{
-		$response = $this->controller()->transaction($this->request([
-			'uuid' => 's1',
-			'txType' => 'payment',
-			'managementPageLink' => 'https://qbitflow.app/manage/s1',
-			'status' => ['status' => 'completed', 'txHash' => '0xabc'],
-			'session' => ['uuid' => 's1', 'reference' => 'order-1234', 'price' => 29.99],
-		]));
-
+		$response = $this->controller()(self::verified('invoice.paid', '{"x":1}'));
 		$this->assertSame(200, $response->getStatusCode());
 		$this->assertCount(1, $this->dispatched);
-
-		$event = $this->dispatched[0];
-		$this->assertInstanceOf(TransactionWebhookReceived::class, $event);
-		$this->assertSame('order-1234', $event->reference());
-		$this->assertFalse($event->isSubscription());
-		$this->assertSame(TransactionType::ONE_TIME_PAYMENT, $event->payload->txType);
-		$this->assertSame(TransactionStatusValue::COMPLETED, $event->payload->status->status);
+		$this->assertInstanceOf(Events\WebhookReceived::class, $this->dispatched[0]);
+		$this->assertInstanceOf(UnknownEvent::class, $this->dispatched[0]->event);
 	}
 
 	#[Test]
-	public function it_flags_a_transaction_event_that_announces_a_new_subscription(): void
+	public function without_the_middleware_it_verifies_the_delivery_itself(): void
 	{
-		$this->controller()->transaction($this->request([
-			'uuid' => 's2',
-			'txType' => 'createSubscription',
-			'session' => ['uuid' => 's2', 'frequency' => 2592000],
-		]));
-
-		$event = $this->dispatched[0];
-		$this->assertInstanceOf(TransactionWebhookReceived::class, $event);
-		$this->assertTrue($event->isSubscription());
-	}
-
-	#[Test]
-	public function it_dispatches_a_status_change_event(): void
-	{
-		$response = $this->controller()->subscription($this->request([
-			'type' => 'status_transition',
-			'subscriptionReference' => 'sub-1234',
-			'data' => [
-				'subscriptionUUID' => 'sub1',
-				'subscriptionReference' => 'sub-1234',
-				'previousStatus' => 'active',
-				'currentStatus' => 'past_due',
-				'updatedAt' => '2026-03-01T12:00:00Z',
-			],
-		]));
-
-		$this->assertSame(200, $response->getStatusCode());
-
-		$event = $this->dispatched[0];
-		$this->assertInstanceOf(SubscriptionStatusChanged::class, $event);
-		$this->assertSame(SubscriptionStatus::ACTIVE, $event->transition->previousStatus);
-		$this->assertSame(SubscriptionStatus::PAST_DUE, $event->transition->currentStatus);
-		$this->assertSame('sub-1234', $event->reference());
-		$this->assertSame('2026-03-01', $event->transition->updatedAt->format('Y-m-d'));
-	}
-
-	#[Test]
-	public function it_dispatches_a_billing_event(): void
-	{
-		$this->controller()->subscription($this->request([
-			'type' => 'billing',
-			'subscriptionReference' => 'sub-1234',
-			'data' => [
-				'uuid' => 'hist1',
-				'subscriptionUUID' => 'sub1',
-				'from' => '0xa',
-				'to' => '0xb',
-				'name' => 'Premium',
-				'description' => 'Monthly',
-				'amount' => 29.99,
-				'currencyId' => 1,
-				'transactionHash' => '0xhash',
-				'customerUUID' => 'c1',
-				'test' => false,
-				'createdAt' => '2026-03-01T12:00:00Z',
-			],
-		]));
-
-		$event = $this->dispatched[0];
-		$this->assertInstanceOf(SubscriptionBilled::class, $event);
-		$this->assertSame('hist1', $event->billing->uuid);
-		$this->assertSame(29.99, $event->billing->amount);
-		$this->assertSame('sub-1234', $event->reference());
-	}
-
-	#[Test]
-	public function it_acknowledges_an_unrecognised_subscription_event_without_dispatching(): void
-	{
-		// A new event kind shipped by the API should not wedge the endpoint into a
-		// permanent retry loop.
-		$response = $this->controller()->subscription($this->request([
-			'type' => 'something_new',
-			'data' => ['subscriptionUUID' => 'sub1'],
-		]));
-
-		$this->assertSame(200, $response->getStatusCode());
+		$controller = $this->controller();
+		$response = $controller(Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], '{"type":"payment.completed"}'));
+		$this->assertSame(400, $response->getStatusCode(), 'never acts on an unverified body');
+		$this->assertSame(['error' => 'invalid signature'], $response->getData(true));
 		$this->assertSame([], $this->dispatched);
+
+		$response = $controller(WebhookMiddlewareTest::signedRequest(WebhookMiddlewareTest::body(), self::SECRET));
+		$this->assertSame(200, $response->getStatusCode());
+		$this->assertCount(2, $this->dispatched);
+		$this->assertInstanceOf(Events\PaymentCompleted::class, $this->dispatched[0]);
+
+		$big = Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], str_repeat('a', Webhook::MAX_BODY_BYTES + 1));
+		$this->assertSame(413, $controller($big)->getStatusCode());
 	}
 
 	#[Test]
-	public function it_tolerates_an_unreadable_body(): void
+	public function a_failing_listener_answers_500_and_is_reported(): void
 	{
-		$request = Request::create('/webhooks/qbitflow', 'POST', [], [], [], [], 'not json');
+		$boom = new RuntimeException('database down');
+		$controller = $this->controller(static function () use ($boom): void {
+			throw $boom;
+		});
+		$response = $controller(self::verified(EventType::PAYMENT_COMPLETED));
 
-		$response = $this->controller()->subscription($request);
-
-		$this->assertSame(200, $response->getStatusCode());
-		$this->assertSame([], $this->dispatched);
+		$this->assertSame(500, $response->getStatusCode());
+		$this->assertSame(['error' => 'internal error'], $response->getData(true), 'never the exception message');
+		$this->assertSame([$boom], $this->reported);
+		$this->assertNotContains(true, array_map(static fn (object $e): bool => $e instanceof Events\WebhookReceived, $this->dispatched), 'later handlers skipped');
 	}
 }

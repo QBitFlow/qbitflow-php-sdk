@@ -2,13 +2,245 @@
 
 All notable changes to this project will be documented in this file.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
+The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [3.0.0] - 2026-10-28
+
+The SDK for **QBitFlow API v2**, and a major release: the client, the routes, most names, the
+models, the exceptions, the webhooks and the Laravel integration change. This entry lists the
+changes since 2.1.0. **[MIGRATION-v3.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/MIGRATION-v3.md)**
+maps every 2.x method and class to its replacement, with before/after code. The Go, JavaScript,
+Python and PHP SDKs 3.0.0 share the same services, methods, errors, retries, validation and
+webhook verification.
+
+Requires PHP **8.2.35, 8.3.36, 8.4.27 or 8.5.12** or later in the branch (see Security), and
+optionally Laravel 10, 11, 12 or 13.
+
+### Added
+
+-   **API v2's integrator surface: 14 services, 53 public routes.** `$client->me()` (what the key
+    is: role, space, mode, the member acted for: the recommended start-up check) and
+    `$client->onBehalfOf($userUuid)` (a client acting in a member's space, sharing the
+    transport); the services `products`, `customers`, `currencies`, `checkoutSessions`,
+    `payments`, `transactions` (payments and bills in one feed), `failures` (failed payment
+    attempts), `subscriptions`, `refunds` (read only), `members`, `invitations`, `wallets`,
+    `accounting` and `webhooks` (with `webhooks->endpoints` and `webhooks->events`, the event
+    log). Each is a property (`$client->products`) and a method of the same name (for the
+    Laravel facade).
+-   **Checkout sessions**: `checkoutSessions->createPayment()`, `createSubscription()` (with
+    `expiresInMinutes`, `metadata`, `customerUuid` / `customerReference` and the `{{UUID}}` /
+    `{{TRANSACTION_TYPE}}` redirect placeholders, `Placeholders::UUID` /
+    `Placeholders::TRANSACTION_TYPE`), `get()` (four statuses: `created`, `waitingConfirmation`,
+    `completed`, `expired`; a failed attempt is `created` with `lastAttempt`, never final) and
+    `expire()`.
+-   **Checkout fees**: `fees: new CheckoutFees(…)` on both session creates adds your lines
+    (`FeeItem`: `label`, `amountUsd`, optional `description`; at most 10) and QBitFlow's
+    processing fee (`processingFee: true`, grossed up so you keep the price and your lines) to
+    the price. `Payment`, `Subscription` and `Transaction` carry `priceUsd` and `fees`
+    (`FeeLine`, `Enums\FeeLineType`).
+-   **Your own `metadata`** (`array<string,string>`) on products, customers, checkouts (copied
+    onto the payment or subscription and into its webhooks) and subscriptions
+    (`subscriptions->update()`), merged on updates (a key set to `''` deletes it).
+-   **Lists and filters**: `products->list()` (`includeHidden`, `subscription`, `reference`),
+    `customers->list()` (`email`, `reference`), `payments->list()` (customer, product, dates,
+    `reference`, `refunded`, `includeMembers` / `userUuid`), `subscriptions->list()`,
+    `listBills()` and `getBill()`, `refunds->list()` (`status`, a list sent repeated, `txUuid`,
+    `held`, `includeMembers`, `userUuid`) and `refunds->get()`, `failures->list()`,
+    `transactions->list()` (`type`, `subscriptionUuid`, `refunded`), `ReadParams` on the single
+    reads (`includeMembers`).
+-   **Pagination**: paginated lists return a `QBitFlow\Page` (`items`, `hasMore`,
+    `nextCursor`), and each has a lazy `Generator` twin (`iterate()`, `iterateBills()`) that
+    walks every page. Bounded lists (currencies, wallets, held funds, the JSON export) return a
+    plain array.
+-   **`getByReference()`** on products, customers, payments and subscriptions: the item whose
+    reference is exactly the one asked for, else a `NotFoundException` (404, `not_found`).
+-   **Subscriptions**: `Subscription::$currentPeriodEnd` and `hasAccess()`, `actionRequired`,
+    `dunning`, `allowance` (`Allowance`), `cancellationReason`, `managementPageLink`;
+    `cancel($uuid, ?CancelSubscriptionParams)` (`immediate`, returns a
+    `SubscriptionCancellation` with `pending` for an HTTP 202) and `testBill()` (test mode).
+-   **Marketplaces**: `members` (`list`, `iterate`, `get`, `update`, `remove`, `trust`,
+    `listHeldFunds`, `getHeldFunds`, `getOwnHeldFunds`) and `invitations` (`create`, with
+    `holdFunds` and `sendEmail`; `list` and `iterate`, the member invitations: the team's are
+    managed from the dashboard; `revoke`); `Enums\MerchantNotReadyReason`
+    for `409 merchant_not_ready`.
+-   **Wallets and currencies**: `wallets->list()` (with balances), `listForMember()`,
+    `listAcceptedCurrencies()`; `currencies->list()` and `get()`; the `Currency` object's `code`
+    (`BASE:USDC`) and `chain`; `Models\TokenAmount`, the shape of every token amount.
+-   **Accounting**: `accounting->exportJson()` / `exportCsv()` (at most 92 days, both included)
+    and `exportJsonRange()` / `exportCsvRange()` for any range.
+-   **Webhook endpoints and the event log**: `webhooks->endpoints` (`list`, `iterate`,
+    `create` returning the secret once, `get`, `update` with `enabled`, `delete`) and
+    `webhooks->events` (`list`, `iterate`, `get` with its deliveries).
+-   **Webhooks without a client**: `Webhook::verify()`, `verifyRequest()` (a PSR-7 request),
+    `constructEvent()`, `parseEvent()` and `sign()` (to test your handlers), with a tolerance and
+    an injectable clock; the header constants `SIGNATURE_HEADER`, `EVENT_ID_HEADER`,
+    `EVENT_TYPE_HEADER`. Typed events: one `final readonly` class per type (15 types, with a
+    typed `data`), an `UnknownEvent` for a type added later, and `Event::decodeData()`.
+-   **`WebhookRouter`** (also `$client->webhooks->router($secret)`): verifies, parses and runs
+    your typed handlers (`on()`, `onUnknown()`, `onAny()`, `onError()`), and says what to answer
+    (200 / 400 / 500, `WebhookResult`); adapters for plain PHP (`handleGlobals()`), PSR-7
+    (`handleRequest()`) and PSR-15 (`psr15()`), and `dispatch()` for an event verified elsewhere.
+    New dependency: `psr/http-server-handler` ^1.0.
+-   **Typed exceptions** (see Changed), the API's request id on every one, and
+    `QBitFlowException::isRetryable()`.
+-   **Retries and idempotency**: reads and the 6 creates are retried on network errors,
+    timeouts, 5xx, 429 (after `Retry-After`, at most 60 s) and `409 idempotency_key_in_use`, 3
+    times by default with a 1 s · 2ⁿ back-off (`maxRetries: 0` disables them); every create sends
+    an `Idempotency-Key`, reused by its retries.
+-   **`RequestOptions`**, last on every method: `onBehalfOf`, `idempotencyKey` (your own, for
+    retries across processes) and `requestId` (`X-Request-Id`).
+-   **Client-side validation** mirroring the API's: each params class's `validate()` runs before
+    every request (names, texts, references, emails, phones, URLs, USD amounts and percents as
+    strings, metadata, durations, UUIDs and transaction ids, cursors, enum filters); a failure is
+    a `ValidationException` naming each input, and nothing is sent.
+-   **Helpers**: `QBitFlow::fromEnv()`, `checkoutSessions->waitForCompletion()`,
+    `Support\Amount::format()` / `parse()` (exact min units ↔ decimal strings) and
+    `Currency::formatAmount()`.
+-   **Laravel**: `webhook_secret` and `webhook_tolerance` config keys, one Laravel event per
+    webhook type plus `WebhookReceived`, the verified event on `$request->attributes`
+    (`qbitflow.event`), a `WebhookRouter` bound in the container, facade methods for every
+    service and `me()`; `qbitflow:verify` calls `me()`.
+-   `User-Agent: qbitflow-php/3.0.0` (`QBitFlow::VERSION`); examples for every service, a Laravel
+    example, `MIGRATION-v3.md`, `SECURITY.md` and `COMPLIANCE.md` rewritten.
+
+### Changed
+
+-   **Breaking: API v2.** The default base URL is `https://api.qbitflow.app/v2`, with its REST
+    routes (plural collections, `PATCH` updates, `POST /<resource>/:uuid/<verb>` actions,
+    lookups by reference as list filters, every `DELETE` answering 204 and returning `void`).
+    The client no longer reads `QBITFLOW_BASE_URL` itself: pass `baseUrl:` or use
+    `QBitFlow::fromEnv()` (the Laravel config still maps it).
+-   **Breaking: the client.** `new QBitFlow(apiKey: …, baseUrl:, timeout:, maxRetries:,
+    onBehalfOf:, httpClient:, requestFactory:, streamFactory:)` with named arguments; the key must
+    be non-blank, start with `sk_` and be printable ASCII; `timeout` is per attempt. A bad
+    argument is a `ValidationException`, and nothing is sent.
+-   **Breaking: `onBehalfOf` takes a member's user UUID** (a string), on the client
+    (`$client->onBehalfOf($userUuid)`) or per call (`RequestOptions`); the per-service
+    `onBehalfOf(int)` methods are gone.
+-   **Breaking: params classes** (`QBitFlow\Params\…`, readonly, named arguments) replace the
+    DTOs and arrays of every create, update and list.
+-   **Breaking: models** are readonly `QBitFlow\Models\…` classes (were `QBitFlow\Dto\…`) whose
+    properties are the API's JSON keys (`customerUuid`, `txHash`); renamed among others:
+    `LinkResponse` → `CreatedCheckoutSession`, `TransactionStatus` → `CheckoutSessionStatus`,
+    `SubscriptionHistory` → `Bill`, `RefundEntry` → `Refund`, `User` → `Member`,
+    `CombinedPayment` → `Transaction`, `CursorData` → `Page`; `name` → `firstName` on people;
+    the fee split (`Payment::$metadata`, `PaymentMetadata`, `TxMetadata`, …) → `settlement`
+    (`Settlement`, `Split`, `SettlementTransaction`, `TransferSettlement`).
+-   **Breaking: money is a decimal string, never a float**, in requests and responses: USD
+    amounts (`priceUsd`, `amountUsd`), token amounts in the token's units (`amount` `"10"` for
+    10 USDC, next to `amountMinUnits`) and percents (`feePercent`, `organizationFeePercent`,
+    `refundPercent`; were basis points `…Bps`).
+-   **Breaking: ids are strings**: products and people by UUID (`productUuid`, `userUuid`),
+    transactions by prefixed id (`pay@…`, `sub@…`, `sub-hist@…`, `refund@…`, the bare UUID
+    accepted); currencies keep numeric ids.
+-   **Breaking: enums are classes of string constants** (were PHP backed enums), the API's
+    lowerCamelCase values kept as plain strings (an unknown value is kept, never refused):
+    `UserRole` → `Role` (`ADMIN`, `USER`), `RefundStatus::REFUSED` → `REJECTED`,
+    `TransactionType::ONE_TIME_PAYMENT` → `PAYMENT` (only `PAYMENT` and `CREATE_SUBSCRIPTION`
+    remain), `CombinedPaymentSource` → `TransactionKind`, `AccountingEventType`
+    `subscriptionHistory` → `bill`.
+-   **Breaking: users and claims become invitations, members and held funds**; one-time payment
+    and subscription sessions move to `checkoutSessions`; `oneTimePayments` becomes `payments`;
+    `subscriptions->forceCancel()` → `cancel()`, `executeTestBillingCycle()` → `testBill()`,
+    `getPaymentHistory()` → `listBills()`; `getAll…($limit, $cursor)` → `list(?…ListParams)`.
+-   **Breaking: exceptions**, one class per condition, all `ApiException`s (a
+    `QBitFlowException` implementing `ExceptionInterface`): `ValidationException`,
+    `BadRequestException`, `AuthenticationException` (was `UnauthorizedException`),
+    `PermissionDeniedException` (was `ForbiddenException`), `NotFoundException`,
+    `ConflictException`, `GoneException`, `IdempotencyException`, `RateLimitException`,
+    `ServerException`, `NetworkException`, `WebhookSignatureException`. Each carries `status`,
+    `apiCode` (the API's string code; `getCode()` is the HTTP status), `errorMessage`,
+    `details`, `requestId`, `fieldErrors` and `rawBody`.
+-   **Breaking: webhooks** use API v2's scheme: the `QBitFlow-Signature: t=…,v1=…` header (an
+    HMAC-SHA256 of `t.rawBody`, over the raw body), the v2 event envelope (`id`, `type`,
+    `createdAt`, `test`, `userUuid`, `data`; another payload version is refused), and the events
+    `refund.approved` / `refund.rejected` (were `refund.completed` / `refund.denied`);
+    `subscription.billed`'s data is `{bill, subscription}`. `WebhookVerifier` →
+    `QBitFlow\Webhooks\Webhook`; `webhooks->verify()` → `webhooks->verifyRemote($endpointUuid,
+    $rawBody, $signatureHeader)`.
+-   **Breaking: Laravel.** One `Route::qbitflowWebhooks()` (was a route per webhook kind); the
+    `qbitflow.webhook` middleware verifies locally with `QBITFLOW_WEBHOOK_SECRET` (required);
+    the controller dispatches one Laravel event per type, then `WebhookReceived`.
+-   **Retries only where they are safe**: 2.x retried every request on network errors and 5xx;
+    3.0.0 retries the reads and the 6 idempotent creates only, never another write.
+-   `AccountingEvent` follows the API v2 export (amounts in the currency's units with their
+    `…MinUnits` twins, `currency`, network fees apart from the net, `txUuid` / `reference`).
+-   Responses decode leniently on absence (an absent or `null` field gets its zero value) and
+    strictly on type (a JSON number where a decimal string is expected is a `ServerException`);
+    a 3xx (redirects are never followed) and an unusable 2xx body are `ServerException`s.
+-   A member's own key may send a checkout's `successUrl` and `cancelUrl` while the
+    organization's `members.checkoutRedirects` policy allows it; with the policy off, the API
+    answers `403 policy_disabled` with `details['policy']` and `details['field']`
+    (`PermissionDeniedException`).
+
+### Removed
+
+-   **2.x services and methods with no v2 route for an API key**: `users`, `claims`, `apiKeys`,
+    `transactionStatus`, the session getters, `oneTimePayments->getCustomerForTransaction()`
+    (read `Payment::$customer`), `refunds->getByTransaction()` (`refunds->list()` with
+    `txUuid`), `customers->getByEmail()` (`customers->list()` with `email`: an email may match
+    several customers), the public bill history, `accounting->export($from, $to, $format)` (use
+    `exportJson()` / `exportCsv()`), `QBitFlow::fromArray()`, `getApiKey()` and `Config`.
+-   The v1 webhook verifier (`WebhookVerifier`, `canonicalJson`, the `X-Webhook-*` headers,
+    `TEST_WEBHOOK_ID`, `webhooks->isTestWebhook()`), the v1 payloads
+    (`SessionWebhookResponse`, `SubscriptionStatusTransition`) and the Laravel
+    `TransactionWebhookReceived` event.
+-   The v1 session and response DTOs (`SessionCheckout`, `OneTimePaymentSession`,
+    `SubscriptionSession`, `PaygSubscriptionSession`, `StatusLinkResponse`, `StatusResponse`,
+    `SuccessResponse`, `Organization`, `ApiKey`, `ClaimFunds`, `ClaimRequestResponse`), with
+    their hosted-page fields (`organizationName`, `userName`); `Support\Dto`,
+    `Support\CursorData`, `Support\Validate`; the enums `ExportFormat`, `SubscriptionWebhookType`,
+    `TransactionShortType`, `TransactionStatusValue`.
+-   `RefundStatus::FAILED`: the API never sends it (a failed approval leaves the refund
+    `pending`); it is no longer a value of the `status` filter either.
+-   `TransactionType` values no API-key response carries (`TRANSFER`, `TOKEN_TRANSFER`,
+    `CANCEL_SUBSCRIPTION`, `EXECUTE_SUBSCRIPTION_PAYMENT`, `CREATE_PAYG_SUBSCRIPTION`,
+    `CANCEL_PAYG_SUBSCRIPTION`, `INCREASE_ALLOWANCE`, `UPDATE_MAX_AMOUNT`, `REFUND`, `FAUCET`,
+    `CLAIM_FUNDS`); `ReferralFee::$deadline` (internal to QBitFlow).
+-   `getStatusCode()`, `getFields()` and `getResponse()` on exceptions (use `status`,
+    `fieldErrors`, `rawBody`).
+
+### Fixed
+
+-   Field errors of a 400 are read from the API's `details.errors` (they came back empty), and
+    name each input by its wire name, dotted when nested (`frequency.unit`).
+-   User-supplied path segments are escaped, a `.` or `..` segment included, so an id can never
+    address another route; a `reference` equal to `.` or `..` is refused before sending (bodies,
+    `productReference` / `customerReference`, the reference filters and `getByReference()`).
+-   With Guzzle 6 installed next to a PSR-18 adapter, the client no longer fails with a
+    `TypeError`: Guzzle is used only when it is a PSR-18 client (Guzzle 7).
+-   A request body JSON cannot represent (NaN, ±INF, invalid UTF-8) is a `ValidationException`
+    naming the field, instead of a malformed request.
+
+### Security
+
+-   **php2shell (CVE-2026-109618, CVE-2026-109619)**: `require.php` is
+    `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`, the PHP releases that fix these interpreter
+    flaws, so Composer refuses an unpatched PHP (a distribution's PHP with the fixes backported:
+    `--ignore-platform-req=php`; see
+    [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md#php-interpreter-vulnerabilities-php2shell)).
+-   Webhook input is bounded on every entry point: a body over 1 MiB is refused before it is read
+    or parsed (`413` from the router and the Laravel middleware, a `ValidationException` from
+    `constructEvent()` / `parseEvent()`), and JSON nesting is capped at 64 levels.
+-   The API key and the webhook secret are `#[\SensitiveParameter]` wherever they are passed, so
+    no stack trace carries them to your logs or error tracker (a network error's trace included).
+-   The key and the secret are held in `\SensitiveParameterValue`s: no dump (`print_r()`,
+    `var_dump()`, `var_export()`, `dd()`, an array cast) of the client, a service, a derived
+    client, the `WebhookRouter` or the Laravel middleware shows them, and **`serialize()` of any
+    of them throws** (a `SensitiveParameterValue` cannot be serialized), so a key never lands in a
+    cache, a session or a queued job by accident. Build the client where you use it.
+-   Webhook signatures are compared in constant time (`hash_equals()`, every `v1` of the header),
+    and a timestamp more than 300 seconds from now is refused.
+-   The constructor refuses an API key that is not printable ASCII without spaces, and a
+    `baseUrl` with credentials, a query or a fragment, without quoting either value; redirects
+    are never followed (the `X-API-Key` header is never replayed to another host).
+-   `timeout` bounds each attempt as a whole, through the last byte of the body, so a server
+    trickling its body cannot hold a call past it.
 
 ## [2.1.0] - 2026-09-21
 
-Aligns the SDK with docs revision `c3c8831`, matching the 2.1.0 release of the Go,
-JavaScript and Python SDKs.
+Matches the 2.1.0 release of the Go, JavaScript and Python SDKs.
 
 > **Note:** this release carries breaking changes (listed below) despite the minor version
 > bump.
@@ -106,8 +338,7 @@ JavaScript and Python SDKs.
 ## [2.0.0] - 2026-09-18
 
 Initial release of the PHP SDK. It ships as `2.0.0` to line up with the Python and
-JavaScript SDKs, which are synced to the same API documentation revision
-(`9e63ae8`, 2026-09-13). The API base URL is unchanged (`/v1`).
+JavaScript SDKs, which follow the same API documentation (2026-09-13). The API base URL is unchanged (`/v1`).
 
 ### Added
 
@@ -200,4 +431,6 @@ Two intentional differences from both SDKs:
 - **API-key creation and deletion.** Both are JWT-only operations on the API and cannot be
   performed with an API key; manage keys from the dashboard. Read access is available.
 
-[2.0.0]: https://github.com/qbitflow/qbitflow-php-sdk/releases/tag/v2.0.0
+[3.0.0]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v2.1.0...v3.0.0
+[2.1.0]: https://github.com/QBitFlow/qbitflow-php-sdk/releases/tag/v2.1.0
+[2.0.0]: https://github.com/QBitFlow/qbitflow-php-sdk/releases/tag/v2.0.0

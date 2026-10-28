@@ -5,32 +5,34 @@ declare(strict_types=1);
 namespace QBitFlow\Laravel\Console;
 
 use Illuminate\Console\Command;
-use QBitFlow\Enums\UserRole;
+use QBitFlow\Enums\Role;
+use QBitFlow\Exceptions\AuthenticationException;
 use QBitFlow\Exceptions\NetworkException;
 use QBitFlow\Exceptions\QBitFlowException;
-use QBitFlow\Exceptions\UnauthorizedException;
 use QBitFlow\Exceptions\ValidationException;
 use QBitFlow\QBitFlow;
 
 /**
- * Answers "is my QBitFlow setup actually working?" in one command.
- *
- * It calls `GET /user`, which is the cheapest authenticated endpoint, and reports who the
- * key belongs to. Useful after first install, after rotating a key, and in CI.
+ * `php artisan qbitflow:verify`: checks the configured API key with `GET /me` and says what it
+ * is (role, organization, space, mode). Useful after installing, after rotating a key, and in CI.
  */
 final class VerifyCommand extends Command
 {
 	protected $signature = 'qbitflow:verify';
 
-	protected $description = 'Check that the configured QBitFlow API key works';
+	protected $description = 'Check that the configured QBitFlow API key works, and show what it is';
 
+	/**
+	 * Calls `GET /me` with the configured key and prints what it is.
+	 *
+	 * @return int 0 when the key works; 1 when it is missing or rejected, or the API can't be reached.
+	 */
 	public function handle(): int
 	{
 		try {
 			$client = $this->laravel->make(QBitFlow::class);
 		} catch (ValidationException $e) {
-			// Thrown by the service provider when no key is configured.
-			$this->error($e->getMessage());
+			$this->error($e->getErrorMessage());
 
 			return self::FAILURE;
 		}
@@ -38,14 +40,14 @@ final class VerifyCommand extends Command
 		$this->line('Endpoint: <comment>' . $client->getBaseUrl() . '</comment>');
 
 		try {
-			$user = $client->users->get();
-		} catch (UnauthorizedException) {
+			$me = $client->me();
+		} catch (AuthenticationException) {
 			$this->error('The API key was rejected. Check QBITFLOW_API_KEY against your dashboard.');
 
 			return self::FAILURE;
 		} catch (NetworkException $e) {
 			$this->error('Could not reach QBitFlow: ' . $e->getMessage());
-			$this->line('The key may still be fine — check connectivity and any outbound proxy.');
+			$this->line('The key may still be fine: check the connectivity and any outbound proxy.');
 
 			return self::FAILURE;
 		} catch (QBitFlowException $e) {
@@ -57,19 +59,18 @@ final class VerifyCommand extends Command
 		$this->info('API key is valid.');
 		$this->newLine();
 
+		$space = $me->space;
 		$this->table(['Field', 'Value'], [
-			['User', trim($user->name . ' ' . $user->lastName)],
-			['Email', $user->email],
-			['User ID', (string) $user->id],
-			['Role', $user->role->value],
-			['Organization ID', (string) $user->organizationId],
-			['Organization fee', sprintf('%d bps (%.2f%%)', $user->organizationFeeBps, $user->organizationFeeBps / 100)],
+			['Role', $me->role ?? ''],
+			['Organization', $space->organizationName ?? ''],
+			['Space', $space->uuid ?? ''],
+			['Mode', $space === null ? '' : ($space->test ? 'test' : 'live')],
+			['Member', $space?->member !== null ? trim($space->member->firstName . ' ' . ($space->member->lastName ?? '')) . ' (' . $space->member->userUuid . ')' : '—'],
 		]);
 
-		if ($user->role === UserRole::USER) {
+		if ($me->role === Role::USER) {
 			$this->newLine();
-			$this->warn('This is a user-level key, so onBehalfOf() will fail with a 403.');
-			$this->line('Use an admin or owner key if you need to act for other users in your organization.');
+			$this->warn('This is a member\'s key: onBehalfOf() and the members and invitations services need an organization key.');
 		}
 
 		return self::SUCCESS;

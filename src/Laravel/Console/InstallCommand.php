@@ -19,6 +19,10 @@ final class InstallCommand extends Command
 
 	protected $description = 'Publish the QBitFlow config and prepare your environment';
 
+	/**
+	 * Publishes the config, adds `QBITFLOW_API_KEY` and `QBITFLOW_WEBHOOK_SECRET` to `.env` and
+	 * `.env.example` when missing, and prints the next steps.
+	 */
 	public function handle(): int
 	{
 		$this->publishConfig();
@@ -62,17 +66,22 @@ final class InstallCommand extends Command
 
 			$contents = (string) file_get_contents($path);
 
-			if (str_contains($contents, 'QBITFLOW_API_KEY')) {
-				$this->line("QBITFLOW_API_KEY already present in <comment>{$file}</comment>.");
+			$missing = array_values(array_filter(
+				['QBITFLOW_API_KEY', 'QBITFLOW_WEBHOOK_SECRET'],
+				static fn (string $key): bool => preg_match('/^' . $key . '=/m', $contents) !== 1,
+			));
+
+			if ($missing === []) {
+				$this->line("QBITFLOW_API_KEY and QBITFLOW_WEBHOOK_SECRET already present in <comment>{$file}</comment>.");
 
 				continue;
 			}
 
-			$block = PHP_EOL . 'QBITFLOW_API_KEY=' . PHP_EOL;
+			$block = PHP_EOL . implode('', array_map(static fn (string $key): string => $key . '=' . PHP_EOL, $missing));
 
 			file_put_contents($path, rtrim($contents, PHP_EOL) . PHP_EOL . $block);
 
-			$this->info("Added QBITFLOW_API_KEY to {$file}");
+			$this->info('Added ' . implode(' and ', $missing) . " to {$file}");
 		}
 	}
 
@@ -83,19 +92,19 @@ final class InstallCommand extends Command
 		$this->newLine();
 
 		$this->line('  1. Put your API key in <comment>.env</comment>:');
-		$this->line('     <fg=gray>QBITFLOW_API_KEY=your-api-key</>');
-		$this->line('     A test key keeps everything on testnets, separate from live data.');
+		$this->line('     <fg=gray>QBITFLOW_API_KEY=sk_…</>');
+		$this->line('     A test-mode key keeps everything on testnets, separate from live data.');
 		$this->newLine();
 
 		$this->line('  2. Check it works:');
 		$this->line('     <fg=gray>php artisan qbitflow:verify</>');
 		$this->newLine();
 
-		$this->line('  3. To receive webhooks, add the routes to <comment>routes/api.php</comment>:');
-		$this->line('     <fg=gray>Route::qbitflowTransactionWebhook(\'/webhooks/qbitflow/transaction\');</>');
-		$this->line('     <fg=gray>Route::qbitflowSubscriptionWebhook(\'/webhooks/qbitflow/subscription\');</>');
-		$this->line('     Then set those URLs in the dashboard under Settings → Webhooks, and listen');
-		$this->line('     for TransactionWebhookReceived, SubscriptionBilled and SubscriptionStatusChanged.');
+		$this->line('  3. To receive webhooks, add the route to <comment>routes/api.php</comment>:');
+		$this->line('     <fg=gray>Route::qbitflowWebhooks(\'webhooks/qbitflow\');</>');
+		$this->line('     Create the endpoint (dashboard, or $client->webhooks->endpoints->create()),');
+		$this->line('     put its whsec_… secret in <fg=gray>QBITFLOW_WEBHOOK_SECRET</>, and listen for');
+		$this->line('     PaymentCompleted, SubscriptionStatusChanged, … or WebhookReceived.');
 		$this->newLine();
 
 		$this->line('  Docs: <comment>https://qbitflow.app/docs</comment>');

@@ -5,46 +5,33 @@ declare(strict_types=1);
 namespace QBitFlow\Enums;
 
 /**
- * Transaction types accepted by the status endpoints and reported on webhooks.
+ * A transaction's kind (`checkout.expired`'s `txType`: `payment` or `createSubscription`).
+ *
+ * An open enum: the API's value is kept as a plain `string`, and a value this SDK does not
+ * know yet is kept as is, never rejected. Compare against these constants.
  */
-enum TransactionType: string
+final class TransactionType
 {
-	/** One-time payment transaction (native currency). */
-	case ONE_TIME_PAYMENT = 'payment';
+	/** A one-time payment's checkout. */
+	public const PAYMENT = 'payment';
 
-	/** Transfer transaction (native currency). */
-	case TRANSFER = 'transfer';
+	/** A subscription's checkout. */
+	public const CREATE_SUBSCRIPTION = 'createSubscription';
 
-	/** Transfer transaction (token). */
-	case TOKEN_TRANSFER = 'tokenTransfer';
+	/**
+	 * Every value this SDK knows.
+	 *
+	 * @return list<string>
+	 */
+	public static function values(): array
+	{
+		return [
+			self::PAYMENT,
+			self::CREATE_SUBSCRIPTION,
+		];
+	}
 
-	/** Create-subscription transaction. */
-	case CREATE_SUBSCRIPTION = 'createSubscription';
-
-	/** Cancel-subscription transaction. */
-	case CANCEL_SUBSCRIPTION = 'cancelSubscription';
-
-	/** Execute a scheduled subscription payment. */
-	case EXECUTE_SUBSCRIPTION_PAYMENT = 'executeSubscription';
-
-	/** Create a pay-as-you-go subscription. */
-	case CREATE_PAYG_SUBSCRIPTION = 'createPAYGSubscription';
-
-	/** Cancel a pay-as-you-go subscription. */
-	case CANCEL_PAYG_SUBSCRIPTION = 'cancelPAYGSubscription';
-
-	/** Increase the on-chain allowance of a subscription. */
-	case INCREASE_ALLOWANCE = 'increaseAllowance';
-
-	/** Update the maximum amount of a subscription. */
-	case UPDATE_MAX_AMOUNT = 'updateMaxAmount';
-
-	/** Refund transaction. */
-	case REFUND = 'refund';
-
-	/** Faucet transaction (test networks only). */
-	case FAUCET = 'faucet';
-
-	/** Claim-funds transaction. */
-	case CLAIM_FUNDS = 'claimFunds';
+	private function __construct()
+	{
+	}
 }
