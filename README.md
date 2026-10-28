@@ -68,8 +68,9 @@ composer require qbitflow/qbitflow-php
   interpreter. The `json` extension (bundled with PHP).
 - A [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
   [PSR-17](https://www.php-fig.org/psr/psr-17/) factories.
-- Optional: **Laravel 10, 11 or 12** for the service provider, facade, middleware, events and
-  Artisan commands (auto-discovered; see [Laravel](#laravel)). The core client needs no framework.
+- Optional: **Laravel 10, 11, 12 or 13** for the service provider, facade, middleware, events
+  and Artisan commands (auto-discovered; see [Laravel](#laravel)). The core client needs no
+  framework.
 
 The SDK has no runtime dependency beyond the PSR interfaces. Guzzle (already in every Laravel
 application) and Symfony HttpClient are detected and used automatically; otherwise install one:
@@ -1612,8 +1613,8 @@ changes; `$client->onBehalfOf()` derives clients that share it. Every request se
 
 ## Laravel
 
-Laravel **10, 11 and 12** are supported (Composer refuses Laravel 9 and earlier). The package is
-auto-discovered: a singleton `QBitFlow` client (also the `QBitFlow` facade), the
+Laravel **10, 11, 12 and 13** are supported (Composer refuses Laravel 9 and earlier). The package
+is auto-discovered: a singleton `QBitFlow` client (also the `QBitFlow` facade), the
 `config/qbitflow.php` file, the `qbitflow.webhook` middleware, the `Route::qbitflowWebhooks()`
 macro, one Laravel event per webhook type, and two Artisan commands.
 

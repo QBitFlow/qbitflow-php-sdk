@@ -91,7 +91,7 @@ The constructor **no longer reads `QBITFLOW_BASE_URL`** by itself (2.x's `Config
 `baseUrl:` explicitly, or use `QBitFlow::fromEnv()`, which reads `QBITFLOW_API_KEY`,
 `QBITFLOW_BASE_URL` and `QBITFLOW_ON_BEHALF_OF`. The Laravel config still maps `QBITFLOW_BASE_URL`.
 
-### 2.5 Laravel (10, 11 and 12)
+### 2.5 Laravel (10, 11, 12 and 13)
 
 - **Auto-discovery** still registers the service provider and the `QBitFlow` facade alias.
 - **Config:** re-publish or merge it. Run `php artisan qbitflow:install` (or

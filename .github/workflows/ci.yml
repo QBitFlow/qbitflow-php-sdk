@@ -30,6 +30,7 @@ jobs:
       matrix:
         include:
           # Laravel 10: PHP 8.1 to 8.3 (8.2 and 8.3 here). Laravel 11 and 12: PHP 8.2 and up.
+          # Laravel 13: PHP 8.3 and up.
           - { php: '8.2', laravel: '10' }
           - { php: '8.2', laravel: '11' }
           - { php: '8.2', laravel: '12' }
@@ -39,6 +40,9 @@ jobs:
           - { php: '8.4', laravel: '11' }
           - { php: '8.4', laravel: '12' }
           - { php: '8.5', laravel: '12' }
+          - { php: '8.3', laravel: '13' }
+          - { php: '8.4', laravel: '13' }
+          - { php: '8.5', laravel: '13' }
 
     steps:
       - name: Check out
@@ -81,7 +85,7 @@ jobs:
       # looser PHPDoc types (container results as mixed) that say nothing about this code. The
       # unit tests run on every Laravel version.
       - name: Static analysis (PHPStan)
-        if: matrix.laravel == '12'
+        if: matrix.laravel == '13'
         run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
 
       - name: Unit tests

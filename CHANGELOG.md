@@ -15,7 +15,7 @@ Python and PHP SDKs 3.0.0 share the same services, methods, errors, retries, val
 webhook verification.
 
 Requires PHP **8.2.35, 8.3.36, 8.4.27 or 8.5.12** or later in the branch (see Security), and
-optionally Laravel 10, 11 or 12.
+optionally Laravel 10, 11, 12 or 13.
 
 ### Added
 
