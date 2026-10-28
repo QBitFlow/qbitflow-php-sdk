@@ -1110,8 +1110,9 @@ echo "Revoked {$invitationUuid}: its link no longer works\n";
   `invitations->iterate()` walks every invitation. `invitations->revoke()` answers 204 (void).
 - A member's `acceptedCurrencies` are the currencies a checkout of theirs can be paid in now; none
   means their checkouts answer `409 merchant_not_ready`.
-- Today a seller whose account already belongs to another organization cannot accept (no
-  `member.joined` comes), and test-mode sellers are real accounts that accept from a real inbox.
+- A seller whose account already belongs to another organization accepts like anyone else: they
+  keep their other memberships, and `member.joined` comes as for any member. Test-mode sellers
+  are real accounts that accept from a real inbox.
 
 ## Wallets
 
