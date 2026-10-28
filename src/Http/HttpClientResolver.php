@@ -13,10 +13,10 @@ use QBitFlow\Exceptions\QBitFlowException;
 /**
  * Finds the PSR-18 client and PSR-17 factories the SDK will use.
  *
- * `composer.json` requires `psr/http-client-implementation` and
- * `psr/http-factory-implementation`, so Composer refuses to install the SDK into a project
- * with no implementation at all — the error arrives at install time rather than on the
- * first API call. This class then picks one of the common implementations at runtime.
+ * `composer.json` requires `guzzlehttp/guzzle` (with `guzzlehttp/psr7`, its PSR-17
+ * factories), so a plain `composer require` always brings a client and factories. This class
+ * still looks for the other common implementations, for a project that keeps Guzzle out of its
+ * tree (a Composer `replace`, a bundler that drops it) and has not injected its own.
  *
  * Guzzle is preferred because it is the one implementation the SDK can hand a timeout to,
  * and because every Laravel application already has it. Pass your own client to

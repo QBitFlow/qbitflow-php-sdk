@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-10-28
+
+One `composer require qbitflow/qbitflow-php:^3.0` now installs a working SDK, in plain PHP and in
+Laravel. No code you call changes.
+
+### Fixed
+
+-   **3.0.0 did not install in a project without an HTTP client.** It required the virtual
+    packages `psr/http-client-implementation` and `psr/http-factory-implementation`, and Composer
+    never picks a package to provide one: `composer require qbitflow/qbitflow-php` failed until
+    Guzzle was added to the same command. The SDK now requires `guzzlehttp/guzzle`
+    (`^7.15.2 || ^8.0.1`), which brings the PSR-18 client and, with `guzzlehttp/psr7`, the PSR-17
+    factories; the two virtual requirements and the `suggest` entries for Guzzle and Nyholm are
+    gone.
+-   **The installation instructions.** Every install command is now
+    `composer require qbitflow/qbitflow-php:^3.0`, and the README no longer claims that Composer
+    refuses an older interpreter: on a PHP below the patched floors a bare
+    `composer require qbitflow/qbitflow-php` silently installs 2.1.0, the SDK for the previous API.
+    With `:^3.0` Composer stops and names the PHP version it needs. The floors themselves
+    (`~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`) do not change.
+
+### Changed
+
+-   **Guzzle 7 and 8.** A project keeps the Guzzle it has: Laravel 10, 11 and 12 stay on Guzzle 7,
+    Laravel 13 and a new plain-PHP project get Guzzle 8. The client the SDK builds gets the same
+    options on both (`timeout`, `connect_timeout`, no exception on HTTP errors, no redirects
+    followed), and errors are classified the same way.
+-   A PSR-18 client passed to the constructor (`httpClient:`) is used exactly as before: Guzzle is
+    installed but not used.
+-   `QBitFlow::VERSION` (and the `User-Agent`) is `3.0.1`.
+
+### Security
+
+-   The Guzzle floor, 7.15.2 / 8.0.1, leaves out the releases affected by Guzzle's 2026 advisories
+    (CVE-2026-55568, CVE-2026-55767, CVE-2026-59883, CVE-2026-67339, CVE-2026-67353,
+    CVE-2026-67354, CVE-2026-67355, CVE-2026-69245, CVE-2026-69246), and with them `guzzlehttp/psr7`
+    before 2.13. If your lock file pins an older Guzzle 7, `composer require` asks for `-W`, and
+    Guzzle is updated within 7.
+
 ## [3.0.0] - 2026-10-28
 
 The SDK for **QBitFlow API v2**, and a major release: the client, the routes, most names, the
@@ -431,6 +470,7 @@ Two intentional differences from both SDKs:
 - **API-key creation and deletion.** Both are JWT-only operations on the API and cannot be
   performed with an API key; manage keys from the dashboard. Read access is available.
 
+[3.0.1]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/QBitFlow/qbitflow-php-sdk/releases/tag/v2.1.0
 [2.0.0]: https://github.com/QBitFlow/qbitflow-php-sdk/releases/tag/v2.0.0
