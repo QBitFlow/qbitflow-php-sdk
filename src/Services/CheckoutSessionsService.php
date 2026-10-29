@@ -159,7 +159,8 @@ final class CheckoutSessionsService extends Service
 	/**
 	 * Ends a checkout session now (`POST /checkout-sessions/:uuid/expire`) and returns its
 	 * status, `expired`, with `expiresAt` the time it was expired (`checkout.expired` follows).
-	 * Not retried.
+	 * Expiring an expired session answers `expired` again, without `expiresAt` (only the first
+	 * answer has it). Not retried.
 	 *
 	 * Errors: 409 `tx_already_sent` once the customer paid or is paying.
 	 */

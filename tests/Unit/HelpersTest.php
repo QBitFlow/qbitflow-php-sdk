@@ -124,12 +124,41 @@ final class HelpersTest extends TestCase
 
 	// --- H4: hasAccess --------------------------------------------------------------------------
 
-	private static function subscription(?string $currentPeriodEnd): Subscription
+	private static function subscription(?string $currentPeriodEnd, ?string $accessUntil = null, string $status = 'stopped'): Subscription
 	{
 		$fields = get_object_vars(json_decode(Fixtures::model('Subscription')));
 		$fields['currentPeriodEnd'] = $currentPeriodEnd;
+		$fields['status'] = $status;
+		if ($accessUntil !== null) {
+			$fields['accessUntil'] = $accessUntil;
+		}
 
 		return Subscription::fromArray($fields);
+	}
+
+	#[Test]
+	public function access_lasts_until_access_until(): void
+	{
+		// An active subscription between currentPeriodEnd and accessUntil: its renewal is on its way.
+		$sub = self::subscription('2026-11-01T12:00:00Z', '2026-11-01T13:00:00Z', 'active');
+		$this->assertTrue($sub->hasAccess(new DateTimeImmutable('2026-11-01T11:59:59Z')));
+		$this->assertTrue($sub->hasAccess(new DateTimeImmutable('2026-11-01T12:00:00Z')), 'at currentPeriodEnd');
+		$this->assertTrue($sub->hasAccess(new DateTimeImmutable('2026-11-01T12:30:00Z')));
+		$this->assertTrue($sub->hasAccess(new DateTimeImmutable('2026-11-01T12:59:59.999999Z')));
+		$this->assertFalse($sub->hasAccess(new DateTimeImmutable('2026-11-01T13:00:00Z')), 'equal: no access');
+		$this->assertFalse($sub->hasAccess(new DateTimeImmutable('2026-11-01T13:00:00.000001Z')));
+
+		// accessUntil decides when set, even before currentPeriodEnd.
+		$early = self::subscription('2026-11-01T12:00:00Z', '2026-11-01T11:00:00Z');
+		$this->assertFalse($early->hasAccess(new DateTimeImmutable('2026-11-01T11:30:00Z')));
+		$this->assertTrue(self::subscription(null, '2026-11-01T13:00:00Z')->hasAccess(new DateTimeImmutable('2026-11-01T12:00:00Z')));
+
+		// Absent (stored before the API sent it): currentPeriodEnd decides.
+		$stored = self::subscription('2026-11-01T12:00:00Z', null, 'active');
+		$this->assertNull($stored->accessUntil);
+		$this->assertTrue($stored->hasAccess(new DateTimeImmutable('2026-11-01T11:59:59Z')));
+		$this->assertFalse($stored->hasAccess(new DateTimeImmutable('2026-11-01T12:00:00Z')));
+		$this->assertFalse($stored->hasAccess(new DateTimeImmutable('2026-11-01T12:30:00Z')));
 	}
 
 	#[Test]

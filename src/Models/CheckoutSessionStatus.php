@@ -43,8 +43,8 @@ final readonly class CheckoutSessionStatus extends Model
 	public ?Attempt $lastAttempt;
 
 	/**
-	 * When the checkout can no longer be paid, while it is open (on `expire()`'s answer: when it
-	 * was expired); null once completed, or expired at its time.
+	 * When the checkout can no longer be paid, while it is open (on `expire()`'s first answer: when
+	 * it was expired); null once completed, expired at its time, or on a repeated `expire()`.
 	 */
 	public ?DateTimeImmutable $expiresAt;
 

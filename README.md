@@ -141,7 +141,9 @@ Then fulfil the order when the [`payment.completed` webhook](#webhooks) arrives 
 - **Money is a decimal string** everywhere, inputs included, never a float: USD amounts
   (`priceUsd: '4.99'`, `amountUsd`), token amounts in the token's units (`amount` `"10"` for 10
   USDC, next to `amountMinUnits` and the `currency` object) and percents (`feePercent` `"0.99"`,
-  `refundPercent` `"50"`). Convert token amounts exactly with [`Amount`](#showing-amounts).
+  `refundPercent` `"50"`). Convert token amounts exactly with [`Amount`](#showing-amounts). They
+  come back canonical (`'12.50'` reads back `'12.5'`, `'12.00'` as `'12'`): compare amounts as
+  decimals, never as strings.
 - **Metadata**: products, customers, checkouts (copied onto their payment or subscription) and
   subscriptions carry your own `metadata`, an `array<string,string>` (`[]` without any), merged
   on updates (a key set to `''` deletes it).
@@ -321,7 +323,9 @@ remain the way to fulfil orders.
 <!-- docs:snippet has-access -->
 ```php
 $subscription = $client->subscriptions->get($subscriptionUuid);
-if ($subscription->hasAccess()) { // now < currentPeriodEnd, whatever the status
+// now < accessUntil, whatever the status: the end of the period paid for, plus an hour for an
+// active subscription while its renewal is billed.
+if ($subscription->hasAccess()) {
 	echo "Access granted\n";
 } else {
 	echo "No access: the paid period has ended\n";
@@ -329,8 +333,11 @@ if ($subscription->hasAccess()) { // now < currentPeriodEnd, whatever the status
 ```
 <!-- /docs:snippet -->
 
-`hasAccess()` is true when `currentPeriodEnd` is set and now is before it, whatever the status;
-`$subscription->hasAccess(new DateTimeImmutable('+1 day'))` checks another time.
+`hasAccess()` is true while now is before `accessUntil`, whatever the status: the end of the
+period paid for, plus an hour for an `active` subscription, since its renewal is billed within
+minutes of its due date. A subscription you stored before the API sent `accessUntil` falls back
+to `currentPeriodEnd`. `$subscription->hasAccess(new DateTimeImmutable('+1 day'))` checks another
+time.
 
 ### Showing amounts
 
@@ -463,6 +470,12 @@ echo "Subscribe at {$session->link}\n";
 ```
 <!-- /docs:snippet -->
 
+- **Products and checkout kinds.** A payment checkout of a subscription product sells it **once**,
+  at its price (its terms are ignored, nothing recurs). A subscription checkout of a one-time
+  product needs `frequency`, else a `ValidationException` on `frequency` naming the product. An
+  inline product of a **subscription** checkout creates a hidden product (`isActive` false),
+  reused by the next checkouts with the same name, description and price (`products->list()` with
+  `includeHidden: true` shows it); a payment's inline product creates none.
 - **Redirect placeholders.** In `successUrl` and `cancelUrl`, QBitFlow replaces `{{UUID}}` with the
   session's id and `{{TRANSACTION_TYPE}}` with `payment` or `createSubscription`
   (`QBitFlow\Placeholders::UUID`, `::TRANSACTION_TYPE`; the SDK sends them as they are). In live mode both
@@ -570,7 +583,9 @@ from the same checkout until it expires. Release what the order holds on `checko
 ### Expire
 
 End a session early (an order cancelled on your side). It answers its status, `expired`, with
-`expiresAt` the time it was expired, and `checkout.expired` follows. Once the customer paid or is paying it is a `409 tx_already_sent`.
+`expiresAt` the time it was expired, and `checkout.expired` follows. Expiring it again answers
+`expired` too, with `expiresAt` null (only the first answer has it). Once the customer paid or is
+paying it is a `409 tx_already_sent`.
 
 <!-- docs:snippet checkout-expire -->
 ```php
@@ -581,8 +596,9 @@ echo "Now {$expired->status}\n"; // expired: the customer can no longer pay it
 
 ## Products and customers
 
-Products are optional (a checkout can name an inline product) and give you a reusable catalog
-with payment links.
+Products are optional for payments (a payment checkout can name an inline product; a
+subscription checkout's inline product becomes a hidden product: [Checkout sessions](#checkout-sessions))
+and give you a reusable catalog with payment links.
 
 <!-- docs:snippet products-create -->
 ```php
@@ -771,9 +787,13 @@ the free trial. It keeps the checkout's `sub@…` id for life.
 | `stopped` | Cancelled during its period: never billed again, `cancelled` at `nextBillingAt` |
 | `cancelled` | Over (`cancellationReason` says why). Final |
 
-**Access rule: grant access while `now < currentPeriodEnd`, whatever the status.** A `stopped` or
-`paused` subscription has paid for its period; a `pastDue` one's period has ended.
-`$subscription->hasAccess()` applies it now, `hasAccess(new DateTimeImmutable('2026-12-01'))` at
+**Access rule: grant access while `now < accessUntil`, whatever the status.** `accessUntil` is
+`currentPeriodEnd` (the paid-through date), plus 1 hour for an `active` subscription: QBitFlow
+bills a renewal within minutes of its due date, so checking `currentPeriodEnd` would cut every
+subscriber off for those minutes at each renewal (show it as "paid through", don't gate on it). A
+`stopped` or `paused` subscription has paid for its period; a `pastDue` one's period has ended.
+`$subscription->hasAccess()` applies it now (reading `currentPeriodEnd` for a subscription stored
+before `accessUntil` existed), `hasAccess(new DateTimeImmutable('2026-12-01'))` at
 another time (see [Access control](#access-control)).
 
 The subscription webhooks' data (`SubscriptionStatusChanged`, …) are subscriptions too:
@@ -783,7 +803,9 @@ The subscription webhooks' data (`SubscriptionStatusChanged`, …) are subscript
 `confirmTrial`; `null`: nothing): point them to the subscription's `managementPageLink`.
 `allowance` (null during a trial) says what the subscriber's wallet still lets QBitFlow bill
 (`amount`, `remainingPeriods`, the signed `maxPerPeriod`); `priceUsd` plus `fees` is what each bill
-charges; `lastBilledAt`, `nextBillingAt` and `cancellableAt` the dates.
+charges; `lastBilledAt`, `nextBillingAt` and `cancellableAt` the dates. `remainingPeriods` counts
+bills before each bill's network fee, so it is usually higher than the checkout's "N payments" (an
+estimate that kept room for network fees).
 
 <!-- docs:snippet subscriptions-get -->
 ```php
@@ -951,14 +973,16 @@ $created = $client->invitations->create(new \QBitFlow\Params\CreateInvitationPar
 	organizationFeePercent: '10', // your commission on their payments: "0" to "50" %
 	redirectUrl: 'https://shop.example.com/sellers/welcome',
 ));
-echo "Invitation {$created->uuid}: {$created->link}\n"; // the link is also emailed
+// QBitFlow also emails them a link of their own.
+echo "Invitation {$created->uuid}: {$created->link}\n";
 ```
 <!-- /docs:snippet -->
 
 `holdFunds` is required; the fee is a percent string, `"0"` to `"50"`, at most 2 decimals. The
-answer is the invitation itself with its `link` (a `CreatedInvitation`). `sendEmail: false`
-creates the invitation without emailing it: share `link` in your own onboarding (signing up
-through it still emails the person a confirmation). Inviting a member is a `409 already_joined`,
+answer is the invitation itself with its `link` (a `CreatedInvitation`). QBitFlow emails the
+person a link of their own (another token, never returned), so don't compare it with `link`.
+`sendEmail: false` creates the invitation without emailing it: share `link` in your own onboarding
+(signing up through it still emails the person a confirmation). Inviting a member is a `409 already_joined`,
 and more than 50 invitations an hour, emailed or not, a 429 (thrown at once: the wait is over the
 SDK's 60 s retry cap).
 
@@ -1003,8 +1027,10 @@ a subscription checkout in their space answers `409 merchant_not_ready` with `de
 **4. Hear of every sale.** An organization webhook endpoint receives every seller's events by
 default; the event's `userUuid` names the seller. Use it as `onBehalfOf` for follow-up reads.
 
-**5. Commission and held funds.** Each payment records your fee in `settlement->organizationFee`
-and its share in `settlement->split->organization`. While you hold a seller's funds (`holdFunds`
+**5. Commission and held funds.** Your commission is taken on what remains after QBitFlow's fee:
+`(amount − QBitFlow's fee) × organizationFeePercent / 100`, rounded down, the seller getting the
+rest (on $7.50 at 0.5 % and 10 %: QBitFlow 0.0375, you 0.74625, the seller 6.71625). Each payment
+records it in `settlement->organizationFee` and its share in `settlement->split->organization`. While you hold a seller's funds (`holdFunds`
 true, `Member::$trustedAt` null), their payments go to your wallet and the net is owed to them
 (`totalUsd`, and each line's `owed` in the token paid):
 
@@ -1029,14 +1055,24 @@ printf("Held for me: %s USD over %d lines\n", $held->totalUsd, count($held->ledg
 ```
 <!-- /docs:snippet -->
 
-Trust them once you are ready to pay them directly:
+Trust them once you are ready to pay them directly. Trust is one-way and narrows the seller's
+currencies to their own wallets': a seller whose wallets accept none of yours is a
+`409 member_has_no_wallet` (a `ConflictException`; nothing changes, trust them once they've added
+one):
 
 <!-- docs:snippet members-trust -->
 ```php
-// Their new payments go to their own wallets from now on. What is already held stays held
-// until you release it from the dashboard (heldFunds.released tells you).
-$member = $client->members->trust($memberUuid);
-echo 'Trusted since ' . ($member->trustedAt?->format(DATE_ATOM) ?? '?') . "\n";
+// Their new payments go to their own wallets from now on (one-way). What is already held stays
+// held until you release it from the dashboard (heldFunds.released tells you).
+try {
+	$member = $client->members->trust($memberUuid);
+	echo 'Trusted since ' . ($member->trustedAt?->format(DATE_ATOM) ?? '?') . "\n";
+} catch (\QBitFlow\Exceptions\ConflictException $e) {
+	if ($e->apiCode !== 'member_has_no_wallet') {
+		throw $e;
+	}
+	echo "Not trusted: their own wallets accept none of your currencies yet\n";
+}
 ```
 <!-- /docs:snippet -->
 
@@ -1083,7 +1119,7 @@ foreach ($client->wallets->listForMember($memberUuid) as $wallet) {
 
 `members->remove()` (204) ends a seller's membership in the key's mode: their keys stop working and
 their checkouts close. It is a `409 held_funds_pending` while you hold their live funds: release
-them first.
+them from the dashboard first.
 
 <!-- docs:snippet members-remove -->
 ```php
@@ -1336,7 +1372,7 @@ same functions as `$client->webhooks->verify()`, `constructEvent()` and `parseEv
 | `subscription.statusChanged` | `SubscriptionStatusChangedEvent` | `SubscriptionStatusChanged`: the `Subscription` + `previousStatus` |
 | `subscription.actionRequiredChanged` | `SubscriptionActionRequiredChangedEvent` | `SubscriptionActionRequiredChanged`: the `Subscription` + `previousActionRequired` |
 | `subscription.billingFailed` | `SubscriptionBillingFailedEvent` | `SubscriptionBillingFailed`: the `Subscription` + `reason`, `billUuid`, `amountUsd` (a string), `attempt`, `remainingAttempts`, `nextAttemptAt` |
-| `subscription.upcomingBill` | `SubscriptionUpcomingBillEvent` | `SubscriptionUpcomingBill`: the `Subscription` + `billingAt`, `amountUsd` (a string), `trialEnding`, `balanceSufficient`, `allowanceSufficient` |
+| `subscription.upcomingBill` | `SubscriptionUpcomingBillEvent` | `SubscriptionUpcomingBill`: the `Subscription` + `billingAt`, `amountUsd` (a string), `trialEnding`, `balanceSufficient`, `allowanceSufficient`. Sent the dashboard's `subscriptions.upcomingBillDays` before the bill (3 days by default, 0 = never), checked daily; not for a subscription whose period (a trial: the trial) is no longer than that |
 | `refund.requested` / `.approved` / `.rejected` | `RefundRequestedEvent` / `RefundApprovedEvent` / `RefundRejectedEvent` | the `Refund` (`refund.approved` and `refund.rejected` were `refund.completed` and `refund.denied`) |
 | `member.joined` | `MemberJoinedEvent` | `MemberJoined`: the `Member` + `invitationUuid` |
 | `member.removed` | `MemberRemovedEvent` | the `Member` |
@@ -1401,6 +1437,10 @@ disabled or deleted. If QBitFlow can't read a delivery's progress at that moment
 from the attempts: true while the retry schedule still attempts the event again (a delivery being
 retried never reads as abandoned), without `nextAttemptAt`; a delivery queued with no attempt yet
 isn't listed until its progress can be read: read the event again a moment later.
+
+A member's deliveries to your organization's endpoints show from the organization:
+`webhooks->events->list(new EventListParams(includeMembers: true))`, then `get()`. Read on behalf
+of the member, the event lists only the member's own endpoints (`deliveries` `[]` without any).
 
 Each attempt (`DeliveryAttempt`) has `delivered` (the endpoint answered a 2xx), `statusCode` (null
 when the endpoint didn't answer) and `error`. An attempt with `skipped: true` was never posted: the
@@ -1506,7 +1546,7 @@ Every exception the SDK throws extends `QBitFlow\Exceptions\QBitFlowException` (
 | `AuthenticationException` | 401 | a missing, unknown, expired or revoked key (a removed member's keys too) |
 | `PermissionDeniedException` | 403 | `forbidden` (the key's role or a bad `On-Behalf-Of`; no details), `policy_disabled` (a member's key while the organization's member policy is off: `details['policy']`, and `details['field']` when the policy governs a request field, e.g. `successUrl` / `cancelUrl` under `members.checkoutRedirects`) |
 | `NotFoundException` | 404 | unknown, deleted, or outside the request's space |
-| `ConflictException` | 409 | `unique_violation` (`details['field']`), `tx_already_sent`, `merchant_not_ready` (`details['reason']`), `held_funds_pending`, `already_joined`, `payment_not_due`, `idempotency_key_in_use`, `conflict` |
+| `ConflictException` | 409 | `unique_violation` (`details['field']`), `tx_already_sent`, `merchant_not_ready` (`details['reason']`), `held_funds_pending`, `member_has_no_wallet`, `already_joined`, `payment_not_due`, `idempotency_key_in_use`, `conflict` |
 | `GoneException` | 410 | `merchant_closed`: a removed member's or a closed organization's space |
 | `IdempotencyException` | 422 `idempotency_key_reused` | an `Idempotency-Key` reused for another request: a bug, never retried |
 | `RateLimitException` | 429 | `retryAfter` (seconds), `limit`, `periodSeconds` |
@@ -1557,7 +1597,8 @@ transaction ids, cursors (at most 200 characters), dates, the checkout's product
 filters, and exclusive filters. A failure is a `ValidationException` with `status` 0 and nothing
 is sent. What depends on the key's mode or on stored data is left to the API: the `"5"` USD
 test-mode cap, `https`-only live URLs, the live subscription price minimum (above `"0.25"`), the
-frequency minimum (1 hour live, 5 minutes test), the 92-day export window, the merged metadata key
+frequency minimum (1 hour live, 5 minutes test; a development server lowers the live one to 1
+minute, production never does), the 92-day export window, the merged metadata key
 count, uniqueness.
 
 ## Retries and idempotency

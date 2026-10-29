@@ -30,7 +30,8 @@ try {
 		organizationFeePercent: '10', // your commission on their payments: "0" to "50" %
 		redirectUrl: 'https://shop.example.com/sellers/welcome',
 	));
-	echo "Invitation {$created->uuid}: {$created->link}\n"; // the link is also emailed
+	// QBitFlow also emails them a link of their own.
+	echo "Invitation {$created->uuid}: {$created->link}\n";
 	// docs:end members-invite
 } catch (ConflictException $e) {
 	echo "Not invited ({$e->apiCode})\n"; // already_joined
@@ -124,10 +125,17 @@ echo "Fee now {$member->organizationFeePercent} %\n";
 
 if (in_array('--trust', $argv, true)) {
 	// docs:start members-trust
-	// Their new payments go to their own wallets from now on. What is already held stays held
-	// until you release it from the dashboard (heldFunds.released tells you).
-	$member = $client->members->trust($memberUuid);
-	echo 'Trusted since ' . ($member->trustedAt?->format(DATE_ATOM) ?? '?') . "\n";
+	// Their new payments go to their own wallets from now on (one-way). What is already held stays
+	// held until you release it from the dashboard (heldFunds.released tells you).
+	try {
+		$member = $client->members->trust($memberUuid);
+		echo 'Trusted since ' . ($member->trustedAt?->format(DATE_ATOM) ?? '?') . "\n";
+	} catch (\QBitFlow\Exceptions\ConflictException $e) {
+		if ($e->apiCode !== 'member_has_no_wallet') {
+			throw $e;
+		}
+		echo "Not trusted: their own wallets accept none of your currencies yet\n";
+	}
 	// docs:end members-trust
 }
 

@@ -21,8 +21,8 @@ final class InvitationsService extends Service
 {
 	/**
 	 * Invites someone to join the organization as a member in the key's mode
-	 * (`POST /invitations`, 201) and returns the invitation with its link (also emailed, unless
-	 * `sendEmail` is false). The SDK always sends role `user`: the team is invited from the
+	 * (`POST /invitations`, 201) and returns the invitation with its link (QBitFlow also emails the
+	 * person a link of their own, unless `sendEmail` is false). The SDK always sends role `user`: the team is invited from the
 	 * dashboard. Sends an Idempotency-Key and is retried on transient failures. Organization key
 	 * only; rate limited (50 an hour per organization, emailed or not: beyond, a
 	 * {@see \QBitFlow\Exceptions\RateLimitException} at once, the wait being over the SDK's 60 s

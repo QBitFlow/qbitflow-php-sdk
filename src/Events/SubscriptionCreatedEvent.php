@@ -9,7 +9,7 @@ use QBitFlow\Support\Cast;
 
 /**
  * `subscription.created`: A subscription started (status `active`, or `trial`): grant access until
- * `data->currentPeriodEnd`. The data is the subscription as `subscriptions->get()` returns it, its
+ * `data->accessUntil` (`data->hasAccess()`). The data is the subscription as `subscriptions->get()` returns it, its
  * `managementPageLink` included.
  */
 final readonly class SubscriptionCreatedEvent extends Event

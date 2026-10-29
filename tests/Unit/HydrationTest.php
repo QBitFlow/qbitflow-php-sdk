@@ -261,6 +261,7 @@ final class HydrationTest extends TestCase
 		$this->assertSame([null, null, null, null, null, null, null, null, null],
 			[$sub->from, $sub->productUuid, $sub->subscriptionHash, $sub->allowance, $sub->lastBilledAt, $sub->nextBillingAt, $sub->cancellableAt, $sub->dunning, $sub->actionRequired]);
 		$this->assertNotNull($sub->currentPeriodEnd);
+		$this->assertNull($sub->accessUntil);
 		$this->assertSame([], $sub->metadata);
 
 		$pay = self::decode(Models\Payment::class, '{"uuid":"pay@1","amount":"10","priceUsd":"10","fees":[],"metadata":{},"settlement":{"feePercent":"0.99"}}');

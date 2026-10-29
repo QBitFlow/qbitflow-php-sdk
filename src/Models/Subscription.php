@@ -9,7 +9,7 @@ use DateTimeInterface;
 use QBitFlow\Support\Cast;
 
 /**
- * A subscription (`sub@…`). Grant access while now < `currentPeriodEnd`, whatever the status
+ * A subscription (`sub@…`). Grant access while now < `accessUntil`, whatever the status
  * ({@see hasAccess()}): the status says why, `actionRequired` what its customer must do.
  */
 readonly class Subscription extends Model
@@ -81,12 +81,22 @@ readonly class Subscription extends Model
 	public ?string $actionRequired;
 
 	/**
-	 * The paid-through date: grant access while now < `currentPeriodEnd`, whatever the status. A
-	 * trial: its end; active, paused, stopped: the end of the period paid for; pastDue: the start
-	 * of the unpaid period (past); cancelled: when it was cancelled, or the end of its last paid
-	 * period if that came first. Null when absent.
+	 * The paid-through date, to display ("paid through"). A trial: its end; active, paused,
+	 * stopped: the end of the period paid for; pastDue: the start of the unpaid period (past);
+	 * cancelled: when it was cancelled, or the end of its last paid period if that came first.
+	 * For access, read `accessUntil`: an active subscription is renewed a few minutes after this
+	 * date. Null when absent.
 	 */
 	public ?DateTimeImmutable $currentPeriodEnd;
+
+	/**
+	 * When access ends: grant it while now < `accessUntil`, whatever the status
+	 * ({@see hasAccess()}). An active subscription: `currentPeriodEnd` plus 1 hour, since its
+	 * renewal is billed within minutes of its due date (a subscriber whose bill is on its way keeps
+	 * access; a failed bill makes it pastDue). Every other status: `currentPeriodEnd`. Null on a
+	 * subscription stored before the API sent it ({@see hasAccess()} then reads `currentPeriodEnd`).
+	 */
+	public ?DateTimeImmutable $accessUntil;
 
 	/**
 	 * The price per period the customer subscribed at, in USD (a decimal string, `"9.99"`),
@@ -183,13 +193,16 @@ readonly class Subscription extends Model
 	public ?DunningStatus $dunning;
 
 	/**
-	 * Whether the subscription grants access at `$at` (default: now): `currentPeriodEnd` is set
-	 * and `$at` is before it, whatever the status (a cancelled subscription keeps access to the
-	 * end of the period paid for).
+	 * Whether the subscription grants access at `$at` (default: now): `$at` is before
+	 * `accessUntil`, whatever the status (a cancelled subscription keeps access to the end of the
+	 * period paid for; an active one an hour past `currentPeriodEnd`, while its renewal is billed).
+	 * Without `accessUntil` (a subscription stored before the API sent it), it reads
+	 * `currentPeriodEnd`. False when neither is set.
 	 */
 	public function hasAccess(?DateTimeInterface $at = null): bool
 	{
-		return $this->currentPeriodEnd !== null && ($at ?? new DateTimeImmutable()) < $this->currentPeriodEnd;
+		$until = $this->accessUntil ?? $this->currentPeriodEnd;
+		return $until !== null && ($at ?? new DateTimeImmutable()) < $until;
 	}
 
 	/**
@@ -210,6 +223,7 @@ readonly class Subscription extends Model
 		$this->status = Cast::string($data, 'status');
 		$this->actionRequired = Cast::nullableString($data, 'actionRequired');
 		$this->currentPeriodEnd = Cast::nullableDate($data, 'currentPeriodEnd');
+		$this->accessUntil = Cast::nullableDate($data, 'accessUntil');
 		$this->priceUsd = Cast::string($data, 'priceUsd');
 		$this->fees = Cast::listOf($data, 'fees', FeeLine::fromArray(...));
 		$this->allowance = Cast::nullableObject($data, 'allowance', Allowance::fromArray(...));
