@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-10-29
+
+The event log tells which deliveries are still in progress. Nothing you call changes.
+
+### Added
+
+-   **`EndpointDelivery::$pending`, `$nextAttemptAt` and `$waitingFor`**
+    (`$client->webhooks->events->get()`). `pending` is true while QBitFlow still attempts the
+    event on its own; `nextAttemptAt` (a `DateTimeImmutable`) is set while it is retried after a
+    failed attempt, and `waitingFor` (an `evt_…`) while it is queued behind an earlier event of the
+    same publication. A delivery that is queued, or about to start, is now listed with **no
+    `attempts`** instead of not being listed at all: code that reads the last attempt must check
+    the list first. A response without `pending` (an older server) decodes as `false`.
+
+### Changed
+
+-   **README: webhook order is per publication, never per subscription.** The events published
+    together (a `subscription.created` and its first `subscription.billed`) reach an endpoint in
+    order; nothing waits across publications.
+-   **README: a checkout's `customerReference` without a QBitFlow customer means no receipt** and
+    no other customer email. Create the customer with that reference and their email first (even
+    after the checkout was created, before the payment is recorded) to have them.
+
 ## [3.0.1] - 2026-10-28
 
 One `composer require qbitflow/qbitflow-php:^3.0` now installs a working SDK, in plain PHP and in
@@ -470,6 +493,7 @@ Two intentional differences from both SDKs:
 - **API-key creation and deletion.** Both are JWT-only operations on the API and cannot be
   performed with an API key; manage keys from the dashboard. Read access is available.
 
+[3.1.0]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/QBitFlow/qbitflow-php-sdk/compare/v2.1.0...v3.0.0
 [2.1.0]: https://github.com/QBitFlow/qbitflow-php-sdk/releases/tag/v2.1.0

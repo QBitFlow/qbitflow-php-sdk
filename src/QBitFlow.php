@@ -56,8 +56,8 @@ use QBitFlow\Support\Validator;
  */
 final class QBitFlow
 {
-	/** This SDK's version, sent in the `User-Agent` header (`qbitflow-php/3.0.1`). */
-	public const VERSION = '3.0.1';
+	/** This SDK's version, sent in the `User-Agent` header (`qbitflow-php/3.1.0`). */
+	public const VERSION = '3.1.0';
 
 	/** The API root used when no `baseUrl` is given. */
 	public const DEFAULT_BASE_URL = 'https://api.qbitflow.app/v2';
