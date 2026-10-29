@@ -59,10 +59,12 @@ These are properties of the code in this repository, each covered by its test su
   where you need it (in Laravel, resolve it from the container).
 - **The key is checked before any request** (non-blank, `sk_…`, printable ASCII): a malformed
   value is refused at construction without being echoed in the error.
-- **TLS is your HTTP client's.** Requests go through the PSR-18 client you install or inject
-  (Guzzle, Symfony HttpClient…), with its certificate verification. The default base URL is
-  `https://api.qbitflow.app/v2`. A custom `baseUrl` must be an absolute `http` or `https` URL
-  without credentials, query or fragment; use `http` only for a local test server.
+- **TLS is your HTTP client's.** Requests go through Guzzle (installed with the SDK) or the
+  PSR-18 client you inject (Symfony HttpClient…), with its certificate verification. The SDK
+  requires Guzzle 7.15.2 / 8.0.1 or later, the releases that fix Guzzle's 2026 advisories (proxy
+  credentials sent to the origin, a silent HTTPS-proxy downgrade, host and cookie scoping). The
+  default base URL is `https://api.qbitflow.app/v2`. A custom `baseUrl` must be an absolute `http`
+  or `https` URL without credentials, query or fragment; use `http` only for a local test server.
 - **Redirects are never followed.** The clients the SDK builds itself (Guzzle, Symfony) are
   configured not to follow them, so the `X-API-Key` header is never replayed to another host; a
   client you inject must be configured the same way.
@@ -91,8 +93,10 @@ allow unauthenticated remote code execution, before any application code runs on
 7.4 to 8.1 have source backports only; 5.4 to 7.3 have no fix. No library can patch the
 interpreter, so this SDK:
 
-- **refuses to install on an unpatched interpreter**: `composer.json` requires
-  `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`;
+- **does not install on an unpatched interpreter**: `composer.json` requires
+  `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`. Install with
+  `composer require qbitflow/qbitflow-php:^3.0`: without the version, Composer on an unpatched PHP
+  quietly falls back to 2.1.0 (the SDK for the previous API) instead of failing;
 - **bounds the webhook input it reads**, as the advisories ask of applications: every entry point
   (`WebhookRouter::handle()`, `Webhook::constructEvent()`, `Webhook::parseEvent()`, the PSR-7,
   PSR-15, globals and Laravel adapters) refuses a body over 1 MiB before reading it, and JSON
@@ -100,9 +104,9 @@ interpreter, so this SDK:
 - **emits no runtime warnings or notices** (early diagnostics are one of the bugs' triggers).
 
 **A distribution's PHP with the fixes backported** (Debian, Ubuntu, RHEL…) keeps its older version
-number, so Composer refuses it. Once you have checked your distribution's advisory, install with
-`composer require qbitflow/qbitflow-php --ignore-platform-req=php`, or declare the fixed level in
-your project's `composer.json` (`"config": {"platform": {"php": "8.3.36"}}`).
+number, so Composer treats it as unpatched. Once you have checked your distribution's advisory,
+install with `composer require qbitflow/qbitflow-php:^3.0 --ignore-platform-req=php`, or declare
+the fixed level in your project's `composer.json` (`"config": {"platform": {"php": "8.3.36"}}`).
 
 Until you can upgrade, the advisories' partial mitigations are server settings, not application
 code: `session.upload_progress.enabled=0`, `fatal_error_backtraces=0` on PHP 8.5, a conservative

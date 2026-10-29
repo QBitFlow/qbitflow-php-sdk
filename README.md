@@ -57,27 +57,33 @@ Base and Solana, straight to yours.
 ## Installation
 
 ```bash
-composer require qbitflow/qbitflow-php
+composer require qbitflow/qbitflow-php:^3.0
 ```
+
+That one command is all you need, in plain PHP and in Laravel: it brings
+[Guzzle](https://github.com/guzzle/guzzle) as the HTTP client, and uses the Guzzle 7 or 8 a project
+(every Laravel application) already has. It needs Guzzle 7.15.2 / 8.0.1 or later, the releases
+without known advisories: if your lock file pins an older Guzzle 7, add `-W` and Composer updates
+it within 7.
+
+Keep the `:^3.0`. On a PHP older than the patched floors below, Composer does not refuse a bare
+`composer require qbitflow/qbitflow-php`: it silently installs 2.1.0, the SDK for the previous
+API. With `:^3.0` it stops instead, naming the PHP version it needs.
 
 ### Requirements
 
 - **PHP `~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`**: 8.2.35, 8.3.36, 8.4.27, 8.5.12 or later in
   its branch, the releases that fix php2shell (CVE-2026-109618 / CVE-2026-109619: see
-  [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md#php-interpreter-vulnerabilities-php2shell)); Composer refuses an older
-  interpreter. The `json` extension (bundled with PHP).
-- A [PSR-18](https://www.php-fig.org/psr/psr-18/) HTTP client and
-  [PSR-17](https://www.php-fig.org/psr/psr-17/) factories.
+  [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md#php-interpreter-vulnerabilities-php2shell)). 3.x
+  does not install on an older interpreter (hence the `:^3.0` above). The `json` extension
+  (bundled with PHP).
 - Optional: **Laravel 10, 11, 12 or 13** for the service provider, facade, middleware, events
   and Artisan commands (auto-discovered; see [Laravel](#laravel)). The core client needs no
   framework.
 
-The SDK has no runtime dependency beyond the PSR interfaces. Guzzle (already in every Laravel
-application) and Symfony HttpClient are detected and used automatically; otherwise install one:
-
-```bash
-composer require guzzlehttp/guzzle        # or: symfony/http-client nyholm/psr7
-```
+Any other [PSR-18](https://www.php-fig.org/psr/psr-18/) client (Symfony HttpClient, a client
+with your proxy or middleware) can be passed to the constructor instead: see
+[Configuration](#configuration).
 
 ## Quick start
 
@@ -1591,7 +1597,7 @@ $client = new QBitFlow(
 | `timeout` | 30.0 (`DEFAULT_TIMEOUT`) | seconds per attempt, positive: the whole attempt, through the last byte of the answer; applied to the HTTP client the SDK builds (set it on your own client) |
 | `maxRetries` | 3 (`DEFAULT_MAX_RETRIES`) | `0` disables retries; negative is refused |
 | `onBehalfOf` | none | every request acts in that member's space |
-| `httpClient`, `requestFactory`, `streamFactory` | auto-detected (Guzzle, Symfony, Nyholm, …) | your PSR-18 client and PSR-17 factories; the client must not follow redirects (a redirect to another host would carry your `X-API-Key` there: Guzzle 7's PSR-18 calls never follow one, a Symfony client needs `max_redirects: 0`) and should not throw on HTTP errors |
+| `httpClient`, `requestFactory`, `streamFactory` | Guzzle, installed with the SDK | your PSR-18 client and PSR-17 factories; the client must not follow redirects (a redirect to another host would carry your `X-API-Key` there: Guzzle's PSR-18 calls never follow one, a Symfony client needs `max_redirects: 0`) and should not throw on HTTP errors |
 
 | `RequestOptions` (every method, last argument) | |
 |---|---|
@@ -1610,7 +1616,7 @@ over the environment.
 
 A bad argument makes the constructor throw a `ValidationException`. A client's configuration never
 changes; `$client->onBehalfOf()` derives clients that share it. Every request sends
-`User-Agent: qbitflow-php/3.0.0` (`QBitFlow::VERSION`).
+`User-Agent: qbitflow-php/3.0.1` (`QBitFlow::VERSION`).
 
 ## Laravel
 

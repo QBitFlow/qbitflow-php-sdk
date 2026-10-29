@@ -10,7 +10,7 @@ A client library that runs inside your PHP application. It turns method calls in
 requests to the QBitFlow API, decodes the answers into typed objects, and verifies the webhooks
 QBitFlow sends you. It performs no payment, custody or blockchain operation itself, and implements
 no cryptography of its own: webhook signatures are checked with PHP's built-in `hash_hmac()`
-(HMAC-SHA256) and `hash_equals()`, and TLS is handled by the HTTP client you install.
+(HMAC-SHA256) and `hash_equals()`, and TLS is handled by the HTTP client (Guzzle, or yours).
 
 ## Data it handles
 
@@ -59,11 +59,13 @@ error handling and logging to decide what to record.
 ## Dependencies
 
 At runtime the SDK requires PHP (`~8.2.35 || ~8.3.36 || ~8.4.27 || >=8.5.12`, the releases with
-the fixes for CVE-2026-109618 and CVE-2026-109619), the `json` extension, and the PSR interface
-packages only: `psr/http-client`, `psr/http-factory`, `psr/http-message` and
-`psr/http-server-handler`. It brings no HTTP client of its own: your application provides a PSR-18
-client and PSR-17 factories (Guzzle, Symfony HttpClient, or any other), so their TLS, proxy and
-network settings are yours. The Laravel integration is used only when Laravel is installed.
+the fixes for CVE-2026-109618 and CVE-2026-109619), the `json` extension, the PSR interface
+packages `psr/http-client`, `psr/http-factory`, `psr/http-message` and `psr/http-server-handler`,
+and Guzzle (`guzzlehttp/guzzle` 7.15.2 / 8.0.1 or later, with its `guzzlehttp/psr7` and
+`guzzlehttp/promises`) as the default HTTP client. You can pass any other PSR-18 client and PSR-17
+factories to the constructor instead (Symfony HttpClient, or a client with your own proxy and
+middleware); either way the TLS, proxy and network settings are your HTTP client's. The Laravel
+integration is used only when Laravel is installed.
 
 ## License
 

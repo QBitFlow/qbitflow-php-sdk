@@ -57,21 +57,25 @@ The full list of changes is in the
 | 8.4 | 8.4.27 |
 | 8.5 and later | 8.5.12 |
 
-Composer refuses to install 3.0 on an older patch release of your branch, on purpose: a payment
-integration should not run on an interpreter with known remote-code-execution flaws. Check with
-`php -v` and `composer check-platform-reqs --no-dev`, and upgrade PHP first if needed. The details
-are in [SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md).
+3.0 does not install on an older patch release of your branch, on purpose: a payment integration
+should not run on an interpreter with known remote-code-execution flaws. Check with `php -v` and
+`composer check-platform-reqs --no-dev`, and upgrade PHP first if needed. The details are in
+[SECURITY.md](https://github.com/QBitFlow/qbitflow-php-sdk/blob/main/SECURITY.md).
+
+Always name the version, as in the next step: on an unpatched PHP, Composer answers a bare
+`composer require qbitflow/qbitflow-php` by keeping (or installing) 2.1.0, the SDK for the previous
+API, without an error. `:^3.0` makes it stop and name the PHP version it needs.
 
 ### 2.2 Install
 
 ```bash
-composer require qbitflow/qbitflow-php:^3
+composer require qbitflow/qbitflow-php:^3.0
 ```
 
-The package name and the root namespace (`QBitFlow\`) do not change. You still need a PSR-18 HTTP
-client and PSR-17 factories (Guzzle covers both and is already in every Laravel application). 3.0
-adds one small dependency, `psr/http-server-handler` (the PSR-15 interface its webhook router
-implements).
+The package name and the root namespace (`QBitFlow\`) do not change. From 3.0.1 the SDK requires
+Guzzle (7.15.2 or later, or 8), so this one command installs a working client in plain PHP too;
+a Laravel application keeps the Guzzle it has. 3.0 also adds one small dependency,
+`psr/http-server-handler` (the PSR-15 interface its webhook router implements).
 
 ### 2.3 Create new API keys, and check your webhook endpoints
 
@@ -702,7 +706,7 @@ status: a check on `status === 'active'` would cut off paying customers (`stoppe
 ## 8. Final checklist
 
 - [ ] PHP is at or above the patched floor of your branch (`php -v`).
-- [ ] `composer require qbitflow/qbitflow-php:^3` succeeded.
+- [ ] `composer require qbitflow/qbitflow-php:^3.0` succeeded (`composer show qbitflow/qbitflow-php` says 3.x).
 - [ ] New v2 API keys are deployed, one per space and mode; `$client->me()` succeeds at start-up and
       reports the expected mode.
 - [ ] The client is built with named arguments; any `baseUrl` points at `/v2`.
