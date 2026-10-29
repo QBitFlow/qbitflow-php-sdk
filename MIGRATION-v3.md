@@ -257,7 +257,7 @@ echo $payment->amountUsd;              // '10', a decimal string
 echo $payment->amount, ' ', $payment->currency->symbol; // the token amount: '10 USDC'
 
 $sub = $client->subscriptions->get('sub@…'); // cancelled ones too: a 404 no longer means "cancelled"
-if ($sub->hasAccess()) { /* grant access until currentPeriodEnd, whatever the status */ }
+if ($sub->hasAccess()) { /* grant access until accessUntil, whatever the status */ }
 foreach ($client->subscriptions->iterateBills('sub@…') as $bill) { /* every bill */ }
 $result = $client->subscriptions->cancel('sub@…'); // immediate; CancelSubscriptionParams(immediate: false) for period end
 echo $result->pending ? 'confirming on-chain' : $result->subscription->status;
@@ -651,7 +651,8 @@ the SDK doesn't know yet is kept as is, never an error.
 | `UserRole` (`ADMIN`, `USER`, `OWNER`) | `Role` (`ADMIN`, `USER`): an API key is at most `admin` |
 | `ExportFormat`, `SubscriptionWebhookType`, `TransactionShortType` | removed |
 
-**Grant access while now < `currentPeriodEnd`** (`$subscription->hasAccess()`), whatever the
+**Grant access while now < `accessUntil`** (from 3.1.0; `currentPeriodEnd`, plus an hour for an
+`active` subscription while its renewal is billed; `$subscription->hasAccess()`), whatever the
 status: a check on `status === 'active'` would cut off paying customers (`stopped`, `paused`).
 
 ## 6. New capabilities

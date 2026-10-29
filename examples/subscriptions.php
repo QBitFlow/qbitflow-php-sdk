@@ -53,7 +53,9 @@ printf("%s: %s, paid until %s\n", $subscription->uuid, $subscription->status, $s
 
 // docs:start has-access
 $subscription = $client->subscriptions->get($subscriptionUuid);
-if ($subscription->hasAccess()) { // now < currentPeriodEnd, whatever the status
+// now < accessUntil, whatever the status: the end of the period paid for, plus an hour for an
+// active subscription while its renewal is billed.
+if ($subscription->hasAccess()) {
 	echo "Access granted\n";
 } else {
 	echo "No access: the paid period has ended\n";

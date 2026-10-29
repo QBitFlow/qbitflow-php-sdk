@@ -247,6 +247,9 @@ final class HydrationTest extends TestCase
 			$detail->deliveries[0]->attempts[0]->attempt, $detail->deliveries[0]->attempts[0]->skipped,
 			$detail->deliveries[0]->attempts[0]->statusCode, $detail->deliveries[0]->attempts[0]->durationMs]);
 		$this->assertFalse(self::decode(Models\DeliveryAttempt::class, '{"uuid":"a-1"}')->skipped, 'skipped absent: false');
+		[$retried, $queued] = $detail->deliveries;
+		$this->assertSame([true, '2026-10-01T12:05:01+00:00', null], [$retried->pending, $retried->nextAttemptAt?->format(DATE_ATOM), $retried->waitingFor]);
+		$this->assertSame([true, null, 'evt_0', []], [$queued->pending, $queued->nextAttemptAt, $queued->waitingFor, $queued->attempts]);
 	}
 
 	/** The minimal shapes the docs allow: every optional field absent is null, every list `[]`. */
@@ -258,6 +261,7 @@ final class HydrationTest extends TestCase
 		$this->assertSame([null, null, null, null, null, null, null, null, null],
 			[$sub->from, $sub->productUuid, $sub->subscriptionHash, $sub->allowance, $sub->lastBilledAt, $sub->nextBillingAt, $sub->cancellableAt, $sub->dunning, $sub->actionRequired]);
 		$this->assertNotNull($sub->currentPeriodEnd);
+		$this->assertNull($sub->accessUntil);
 		$this->assertSame([], $sub->metadata);
 
 		$pay = self::decode(Models\Payment::class, '{"uuid":"pay@1","amount":"10","priceUsd":"10","fees":[],"metadata":{},"settlement":{"feePercent":"0.99"}}');
@@ -336,6 +340,53 @@ final class HydrationTest extends TestCase
 	{
 		$this->expectException(ServerException::class);
 		Transport::decode(new RawResponse(200, [], '{"items":[],"hasMore":"false"}'), Requester::page(Models\Product::fromArray(...)));
+	}
+
+	/**
+	 * The event log's delivery states: retried, queued behind an earlier event of its publication
+	 * (no attempt yet), about to start, delivered, and an answer without `pending` (a server before
+	 * it).
+	 */
+	#[Test]
+	public function a_delivery_tells_whether_it_goes_on(): void
+	{
+		$attempt = static fn (string $uuid, string $delivered, int $status): string => '{"uuid":"' . $uuid . '","attempt":1,"delivered":' . $delivered
+			. ',"statusCode":' . $status . ',"durationMs":40,"attemptedAt":"2026-10-01T12:00:01Z"}';
+		$detail = self::decode(Models\EventDetail::class, '{"id":"evt_2","type":"subscription.billed","version":"v2","data":{},"deliveries":['
+			. '{"endpointUuid":"e1","url":"https://x.io","delivered":false,"attempts":[' . $attempt('a1', 'false', 503) . '],"pending":true,"nextAttemptAt":"2026-10-01T12:05:01Z"},'
+			. '{"endpointUuid":"e2","url":"https://y.io","delivered":false,"attempts":[],"pending":true,"waitingFor":"evt_1"},'
+			. '{"endpointUuid":"e3","url":"https://z.io","delivered":false,"attempts":[],"pending":true},'
+			. '{"endpointUuid":"e4","url":"https://w.io","delivered":true,"attempts":[' . $attempt('a2', 'true', 200) . '],"pending":false},'
+			. '{"endpointUuid":"e5","url":"https://v.io","delivered":false,"attempts":null}]}');
+		$progress = array_map(
+			static fn (Models\EndpointDelivery $d): array => [$d->pending, $d->nextAttemptAt?->format(DATE_ATOM), $d->waitingFor, count($d->attempts)],
+			$detail->deliveries,
+		);
+		$this->assertSame([
+			[true, '2026-10-01T12:05:01+00:00', null, 1], // retried
+			[true, null, 'evt_1', 0], // queued behind an earlier event of its publication
+			[true, null, null, 0], // about to start
+			[false, null, null, 1], // delivered
+			[false, null, null, 0], // no pending
+		], $progress);
+	}
+
+	/** @return array<string,array{0: string}> */
+	public static function wrongDeliveryFields(): array
+	{
+		return [
+			'pending' => ['"pending":"true"'],
+			'nextAttemptAt' => ['"nextAttemptAt":"soon"'],
+			'waitingFor' => ['"waitingFor":1'],
+		];
+	}
+
+	#[Test]
+	#[DataProvider('wrongDeliveryFields')]
+	public function a_delivery_refuses_a_wrong_json_type(string $field): void
+	{
+		$this->expectException(ServerException::class);
+		self::decode(Models\EndpointDelivery::class, '{"endpointUuid":"e1",' . $field . '}');
 	}
 
 	/**

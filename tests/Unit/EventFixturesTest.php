@@ -178,8 +178,12 @@ final class EventFixturesTest extends TestCase
 		$this->assertNotNull($created->managementPageLink);
 		$this->assertNull($created->dunning);
 		$this->assertSame(['110', 11, '30000000'], [$created->allowance?->amount, $created->allowance?->remainingPeriods, $created->allowance?->maxPerPeriodMinUnits]);
+		// Active: access runs to accessUntil, an hour past currentPeriodEnd (the renewal on its way).
+		$this->assertNotNull($created->accessUntil);
+		$this->assertSame(3600, $created->accessUntil->getTimestamp() - $created->currentPeriodEnd->getTimestamp());
 		$this->assertTrue($created->hasAccess(new DateTimeImmutable('2026-10-30T00:00:00Z')));
-		$this->assertFalse($created->hasAccess($created->currentPeriodEnd), 'equal: no access');
+		$this->assertTrue($created->hasAccess($created->currentPeriodEnd), 'renewal on its way');
+		$this->assertFalse($created->hasAccess($created->accessUntil), 'equal: no access');
 
 		$billed = $this->load(EventType::SUBSCRIPTION_BILLED)->data;
 		$this->assertInstanceOf(Models\SubscriptionBilled::class, $billed);

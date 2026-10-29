@@ -74,7 +74,7 @@ final class MembersService extends Service
 	 * Removes a member from the key's mode (`DELETE /members/:userUuid`, 204): their API keys stop
 	 * working at once and their checkouts stop taking payments; their data stays with the
 	 * organization. Organization key only. Not retried. 409 `held_funds_pending` while the
-	 * organization holds live funds for them (release them in the dashboard first).
+	 * organization holds live funds for them (release them from the dashboard first).
 	 */
 	public function remove(string $userUuid, ?RequestOptions $options = null): void
 	{
@@ -85,6 +85,12 @@ final class MembersService extends Service
 	/**
 	 * Makes a member's new payments go to their own wallets (`POST /members/:userUuid/trust`);
 	 * what is already held stays held until released in the dashboard. Not retried.
+	 *
+	 * Trust is one-way (there is no untrust) and narrows the member's `acceptedCurrencies` to their
+	 * own wallets' (within the organization's). Trusting a trusted member changes nothing. 409
+	 * `member_has_no_wallet` (a {@see \QBitFlow\Exceptions\ConflictException}) when the member's own
+	 * wallets accept none of the organization's currencies: nothing changes (they stay held, their
+	 * checkouts keep working); trust them once they've added a wallet.
 	 */
 	public function trust(string $userUuid, ?RequestOptions $options = null): Member
 	{

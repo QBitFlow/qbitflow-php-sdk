@@ -23,7 +23,7 @@ use QBitFlow\Support\Validator;
  * Reads subscriptions and their bills, updates their metadata, cancels them, and runs a test
  * bill (`/subscriptions…`, `/bills…`).
  *
- * Grant access while now < `currentPeriodEnd`, whatever the status ({@see Subscription::hasAccess()}).
+ * Grant access while now < `accessUntil`, whatever the status ({@see Subscription::hasAccess()}).
  */
 final class SubscriptionsService extends Service
 {

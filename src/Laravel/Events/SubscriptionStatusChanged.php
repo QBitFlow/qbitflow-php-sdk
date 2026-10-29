@@ -9,7 +9,7 @@ use QBitFlow\Models;
 
 /**
  * Dispatched for a verified `subscription.statusChanged` webhook: A subscription's status changed
- * (grant access while now < `data->currentPeriodEnd`).
+ * (grant access while now < `data->accessUntil`: `data->hasAccess()`).
  *
  * Deliveries are at least once: deduplicate on `$event->id`. Do the work in a queued
  * listener; the webhook is answered 200 as soon as the events are dispatched.

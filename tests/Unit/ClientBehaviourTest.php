@@ -63,7 +63,7 @@ final class ClientBehaviourTest extends TestCase
 		$this->assertSame(QBitFlow::DEFAULT_BASE_URL, $client->getBaseUrl());
 		$this->assertSame(30.0, QBitFlow::DEFAULT_TIMEOUT);
 		$this->assertSame(3, QBitFlow::DEFAULT_MAX_RETRIES);
-		$this->assertSame('3.0.1', QBitFlow::VERSION);
+		$this->assertSame('3.1.0', QBitFlow::VERSION);
 		$this->assertNull($client->getOnBehalfOf());
 		$this->assertInstanceOf(WebhookEndpointsService::class, $client->webhooks->endpoints);
 		foreach (['products', 'customers', 'checkoutSessions', 'payments', 'failures', 'subscriptions', 'refunds', 'members',
@@ -136,7 +136,7 @@ final class ClientBehaviourTest extends TestCase
 		[$get, $post] = $this->http->requests;
 		foreach ($this->http->requests as $request) {
 			$this->assertSame(self::API_KEY, $request->getHeaderLine('X-API-Key'));
-			$this->assertSame('qbitflow-php/3.0.1', $request->getHeaderLine('User-Agent'));
+			$this->assertSame('qbitflow-php/3.1.0', $request->getHeaderLine('User-Agent'));
 			$this->assertSame('application/json', $request->getHeaderLine('Accept'));
 			$this->assertFalse($request->hasHeader('On-Behalf-Of'));
 		}
