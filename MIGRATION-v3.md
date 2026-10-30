@@ -490,7 +490,7 @@ Every 3.0 method also takes an optional `?RequestOptions $options` last argument
 | `subscriptions->get($uuid)` | `subscriptions->get($uuid, ?ReadParams)` |
 | `subscriptions->getByReference($ref)` | `subscriptions->getByReference($ref)` |
 | `subscriptions->getPaymentHistory($uuid)` | `subscriptions->listBills($uuid, ?BillListParams)` / `iterateBills()` |
-| `subscriptions->forceCancel($uuid)` | `subscriptions->cancel($uuid, ?CancelSubscriptionParams)` → `SubscriptionCancellation` (`subscription`, `pending`) |
+| `subscriptions->forceCancel($uuid)` | `subscriptions->cancel($uuid, ?CancelSubscriptionParams)` → `SubscriptionCancellation` (`subscription`, `pending`); one cancelled already throws a `ConflictException` (`subscription_already_stopped_or_inactive`), a `NotFoundException` only another space's |
 | `subscriptions->executeTestBilling($uuid)` | `subscriptions->testBill($uuid)` → `TestBill` (test mode only) |
 
 ### Refunds

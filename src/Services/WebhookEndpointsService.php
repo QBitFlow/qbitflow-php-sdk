@@ -85,7 +85,12 @@ final class WebhookEndpointsService extends Service
 		return $this->requester->call('PATCH', Requester::path('/webhooks/endpoints/%s', $uuid), Requester::one(WebhookEndpoint::fromArray(...)), body: $params->toArray(), options: $options);
 	}
 
-	/** Deletes a webhook endpoint (`DELETE /webhooks/endpoints/:uuid`, 204): it receives nothing more. Not retried. */
+	/**
+	 * Deletes a webhook endpoint (`DELETE /webhooks/endpoints/:uuid`, 204): it receives nothing
+	 * more, pending retries included. Its delivery history is deleted with it: `events->get()` no
+	 * longer lists its deliveries, successful ones included. To keep that history, disable the
+	 * endpoint instead (`update()` with `enabled: false`). Not retried.
+	 */
 	public function delete(string $uuid, ?RequestOptions $options = null): void
 	{
 		Validator::pathUuid('uuid', $uuid);

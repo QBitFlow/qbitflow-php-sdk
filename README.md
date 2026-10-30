@@ -875,9 +875,10 @@ if ($result->pending) {
 <!-- /docs:snippet -->
 
 `cancel()` answers 200 when done and 202 (`pending`) while confirming on-chain. It is never retried
-automatically. Errors worth knowing: 409 `subscription_already_stopped_or_inactive` (`immediate:
-false` on a subscription already `stopped`), 409 `tx_already_sent` (a cancellation is running),
-404 (already cancelled, or another space's).
+automatically. Errors worth knowing: a `ConflictException` 409
+`subscription_already_stopped_or_inactive` (a subscription already cancelled, or `immediate:
+false` on one already `stopped`), 409 `tx_already_sent` (a cancellation is running), a
+`NotFoundException` 404 (another space's, or none: never because it is cancelled).
 
 ### Test billing
 
@@ -893,7 +894,8 @@ echo "Bill {$bill->billUuid}: {$bill->stage} " . ($bill->outcome ?? '-') . ' ' .
 ```
 <!-- /docs:snippet -->
 
-Before `nextBillingAt` it is a `409 payment_not_due`, and a live subscription a `400
+Before `nextBillingAt` it is a `409 payment_not_due`, a cancelled subscription a `409
+subscription_already_stopped_or_inactive` (a `ConflictException`), and a live subscription a `400
 test_mode_only`; a failed bill sets `$bill->failureCode`.
 
 Walk the timeline once in test mode: a 5-minute frequency, pay from a test wallet, trigger the
@@ -1262,7 +1264,9 @@ host. An organization endpoint also receives its members' events unless created 
 `includeMembers: false`. `endpoints->list()` (a `Page`; `iterate()` walks them), `get()`,
 `update()` (`PATCH`: `enabled: false` pauses it, `true` enables it again, also after it was
 disabled for failing; `description: ''` clears the note; `events: []` receives every type) and
-`delete()` (204) manage them. An endpoint's secret is shown and rotated in the dashboard only.
+`delete()` (204) manage them. `delete()` also deletes the endpoint's delivery history:
+`events->get()` no longer lists its deliveries. To keep it, disable the endpoint instead. An
+endpoint's secret is shown and rotated in the dashboard only.
 
 ### 2. Handle the deliveries with a router
 
@@ -1433,7 +1437,9 @@ event of the same publication, and neither while its delivery is about to start 
 **A queued or starting delivery has no `attempts` yet**: check `$d->attempts !== []` before reading
 the last one. Once `pending` is false nothing more happens on its own, and `delivered: false` means
 it was abandoned after its retries (3 days in live mode, 3 hours in test mode) or the endpoint was
-disabled or deleted. If QBitFlow can't read a delivery's progress at that moment, `pending` comes
+disabled. **A deleted endpoint's deliveries aren't listed at all**: they are deleted with it, the
+successful ones included. To keep an endpoint's history, disable it (`enabled: false`) rather than
+delete it. If QBitFlow can't read a delivery's progress at that moment, `pending` comes
 from the attempts: true while the retry schedule still attempts the event again (a delivery being
 retried never reads as abandoned), without `nextAttemptAt`; a delivery queued with no attempt yet
 isn't listed until its progress can be read: read the event again a moment later.
@@ -1688,7 +1694,7 @@ over the environment.
 
 A bad argument makes the constructor throw a `ValidationException`. A client's configuration never
 changes; `$client->onBehalfOf()` derives clients that share it. Every request sends
-`User-Agent: qbitflow-php/3.1.0` (`QBitFlow::VERSION`).
+`User-Agent: qbitflow-php/3.1.1` (`QBitFlow::VERSION`).
 
 ## Laravel
 

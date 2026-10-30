@@ -463,13 +463,44 @@ final class ServiceEndpointsTest extends TestCase
 		$client = $this->client(MockHttpClient::static(400, '{"error":"live subscription","code":"test_mode_only"}'));
 		$this->expectExceptionThrown(BadRequestException::class, static fn () => $client->subscriptions->testBill(self::SUB_ID));
 
+		// Another space's subscription (or none) is still a 404.
 		$client = $this->client(MockHttpClient::static(404, '{"error":"not found","code":"not_found"}'));
 		$this->expectExceptionThrown(NotFoundException::class, static fn () => $client->subscriptions->cancel(self::SUB_ID));
+		$this->expectExceptionThrown(NotFoundException::class, static fn () => $client->subscriptions->testBill(self::SUB_ID));
 		$this->expectExceptionThrown(NotFoundException::class, static fn () => $client->products->delete(self::UUID_A));
 		$this->expectExceptionThrown(NotFoundException::class, static fn () => iterator_to_array($client->customers->iterate()));
 
 		$client = $this->client(new MockHttpClient(static fn (): ResponseInterface => MockHttpClient::response(202)));
 		$this->expectExceptionThrown(ServerException::class, static fn () => $client->subscriptions->cancel(self::SUB_ID));
+	}
+
+	/** @return array<string,array{0: Closure(QBitFlow): mixed}> */
+	public static function cancelledSubscriptionCalls(): array
+	{
+		return [
+			'cancel' => [static fn (QBitFlow $c) => $c->subscriptions->cancel(self::SUB_ID)],
+			'cancel at period end' => [static fn (QBitFlow $c) => $c->subscriptions->cancel(self::SUB_ID, new Params\CancelSubscriptionParams(immediate: false))],
+			'testBill' => [static fn (QBitFlow $c) => $c->subscriptions->testBill(self::SUB_ID)],
+		];
+	}
+
+	/** A cancelled subscription's cancel and test bill answer 409, not 404. */
+	#[Test]
+	#[DataProvider('cancelledSubscriptionCalls')]
+	public function a_cancelled_subscription_is_a_conflict(Closure $call): void
+	{
+		$http = MockHttpClient::static(409, '{"error":"subscription already stopped or inactive","code":"subscription_already_stopped_or_inactive","requestId":"r-5"}');
+		$client = $this->client($http);
+		try {
+			$call($client);
+			$this->fail('want a ConflictException');
+		} catch (ConflictException $e) {
+			$this->assertNotInstanceOf(NotFoundException::class, $e);
+			$this->assertSame(409, $e->status);
+			$this->assertSame('subscription_already_stopped_or_inactive', $e->apiCode);
+			$this->assertSame('r-5', $e->requestId);
+		}
+		$this->assertCount(1, $http->requests, 'never retried');
 	}
 
 	/** @param class-string<\Throwable> $class */
